@@ -56,7 +56,6 @@ $assert = function (bool $condition, string $label) use (&$failures): void {
 
 $baseConnection = config('database.connections.pgsql');
 
-// --- 1. Provision the dedicated concurrency database --------------------------
 echo "Provisioning database '{$testDatabase}' on {$baseConnection['host']}:{$baseConnection['port']}".PHP_EOL;
 
 $adminDsn = sprintf(
@@ -84,7 +83,6 @@ DB::purge('pgsql');
 Artisan::call('migrate:fresh', ['--force' => true]);
 echo "  schema migrated.\n\n";
 
-// --- 2. Fixtures --------------------------------------------------------------
 $suffix = Str::lower(Str::random(6));
 
 $venue = Venue::create([
@@ -142,7 +140,6 @@ $runConcurrently = function (array $jobs, string $childScript, string $testDatab
         $pipes[$index] = $childPipes;
     }
 
-    // Wait for every child to reach the barrier.
     $ready = [];
     foreach ($pipes as $index => $childPipes) {
         $line = fgets($childPipes[1]);
@@ -156,7 +153,6 @@ $runConcurrently = function (array $jobs, string $childScript, string $testDatab
         throw new RuntimeException('A child process failed to reach the barrier.');
     }
 
-    // Release both children simultaneously.
     foreach ($pipes as $childPipes) {
         fwrite($childPipes[0], 'GO'.PHP_EOL);
         fflush($childPipes[0]);
@@ -333,7 +329,6 @@ echo "\n";
 // =============================================================================
 echo "CASE C: the same client_scan_id submitted for two different tickets\n";
 
-// Two freshly issued, unused tickets: the CASE B ticket has already been admitted.
 $caseCStudents = collect([1, 2])->map(fn (int $n) => User::create([
     'name' => "Duplicate Key Attendee {$n}",
     'email' => "race.dup.{$n}.{$suffix}@mseuf.edu.ph",
@@ -346,7 +341,6 @@ $caseCTickets = $caseCStudents->map(
     fn (User $student) => (new RegisterForEvent)->execute($student, $scanEvent->id)
 );
 
-// Deliberately reuse one idempotency key across two unrelated, unused tickets.
 $sharedScanId = (string) Str::uuid();
 
 $duplicateKeyResults = $runConcurrently([
@@ -375,8 +369,6 @@ $duplicateKeySuccesses = count(array_filter($duplicateKeyResults, fn ($r) => ($r
 $duplicateKeyConflicts = count(array_filter($duplicateKeyResults, fn ($r) => ($r['status'] ?? null) === 'idempotency_conflict'));
 $duplicateKeyErrors = count(array_filter($duplicateKeyResults, fn ($r) => in_array($r['reason'] ?? null, ['exception', 'no_result'], true)));
 
-// Whichever ordering occurred, an attempted admission insert must resolve to a
-// definite outcome (admitted or idempotency conflict) — never an unhandled failure.
 $stalledInsertExplained = collect($duplicateKeyResults)->every(
     fn ($r) => ! ($r['attempted_admission_insert'] ?? false)
         || in_array($r['status'] ?? null, ['admitted', 'idempotency_conflict'], true)
@@ -397,12 +389,7 @@ echo "\n";
 // =============================================================================
 // CASE D — The unique-violation mapping is reached deterministically
 // =============================================================================
-// CASE C's outcome depends on OS scheduling: the loser is usually decided by the
-// pre-check. To prove the mapping itself, the orchestrator holds an *uncommitted*
-// conflicting insert for the scan id. The worker's pre-check cannot see it, so the
-// worker must reach the admission insert and block on the unique index until the
-// orchestrator commits — at which point PostgreSQL raises the unique violation the
-// action maps to an idempotency conflict.
+// Hold a conflicting uncommitted row so the worker reaches the unique-index path deterministically.
 echo "CASE D: unique-violation mapping under a held conflicting transaction\n";
 
 $caseDStudents = collect([1, 2])->map(fn (int $n) => User::create([
@@ -445,8 +432,6 @@ $insertHeld->execute([
     'credential_version' => $caseDTickets[0]['ticket']->credential_version,
 ]);
 
-// Release the worker while the conflicting row is still uncommitted, then commit
-// shortly after so the worker's insert unblocks into the unique violation.
 $mappingProcess = proc_open(
     [PHP_BINARY, $childScript, 'scan', base64_encode(json_encode([
         'db' => $testDatabase,
@@ -469,10 +454,7 @@ stream_set_write_buffer($mappingPipes[0], 0);
 fwrite($mappingPipes[0], 'GO'.PHP_EOL);
 fflush($mappingPipes[0]);
 
-// Wait until the worker is provably blocked on the unique index rather than
-// guessing a delay. pg_stat_activity reports backends waiting on a lock, so once
-// another backend is blocked, the worker has passed its pre-check and is inside
-// the admission insert.
+// Wait for PostgreSQL to report the worker blocked on the unique index.
 $waitForBlockedInsert = $heldConnection->prepare(
     'select count(*) from pg_stat_activity
      where datname = :db
@@ -496,7 +478,6 @@ while (microtime(true) < $blockedDeadline) {
 
 echo '  worker blocked on the unique index after '.round((microtime(true) - $t0) * 1000, 1)."ms (blocked backends: {$blockedBackends})\n";
 
-// Release the held row so the worker's insert resolves into the unique violation.
 $heldConnection->commit();
 
 $mappingStdout = stream_get_contents($mappingPipes[1]);
@@ -526,11 +507,7 @@ echo "\n";
 // =============================================================================
 // CASE E — A cancellation cannot race past an in-flight admission
 // =============================================================================
-// The admission transaction revalidates event state under a FOR SHARE lock. To
-// prove it, the orchestrator holds an *uncommitted* cancellation (which takes
-// FOR UPDATE on the events row). A worker scanning a valid ticket must block on
-// that shared lock, and once the cancellation commits it must see the cancelled
-// event and record no admission.
+// Hold an uncommitted cancellation to verify that admission waits on the event lock.
 echo "CASE E: a held cancellation blocks an in-flight admission\n";
 
 $raceStudents = collect([1, 2])->map(fn (int $n) => User::create([
@@ -680,11 +657,7 @@ echo "\n";
 // =============================================================================
 // CASE F — Scanners for different tickets are not serialized by the event lock
 // =============================================================================
-// The admission transaction takes the event row FOR SHARE precisely so that
-// concurrent scanners do not queue behind each other. Holding a FOR SHARE lock
-// from a separate connection reproduces that contention: because shared locks are
-// mutually compatible, both workers must still complete while the orchestrator's
-// shared lock is held. If the lock were exclusive, this case would deadlock.
+// A held shared event lock should not serialize scans for different tickets.
 echo "CASE F: two different tickets scan concurrently while a shared event lock is held\n";
 
 $parallelEvent = Event::create([
@@ -747,7 +720,6 @@ $shareResults = $runConcurrently([
     ]],
 ], $childScript, $testDatabase);
 
-// Only now release the orchestrator's shared lock.
 $shareConnection->commit();
 $shareElapsed = microtime(true) - $shareStart;
 
