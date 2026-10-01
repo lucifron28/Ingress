@@ -3,9 +3,12 @@
 namespace Tests\Feature;
 
 use App\Actions\RegisterForEvent;
+use App\Models\AccessPoint;
 use App\Models\Event;
+use App\Models\EventStaff;
 use App\Models\Registration;
 use App\Models\Ticket;
+use Illuminate\Support\Str;
 use App\Models\User;
 use App\Models\Venue;
 use Carbon\Carbon;
@@ -266,5 +269,79 @@ class RegistrationTest extends TestCase
             ->getJson("/api/v1/tickets/{$ticket->id}");
 
         $response->assertStatus(403);
+    }
+
+    public function test_student_can_reregister_after_cancellation_and_rotates_qr_secret(): void
+    {
+        $gate = AccessPoint::create([
+            'event_id' => $this->event->id,
+            'name' => 'Main Gate',
+            'code' => 'MAIN',
+            'is_active' => true,
+        ]);
+
+        $staff = User::factory()->create(['role' => User::ROLE_STAFF]);
+        EventStaff::create([
+            'event_id' => $this->event->id,
+            'user_id' => $staff->id,
+            'access_point_id' => $gate->id,
+        ]);
+
+        // 1. Initial registration
+        $reg1Res = $this->actingAs($this->student1, 'sanctum')
+            ->postJson("/api/v1/events/{$this->event->id}/registration");
+        $reg1Res->assertStatus(201);
+        $oldQrPayload = $reg1Res->json('qr_payload');
+
+        // 2. Cancellation
+        $this->actingAs($this->student1, 'sanctum')
+            ->deleteJson("/api/v1/events/{$this->event->id}/registration")
+            ->assertStatus(200);
+
+        $this->assertDatabaseHas('registrations', [
+            'event_id' => $this->event->id,
+            'user_id' => $this->student1->id,
+            'status' => 'cancelled',
+        ]);
+
+        // 3. Re-registration (Must NOT violate UNIQUE(event_id, user_id))
+        $reg2Res = $this->actingAs($this->student1, 'sanctum')
+            ->postJson("/api/v1/events/{$this->event->id}/registration");
+        $reg2Res->assertStatus(201);
+        $newQrPayload = $reg2Res->json('qr_payload');
+
+        // Exactly 1 row in registrations table for this user & event
+        $this->assertEquals(1, Registration::where('event_id', $this->event->id)->where('user_id', $this->student1->id)->count());
+        $this->assertDatabaseHas('registrations', [
+            'event_id' => $this->event->id,
+            'user_id' => $this->student1->id,
+            'status' => 'confirmed',
+        ]);
+
+        // Payloads must differ due to cryptographic secret rotation
+        $this->assertNotEquals($oldQrPayload, $newQrPayload);
+
+        // 4. Old QR payload must be REJECTED by admission scanner
+        $admitAction = new \App\Actions\AdmitTicket();
+        $oldScanResult = $admitAction->execute(
+            staff: $staff,
+            eventId: $this->event->id,
+            accessPointId: $gate->id,
+            qrPayload: $oldQrPayload,
+            clientScanId: (string) Str::uuid()
+        );
+        $this->assertEquals(422, $oldScanResult['http_code']);
+        $this->assertEquals('invalid_ticket', $oldScanResult['status']);
+
+        // 5. New QR payload must be ADMITTED by admission scanner
+        $newScanResult = $admitAction->execute(
+            staff: $staff,
+            eventId: $this->event->id,
+            accessPointId: $gate->id,
+            qrPayload: $newQrPayload,
+            clientScanId: (string) Str::uuid()
+        );
+        $this->assertEquals(200, $newScanResult['http_code']);
+        $this->assertEquals('admitted', $newScanResult['status']);
     }
 }

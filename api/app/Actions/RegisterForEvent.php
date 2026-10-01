@@ -56,13 +56,13 @@ class RegisterForEvent
                 ]);
             }
 
-            // Check if user is already confirmed for this event
-            $existing = Registration::where('event_id', $event->id)
+            // Check existing registration records for this user and event
+            $existingRegistration = Registration::with('ticket')
+                ->where('event_id', $event->id)
                 ->where('user_id', $user->id)
-                ->where('status', Registration::STATUS_CONFIRMED)
                 ->first();
 
-            if ($existing) {
+            if ($existingRegistration && $existingRegistration->status === Registration::STATUS_CONFIRMED) {
                 throw ValidationException::withMessages([
                     'registration' => ['You are already registered for this event.'],
                 ]);
@@ -79,26 +79,57 @@ class RegisterForEvent
                 ]);
             }
 
-            // Create confirmed registration
-            $registration = Registration::create([
-                'event_id' => $event->id,
-                'user_id' => $user->id,
-                'status' => Registration::STATUS_CONFIRMED,
-            ]);
-
             // Generate cryptographically secure opaque QR credential (256-bit CSPRNG secret)
             $publicId = 'ING-' . strtoupper(Str::random(10));
             $secret = bin2hex(random_bytes(32)); // 64 hex characters
             $qrHash = hash('sha256', $secret);
 
-            $ticket = Ticket::create([
-                'registration_id' => $registration->id,
-                'public_id' => $publicId,
-                'qr_hash' => $qrHash,
-                'encrypted_secret' => Crypt::encryptString($secret),
-                'status' => Ticket::STATUS_ACTIVE,
-                'issued_at' => Carbon::now(),
-            ]);
+            if ($existingRegistration) {
+                // Reactivate previously cancelled registration to respect UNIQUE(event_id, user_id)
+                $existingRegistration->update([
+                    'status' => Registration::STATUS_CONFIRMED,
+                    'cancelled_at' => null,
+                ]);
+                $registration = $existingRegistration;
+
+                // Rotate ticket credential: previous revoked QR secret is invalidated
+                $ticket = $existingRegistration->ticket;
+                if ($ticket) {
+                    $ticket->update([
+                        'public_id' => $publicId,
+                        'qr_hash' => $qrHash,
+                        'encrypted_secret' => Crypt::encryptString($secret),
+                        'status' => Ticket::STATUS_ACTIVE,
+                        'issued_at' => Carbon::now(),
+                        'revoked_at' => null,
+                    ]);
+                } else {
+                    $ticket = Ticket::create([
+                        'registration_id' => $registration->id,
+                        'public_id' => $publicId,
+                        'qr_hash' => $qrHash,
+                        'encrypted_secret' => Crypt::encryptString($secret),
+                        'status' => Ticket::STATUS_ACTIVE,
+                        'issued_at' => Carbon::now(),
+                    ]);
+                }
+            } else {
+                // Create confirmed registration
+                $registration = Registration::create([
+                    'event_id' => $event->id,
+                    'user_id' => $user->id,
+                    'status' => Registration::STATUS_CONFIRMED,
+                ]);
+
+                $ticket = Ticket::create([
+                    'registration_id' => $registration->id,
+                    'public_id' => $publicId,
+                    'qr_hash' => $qrHash,
+                    'encrypted_secret' => Crypt::encryptString($secret),
+                    'status' => Ticket::STATUS_ACTIVE,
+                    'issued_at' => Carbon::now(),
+                ]);
+            }
 
             $rawPayload = "ingress:v1:{$publicId}:{$secret}";
 
