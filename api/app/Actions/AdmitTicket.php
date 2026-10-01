@@ -196,8 +196,11 @@ class AdmitTicket
             $isMatchingTicket = (int) $existingById->ticket_id === (int) $ticket->id;
             $isMatchingGate = (int) $existingById->access_point_id === (int) $accessPoint->id;
             $isMatchingEvent = (int) $existingById->accessPoint?->event_id === (int) $event->id;
+            // A scan id minted against a retired credential issuance must not be
+            // accepted as a retry for the credential issued after a re-registration.
+            $isMatchingCredential = (int) $existingById->credential_version === (int) $ticket->credential_version;
 
-            if (! $isMatchingTicket || ! $isMatchingGate || ! $isMatchingEvent) {
+            if (! $isMatchingTicket || ! $isMatchingGate || ! $isMatchingEvent || ! $isMatchingCredential) {
                 return [
                     'http_code' => 409,
                     'status' => 'idempotency_conflict',
@@ -289,8 +292,9 @@ class AdmitTicket
                     $isMatchingTicket = (int) $existingUnderLock->ticket_id === (int) $lockedTicket->id;
                     $isMatchingGate = (int) $existingUnderLock->access_point_id === (int) $accessPoint->id;
                     $isMatchingEvent = (int) $existingUnderLock->accessPoint?->event_id === (int) $event->id;
+                    $isMatchingCredential = (int) $existingUnderLock->credential_version === (int) $lockedTicket->credential_version;
 
-                    if (! $isMatchingTicket || ! $isMatchingGate || ! $isMatchingEvent) {
+                    if (! $isMatchingTicket || ! $isMatchingGate || ! $isMatchingEvent || ! $isMatchingCredential) {
                         return [
                             'http_code' => 409,
                             'status' => 'idempotency_conflict',
