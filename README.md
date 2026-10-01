@@ -157,7 +157,7 @@ php artisan serve --host=0.0.0.0 --port=8000
 Organizer portal available at: `http://localhost:8000/login`
 
 ### 3. Run Backend Integration Tests
-The fast feature suite runs on in-memory SQLite (49 tests, 256 assertions):
+The fast feature suite runs on in-memory SQLite (50 tests, 265 assertions):
 ```bash
 cd api
 php artisan test
@@ -172,12 +172,13 @@ php artisan test --filter=RegistrationTest
 
 #### PostgreSQL concurrency verification (separate)
 
-SQLite serializes writers, so it cannot prove real race behaviour. Two guarantees
+SQLite serializes writers, so it cannot prove real race behaviour. Three guarantees
 are verified against the real PostgreSQL server using genuinely overlapping
 transactions released through a two-process barrier:
 
 1. two simultaneous registrations competing for the final seat
 2. two simultaneous gates scanning the same unused ticket
+3. the same `client_scan_id` replayed for two different tickets
 
 ```bash
 cd api
@@ -185,7 +186,7 @@ php scripts/verify_pgsql_concurrency.php
 ```
 
 The script provisions its own `ingress_concurrency` database (recreated on each run)
-so demonstration data is never touched, and exits non-zero if either invariant is
+so demonstration data is never touched, and exits non-zero if any invariant is
 violated. Override the database name with `INGRESS_CONCURRENCY_DB` if needed.
 
 ### 4. Mobile Client (Expo React Native)

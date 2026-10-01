@@ -178,19 +178,20 @@ Two consequences follow:
 
 ### Verifying concurrency on real PostgreSQL
 
-SQLite serializes writers and cannot demonstrate real lock contention, so the behavioural suite (which runs on in-memory SQLite) proves logic but not races. Two invariants are verified separately against real PostgreSQL:
+SQLite serializes writers and cannot demonstrate real lock contention, so the behavioural suite (which runs on in-memory SQLite) proves logic but not races. Three invariants are verified separately against real PostgreSQL:
 
 | Invariant | Contested resource | Expected outcome |
 | :--- | :--- | :--- |
 | Final-seat registration | `events` row (capacity 1) | exactly one confirmed registration |
 | Same-ticket admission | `tickets` row | exactly one admission row; loser receives `already_admitted` |
+| Replayed `client_scan_id` across two tickets | `admissions.client_scan_id` unique index | exactly one admission row; loser receives `idempotency_conflict`, never an unhandled 500 |
 
 ```bash
 cd api
 php scripts/verify_pgsql_concurrency.php
 ```
 
-The verifier provisions a dedicated `ingress_concurrency` database, spawns two Laravel child processes per case, synchronises them through a two-way barrier (`READY` on stdout, `GO` on stdin) so their transactions genuinely overlap, then asserts the outcomes above. It exits non-zero on failure and never touches demonstration data.
+The verifier provisions a dedicated `ingress_concurrency` database, spawns two Laravel child processes per case, signals `READY` only after each child has completed its PostgreSQL handshake, and releases both through a `GO` barrier so their transactions genuinely overlap before asserting the outcomes above. It exits non-zero on failure and never touches demonstration data.
 
 ---
 
