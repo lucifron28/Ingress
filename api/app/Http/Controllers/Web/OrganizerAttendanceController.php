@@ -39,10 +39,12 @@ class OrganizerAttendanceController extends Controller
         }
 
         if ($filter = $request->input('status')) {
+            $currentCredential = fn ($q) => $q->whereColumn('admissions.credential_version', 'tickets.credential_version');
+
             if ($filter === 'checked_in') {
-                $query->whereHas('ticket.admissions');
+                $query->whereHas('ticket.admissions', $currentCredential);
             } elseif ($filter === 'not_arrived') {
-                $query->whereDoesntHave('ticket.admissions');
+                $query->whereDoesntHave('ticket.admissions', $currentCredential);
             }
         }
 
@@ -98,7 +100,10 @@ class OrganizerAttendanceController extends Controller
             ->where('status', Registration::STATUS_CONFIRMED)
             ->count();
 
-        $checkedIn = Admission::whereHas('ticket.registration', fn ($q) => $q->where('event_id', $event->id))
+        // Only admissions taken with the ticket's current credential count as
+        // checked in; history from a retired credential is retained for audit.
+        $checkedIn = Admission::forCurrentCredential()
+            ->whereHas('ticket.registration', fn ($q) => $q->where('event_id', $event->id))
             ->count();
 
         $notArrived = max(0, $registered - $checkedIn);
@@ -121,7 +126,9 @@ class OrganizerAttendanceController extends Controller
     private function calculateGateStats(Event $event): array
     {
         return $event->accessPoints->map(function ($ap) {
-            $count = Admission::where('access_point_id', $ap->id)->count();
+            $count = Admission::forCurrentCredential()
+                ->where('access_point_id', $ap->id)
+                ->count();
             return [
                 'id' => $ap->id,
                 'name' => $ap->name,
@@ -132,11 +139,16 @@ class OrganizerAttendanceController extends Controller
     }
 
     /**
-     * Get recent admissions stream.
+     * Get recent admissions stream for the event.
+     *
+     * Scoped to each ticket's current credential so the operational feed stays
+     * consistent with the "checked in" KPI: an admission superseded by a
+     * cancellation and re-registration is audit history, not current state.
      */
     private function getRecentAdmissions(Event $event)
     {
         return Admission::with(['ticket.registration.user', 'accessPoint', 'scannedBy'])
+            ->forCurrentCredential()
             ->whereHas('ticket.registration', fn ($q) => $q->where('event_id', $event->id))
             ->orderBy('admitted_at', 'desc')
             ->take(10)

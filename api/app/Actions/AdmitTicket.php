@@ -256,8 +256,12 @@ class AdmitTicket
                 ];
             }
 
+            // Anti-passback is scoped to the credential issuance that produced the
+            // admission: history from a retired credential is retained but does not
+            // block the credential issued after a cancellation/re-registration.
             $previousAdmission = Admission::with(['accessPoint', 'scannedBy'])
                 ->where('ticket_id', $lockedTicket->id)
+                ->where('credential_version', $lockedTicket->credential_version)
                 ->first();
 
             if ($previousAdmission) {
@@ -288,6 +292,7 @@ class AdmitTicket
                 'access_point_id' => $accessPoint->id,
                 'scanned_by_user_id' => $staff->id,
                 'client_scan_id' => $clientScanId,
+                'credential_version' => $lockedTicket->credential_version,
                 'admitted_at' => Carbon::now(),
             ]);
 

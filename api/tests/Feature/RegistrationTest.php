@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Actions\RegisterForEvent;
 use App\Models\AccessPoint;
+use App\Models\Admission;
 use App\Models\Event;
 use App\Models\EventStaff;
 use App\Models\Registration;
@@ -343,5 +344,91 @@ class RegistrationTest extends TestCase
         );
         $this->assertEquals(200, $newScanResult['http_code']);
         $this->assertEquals('admitted', $newScanResult['status']);
+    }
+
+    public function test_reregistration_after_admission_issues_a_fresh_admittable_credential(): void
+    {
+        $gate = AccessPoint::create([
+            'event_id' => $this->event->id,
+            'name' => 'Main Gate',
+            'code' => 'MAIN',
+            'is_active' => true,
+        ]);
+
+        $staff = User::factory()->create(['role' => User::ROLE_STAFF]);
+        EventStaff::create([
+            'event_id' => $this->event->id,
+            'user_id' => $staff->id,
+            'access_point_id' => $gate->id,
+        ]);
+
+        $admitAction = new \App\Actions\AdmitTicket();
+
+        // 1. Register, then admit the attendee through the gate.
+        $firstRegistration = $this->actingAs($this->student1, 'sanctum')
+            ->postJson("/api/v1/events/{$this->event->id}/registration");
+        $oldQrPayload = $firstRegistration->json('qr_payload');
+        $ticketId = $firstRegistration->json('ticket.id');
+
+        $firstAdmission = $admitAction->execute(
+            staff: $staff,
+            eventId: $this->event->id,
+            accessPointId: $gate->id,
+            qrPayload: $oldQrPayload,
+            clientScanId: (string) Str::uuid()
+        );
+        $this->assertEquals('admitted', $firstAdmission['status']);
+
+        // 2. Cancel, then register again.
+        $this->actingAs($this->student1, 'sanctum')
+            ->deleteJson("/api/v1/events/{$this->event->id}/registration")
+            ->assertStatus(200);
+
+        $secondRegistration = $this->actingAs($this->student1, 'sanctum')
+            ->postJson("/api/v1/events/{$this->event->id}/registration");
+        $secondRegistration->assertStatus(201);
+        $newQrPayload = $secondRegistration->json('qr_payload');
+
+        // 3. The retired credential is invalid.
+        $oldScan = $admitAction->execute(
+            staff: $staff,
+            eventId: $this->event->id,
+            accessPointId: $gate->id,
+            qrPayload: $oldQrPayload,
+            clientScanId: (string) Str::uuid()
+        );
+        $this->assertEquals('invalid_ticket', $oldScan['status']);
+
+        // 4. The freshly issued credential is admittable — the admission recorded
+        //    under the retired credential must not block it.
+        $newScan = $admitAction->execute(
+            staff: $staff,
+            eventId: $this->event->id,
+            accessPointId: $gate->id,
+            qrPayload: $newQrPayload,
+            clientScanId: (string) Str::uuid()
+        );
+        $this->assertEquals(200, $newScan['http_code']);
+        $this->assertEquals('admitted', $newScan['status']);
+
+        // 5. Audit history is retained, but only one admission belongs to the
+        //    current credential issuance.
+        $this->assertEquals(2, Admission::where('ticket_id', $ticketId)->count());
+        $this->assertEquals(
+            1,
+            Admission::where('ticket_id', $ticketId)
+                ->where('credential_version', Ticket::find($ticketId)->credential_version)
+                ->count()
+        );
+
+        // 6. Scanners see the ticket as admitted exactly once more.
+        $secondScanAtSameCredential = $admitAction->execute(
+            staff: $staff,
+            eventId: $this->event->id,
+            accessPointId: $gate->id,
+            qrPayload: $newQrPayload,
+            clientScanId: (string) Str::uuid()
+        );
+        $this->assertEquals('already_admitted', $secondScanAtSameCredential['status']);
     }
 }

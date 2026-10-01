@@ -20,6 +20,7 @@ class Ticket extends Model
         'qr_hash',
         'encrypted_secret',
         'status',
+        'credential_version',
         'issued_at',
         'revoked_at',
     ];
@@ -30,6 +31,7 @@ class Ticket extends Model
     protected function casts(): array
     {
         return [
+            'credential_version' => 'integer',
             'issued_at' => 'datetime',
             'revoked_at' => 'datetime',
         ];

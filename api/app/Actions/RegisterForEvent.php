@@ -92,7 +92,9 @@ class RegisterForEvent
                 ]);
                 $registration = $existingRegistration;
 
-                // Rotate ticket credential: previous revoked QR secret is invalidated
+                // Rotate ticket credential: previous revoked QR secret is invalidated,
+                // and the credential version is bumped so admissions recorded under the
+                // retired credential no longer gate this newly issued one.
                 $ticket = $existingRegistration->ticket;
                 if ($ticket) {
                     $ticket->update([
@@ -100,6 +102,7 @@ class RegisterForEvent
                         'qr_hash' => $qrHash,
                         'encrypted_secret' => Crypt::encryptString($secret),
                         'status' => Ticket::STATUS_ACTIVE,
+                        'credential_version' => ((int) $ticket->credential_version) + 1,
                         'issued_at' => Carbon::now(),
                         'revoked_at' => null,
                     ]);

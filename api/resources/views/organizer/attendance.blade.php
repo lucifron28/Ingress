@@ -172,7 +172,10 @@
             <tbody>
                 @forelse ($attendees as $reg)
                     @php
-                        $admission = $reg->ticket?->admissions?->first();
+                        $ticket = $reg->ticket;
+                        $admission = $ticket
+                            ? $ticket->admissions->firstWhere('credential_version', $ticket->credential_version)
+                            : null;
                         $isCheckedIn = (bool) $admission;
                     @endphp
                     <tr>
