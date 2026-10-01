@@ -132,7 +132,37 @@ Ingress uses a maroon-and-white interface **inspired by** MSEUF's established vi
 - **Neutrals**: `#0F172A` (headings), `#334155` (body), `#E2E8F0` (borders).
 - **Strict Accessibility Rule**: Scanners must never use color alone. Explicit titles (`Ticket Valid`, `Already Checked In`, `Invalid Ticket`, `Server Unavailable`), timestamps, and symbols (`[✓]`, `[!]`, `[✕]`) are mandatory.
 
-No official MSEUF logo artwork or seal is bundled with this repository. Ingress uses only the wordmark text "MSEUF" as an institutional reference, so that no third-party asset usage rights are assumed by the project.
+No official MSEUF logo artwork or seal is bundled with this repository. The institution is referenced only by the wordmark text "MSEUF" and by the footer's full university name, so no third-party asset usage rights are assumed by the project.
+
+### The Ingress mark
+
+Ingress ships its own product mark — a maroon gate/turnstile monogram with a separate `INGRESS` wordmark — as `ingress_logo.png` in the repository root. It is an Ingress asset, not an MSEUF asset, and it does not replace or imitate the university seal.
+
+Measured properties of the mark, which drive how it may be placed:
+
+| Property | Value |
+| :--- | :--- |
+| Canvas / format | 1536 × 1024 PNG, transparent background (75.7 % fully transparent) |
+| Opaque core colour | `#780417` → `#B40420` (a crimson-maroon, **not** the UI token `#800000`) |
+| Lockup aspect | 1.46 (stacked: monogram above wordmark); monogram alone is 1.30 |
+| Contrast on `#FFFFFF` | **10.53:1** — passes AAA |
+| Contrast on `#800000` | **1.03:1** — effectively invisible |
+| Contrast on `#0F172A` | **1.66:1** — fails |
+
+**Constraint:** the mark is a dark-on-light device. It must be placed on white or another light surface. On the maroon header it is enclosed in a white plate (the same treatment the previous `MSEUF` text badge used), and on the login card it sits directly on the white card.
+
+Derivatives are generated from the master rather than hand-edited, so the master stays the single source of truth:
+
+| Derived asset | Purpose |
+| :--- | :--- |
+| `api/public/images/ingress-logo.png` | Full lockup for the organizer login card and the README |
+| `api/public/images/ingress-mark.png` | Monogram for the maroon header plate |
+| `api/public/images/ingress-favicon.png` | Browser favicon (monogram on white) |
+| `mobile/assets/icon.png` | iOS/Android app icon (monogram on white, flattened to RGB because iOS rejects icons with an alpha channel) |
+| `mobile/assets/android-icon-foreground.png` | Adaptive icon foreground (monogram inside the 66 % safe zone) |
+| `mobile/assets/android-icon-background.png` | Adaptive icon background (white — was `#800000`, which made the monogram unreadable) |
+| `mobile/assets/android-icon-monochrome.png` | Themed-icon silhouette; Android tints the alpha channel |
+| `mobile/assets/favicon.png` | Expo web favicon |
 
 ---
 

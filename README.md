@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="ingress_logo.png" alt="Ingress" width="320">
+</p>
+
 # Ingress: LAN-Enabled Web & Mobile Event Ticketing System
 
 **Manuel S. Enverga University Foundation (MSEUF)**  
@@ -96,13 +100,15 @@ ingress/
 │   │   ├── migrations/   # Relational schema with foreign keys and unique constraints
 │   │   └── seeders/      # Synthetic demonstration accounts and campus events
 │   ├── resources/views/  # Organizer Blade layouts & attendance command center
-│   └── tests/Feature/    # 35 feature tests covering all guarantees
+│   ├── public/images/    # Generated Ingress brand assets (lockup, mark, favicon)
+│   └── tests/Feature/    # 51 feature tests covering all guarantees
 ├── mobile/               # Expo React Native Mobile Application
 │   ├── app/              # Expo Router file-based pages
 │   │   ├── (attendee)/   # Discover catalog, Event detail, Ticket wallet, QR view, Profile
 │   │   ├── (staff)/      # Assigned events, Multi-gate viewfinder, Scanner feedback
 │   │   ├── login.tsx     # MSEUF-inspired login with demo switcher
 │   │   └── server-settings.tsx # In-app LAN server configurator & connection tester
+│   ├── assets/           # Generated app icon, adaptive icon layers, favicon
 │   └── src/
 │       ├── context/      # AuthContext session management
 │       └── services/     # api-client (dynamic LAN resolution) & auth-storage (SecureStore)
