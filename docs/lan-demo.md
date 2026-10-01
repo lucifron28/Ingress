@@ -24,6 +24,8 @@ This guide provides concrete instructions for reproducing and defending the Ingr
 
 > **Important Defense Note**: The developer's laptop simulates the central **Ingress Event Node** for this 50% prototype milestone. Do not present the laptop itself as the proposed production cloud architecture. In production, this role is fulfilled by an on-premises local Event Node server.
 
+> **Transport security (demo scope)**: the entire procedure below uses plain **HTTP over a controlled local LAN or hotspot**. That is an accepted simplification for demonstrations, and it is also why the mobile build enables Android `usesCleartextTraffic` and iOS `NSAllowsArbitraryLoads`. It is **not** a production posture: passwords, Sanctum bearer tokens, QR credentials, and attendee identity data must all travel over **HTTPS/TLS** in production. See ADR 009 in `docs/design-decisions.md` for the requirements and the production checklist.
+
 ---
 
 ## 2. Pre-Demonstration Server Setup
@@ -62,7 +64,14 @@ php artisan serve --host=0.0.0.0 --port=8000
 
 ## 3. Pre-Configured Demo Accounts
 
-All demo accounts use the standard password: `password`.
+These accounts exist **only while demo mode is enabled** (`INGRESS_DEMO_MODE=true`, which `api/.env.example` ships). `DatabaseSeeder` creates them, and the application refuses to boot with demo mode on while `APP_ENV=production`.
+
+All demo accounts use the standard password: `password`. Outside demo mode there are no accounts at all, so provision the first organizer yourself:
+
+```bash
+cd api
+php artisan tinker --execute="\App\Models\User::create(['name'=>'Event Administrator','email'=>'you@mseuf.edu.ph','role'=>'admin','password'=>bcrypt('a-real-password')]);"
+```
 
 | Role | Account Name | Email | Initial Mode |
 | :--- | :--- | :--- | :--- |
@@ -74,9 +83,13 @@ All demo accounts use the standard password: `password`.
 | **Student 2** | Patricia Reyes (`2024-01002`)| `student2@mseuf.edu.ph` | Mobile Attendee |
 | **Student 3** | Mark Aquino (`2024-01003`) | `student3@mseuf.edu.ph` | Mobile Attendee |
 
+The mobile quick-select chips and the pre-filled password appear only when the app is built with `EXPO_PUBLIC_INGRESS_DEMO_MODE=true`.
+
 ---
 
 ## 4. Mobile Client Connection Guide
+
+> Changing the Event Node here signs you out on purpose. A Sanctum token is only meaningful to the server that issued it, so the app clears the stored token and cached identity before saving the new address and returns you to the login screen.
 
 1. Ensure all testing phones are connected to the **same Wi-Fi network** as the laptop.
 2. Launch the mobile app in Expo:
@@ -130,7 +143,7 @@ Execute this exact scenario to prove all architectural guarantees to the evaluat
 1. Point Staff Phone 1 (Gate A) at Carlo Mendoza's QR code.
 2. **Result**: Staff Phone 1 instantly displays:
    ```
-   [✓] TICKET VALID
+   [✓] Ticket Valid
    Admitted at 1:42 PM
    Attendee: Carlo Mendoza (2024-01001)
    ```
@@ -141,7 +154,7 @@ Execute this exact scenario to prove all architectural guarantees to the evaluat
 2. Point Staff Phone 2 at the exact same QR code.
 3. **Result**: Staff Phone 2 immediately rejects entry with:
    ```
-   [!] ALREADY CHECKED IN
+   [!] Already Checked In
    Previously admitted at Gate A - West Wing, 1:42 PM
    Attendee: Carlo Mendoza (2024-01001)
    ```
@@ -162,18 +175,31 @@ Execute this exact scenario to prove all architectural guarantees to the evaluat
 2. Scan any QR code.
 3. **Result**: The app immediately halts scanning and displays:
    ```
-   [⚡] SERVER UNAVAILABLE
+   [⚡] Server Unavailable
    Reconnect to the event network before scanning.
    ```
 4. This proves Ingress **fails closed** and never makes optimistic client-side guesses offline.
 
 ### Step 10: Concurrency Race Condition Proof
-1. Run the backend concurrency test to prove that competing requests for the final seat cannot both succeed:
-   ```bash
-   cd api
-   php artisan test --filter=test_competing_requests_for_final_seat_cannot_both_succeed
-   ```
-2. Result: Database transaction with pessimistic lock proves race-free seat allocation.
+The PHPUnit suite runs on in-memory SQLite, which serialises writers and therefore **cannot** demonstrate a race. Prove the concurrency guarantees against real PostgreSQL instead:
+
+```bash
+cd api
+php scripts/verify_pgsql_concurrency.php
+```
+
+It provisions its own `ingress_concurrency` database, releases genuinely overlapping transactions through a two-process barrier, and asserts six invariants:
+
+| Case | Invariant |
+| :--- | :--- |
+| A | two simultaneous registrations for the final seat → exactly one confirmed registration |
+| B | two gates scanning the same ticket → exactly one admission; the other reports `already_admitted` |
+| C | one `client_scan_id` replayed across two tickets → exactly one admission; the other is an idempotency conflict |
+| D | a worker forced to collide on the unique index → mapped to `idempotency_conflict`, never an unhandled 500 |
+| E | a cancellation held open while a scan is in flight → the scan blocks, then is rejected; no admission recorded |
+| F | two different tickets scanned while a shared event lock is held → both admitted, proving scanners are not serialised |
+
+The script exits non-zero if any invariant fails.
 
 ---
 

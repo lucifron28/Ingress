@@ -167,6 +167,29 @@ DB::transaction(function () use ($user, $eventId) {
 
 Under high concurrent load (e.g. 50 students competing for the final seat), database transactions queue cleanly behind the row lock. Exactly one transaction succeeds; all subsequent transactions see `confirmed == capacity` and fail safely without overbooking.
 
+### Keeping capacity valid when an organizer edits an event
+
+Registration is not the only writer of capacity. `OrganizerEventController::update()` takes the **same `events` row lock** inside a transaction, counts the confirmed registrations, and rejects any new capacity below that count:
+
+```
+capacity = 500, confirmed = 420, requested = 300  ->  rejected (422, capacity unchanged)
+capacity = 500, confirmed = 420, requested = 420  ->  accepted
+```
+
+Because both paths lock the same row first, the count cannot change between the check and the write.
+
+### Lock ordering
+
+Every path acquires the `events` row before any ticket or registration row:
+
+| Path | Order |
+| :--- | :--- |
+| Organizer creates a registration | `events` FOR UPDATE → `registrations`/`tickets` |
+| Organizer edits an event | `events` FOR UPDATE → `registrations` (count) |
+| Scanner admits a ticket | `events` FOR SHARE → `tickets` FOR UPDATE |
+
+Acquiring `events` first everywhere means no lock cycle can form, so no two operations can deadlock. The scanner takes `FOR SHARE` rather than `FOR UPDATE` deliberately: shared locks are mutually compatible, so scanners for *different* tickets still run in parallel, while any event writer (cancel, complete, or the capacity edit above, which takes `FOR UPDATE`) is forced to wait and cannot commit in the middle of an admission.
+
 ### Re-registration after cancellation
 
 `registrations` carries `UNIQUE(event_id, user_id)`, so a cancelled registration cannot simply be replaced by a new row. When a previously cancelled attendee registers again, the existing row is reactivated (`status = confirmed`, `cancelled_at = null`) and the ticket credential is rotated — a new `public_id`, a new 256-bit secret, a new `qr_hash`, `revoked_at = null`, and `credential_version` incremented.
@@ -178,7 +201,7 @@ Two consequences follow:
 
 ### Verifying concurrency on real PostgreSQL
 
-SQLite serializes writers and cannot demonstrate real lock contention, so the behavioural suite (which runs on in-memory SQLite) proves logic but not races. Four invariants are verified separately against real PostgreSQL:
+SQLite serializes writers and cannot demonstrate real lock contention, so the behavioural suite (which runs on in-memory SQLite) proves logic but not races. Six invariants are verified separately against real PostgreSQL:
 
 | Invariant | Contested resource | Expected outcome |
 | :--- | :--- | :--- |
@@ -186,6 +209,8 @@ SQLite serializes writers and cannot demonstrate real lock contention, so the be
 | Same-ticket admission | `tickets` row | exactly one admission row; loser receives `already_admitted` |
 | Replayed `client_scan_id` across two tickets | `admissions.client_scan_id` unique index | exactly one admission row; loser receives `idempotency_conflict`, never an unhandled 500 |
 | Unique-violation mapping | `admissions.client_scan_id` unique index, deterministically | a worker held behind an uncommitted conflicting insert is mapped to `idempotency_conflict` |
+| Cancellation during an in-flight admission | `events` row, `FOR SHARE` vs `FOR UPDATE` | the scan blocks, then is rejected as `event_cancelled`; no admission recorded |
+| Different tickets scanned concurrently | `events` row, `FOR SHARE` held by another session | both scans are admitted while the shared lock is held — scanners are not serialised |
 
 ```bash
 cd api
@@ -211,8 +236,21 @@ ingress:v1:<ticket_public_id>:<random_secret>
 
 ### Security Properties
 1. **Zero PII**: No student names, emails, student numbers, or course details are encoded in the QR code.
-2. **One-Way Storage**: The database stores `qr_hash = hash('sha256', $secret)`. Even if the database is inspected, the raw secret cannot be reversed.
+2. **Two stored views of the secret**, with different properties:
+   - `qr_hash = hash('sha256', $secret)` is **one-way** and is the only value used to verify a scan.
+   - `encrypted_secret = Crypt::encryptString($secret)` is **recoverable by the application**: it is encrypted with the framework key (`APP_KEY`) so the attendee can redisplay their own QR after reinstalling the app or switching devices. Without it, a lost device would permanently lose the ticket.
 3. **Constant-Time Verification**: Verification uses PHP's `hash_equals($ticket->qr_hash, hash('sha256', $scannedSecret))` to prevent timing attacks.
+
+### Threat model for stored ticket secrets
+
+| Compromise | Consequence |
+| :--- | :--- |
+| Database dump only (`qr_hash`, `encrypted_secret` leaked) | The plaintext secret is **not** directly readable. `qr_hash` is one-way, and `encrypted_secret` is unreadable without `APP_KEY`. |
+| Database dump **and** `APP_KEY` | `encrypted_secret` can be decrypted, so the plaintext QR secret is recoverable and a working QR can be reconstructed. |
+
+So the security of a stolen database rests on `APP_KEY` staying secret. It must live only in the server environment (`api/.env`), never in the repository, a backup that also contains the dump, or client code. Rotating `APP_KEY` invalidates every `encrypted_secret` (attendees would have to re-register), so treat it as a long-lived production secret.
+
+This is a deliberate trade-off for the 50% milestone: one-way-only storage would be marginally safer against a combined leak, but would make the ticket unrecoverable for the attendee. A later milestone may move to per-ticket key derivation if the stronger property is required.
 
 ---
 
@@ -221,7 +259,7 @@ ingress:v1:<ticket_public_id>:<random_secret>
 When a staff member scans a ticket, the mobile app posts `{ access_point_id, qr_payload, client_scan_id }` to `/api/v1/staff/events/{event}/admissions`. The backend executes 11 sequential validation steps:
 
 1. **Authenticated User**: Confirms caller has a valid Sanctum bearer token.
-2. **Event State & Staff Assignment**: Rejects `cancelled` and `completed` events; then confirms the caller is the event organizer, an admin, or explicitly assigned in `event_staff`.
+2. **Event State & Staff Assignment**: Rejects `cancelled` and `completed` events, and events whose `ends_at` has passed; then confirms the caller is the event organizer, an admin, or explicitly assigned in `event_staff`. This is a fast pre-check — the authoritative revalidation happens in step 11. `starts_at` is deliberately **not** enforced, because doors may open before the scheduled start.
 3. **Access Point**: Confirms the selected gate exists, belongs to this event, is active, and — for staff bound to a specific gate — matches their `event_staff.access_point_id`. Staff assigned to Gate A cannot operate Gate B; staff assigned with a null access point operate any gate.
 4. **QR Format**: Verifies regex `^ingress:v1:([A-Za-z0-9\-]+):([A-Fa-f0-9]{64})$`.
 5. **Ticket Existence**: Looks up ticket by `public_id`.
@@ -229,9 +267,10 @@ When a staff member scans a ticket, the mobile app posts `{ access_point_id, qr_
 7. **Registration Status**: Verifies attendee registration is `confirmed`.
 8. **Ticket Revocation**: Verifies ticket status is `active` (not revoked or cancelled).
 9. **Event Match**: Confirms ticket belongs to the currently selected event.
-10. **Idempotency Check**: If an admission already exists with the same `client_scan_id`, the request is only treated as a retry when it also matches the same `ticket_id`, `access_point_id`, and event. A mismatch returns HTTP 409 `idempotency_conflict`; a match returns the original admission response (HTTP 200).
-11. **Anti-Passback Check (row-locked)**: Inside `DB::transaction()`, the authoritative `tickets` row is locked with `lockForUpdate()`, and the credential state (secret, ticket status, registration status, event) is re-validated under that lock. Idempotency is also re-checked under the lock.
-    - Concurrent scans of the same ticket are therefore serialised by PostgreSQL: the first commits, and every later scanner observes the committed admission.
+10. **Idempotency Check**: If an admission already exists with the same `client_scan_id`, the request is only treated as a retry when it also matches the same `ticket_id`, `credential_version`, `access_point_id`, and event. A mismatch returns HTTP 409 `idempotency_conflict`; a match returns the original admission response (HTTP 200). An insert that loses the race on the `UNIQUE(client_scan_id)` index is caught and mapped to the same 409 rather than surfacing as an unhandled database error.
+11. **Anti-Passback Check (row-locked)**: Inside `DB::transaction()`, the **`events` row is locked `FOR SHARE`** and the event state (`cancelled` / `completed` / past `ends_at`) is revalidated, then the authoritative `tickets` row is locked with `lockForUpdate()` and the credential state (secret, ticket status, registration status, event) is re-validated under that lock. Idempotency is re-checked under the lock.
+    - The shared event lock is what stops a concurrent cancellation or completion from committing between the state check and the insert. Because `FOR SHARE` locks are mutually compatible, scanners for different tickets are not serialised behind each other (`FOR UPDATE` would have created exactly that bottleneck).
+    - Concurrent scans of the same ticket are serialised by the `tickets` row lock: the first commits, and every later scanner observes the committed admission.
     - Passback only considers admissions whose `credential_version` matches the ticket's current one.
     - If such an admission exists: returns **`Already Checked In`** (HTTP 409 Conflict) with the previous gate name and timestamp.
     - If none exists: creates the `Admission` row and returns **`Ticket Valid`** (HTTP 200).
@@ -250,7 +289,61 @@ In physical campus events with multiple entrance turnstiles (e.g. Gate A and Gat
   - Laravel step 11 queries the central database and immediately detects the existing admission.
   - Gate B scanner displays:
     ```
-    ALREADY CHECKED IN
+    Already Checked In
     Previously admitted at Gate A, 1:42 PM
     ```
 - Result: Distributed double-entry attacks are strictly prevented.
+
+---
+
+## 7. Identity vs Authorization
+
+The system has two distinct concepts that are easy to conflate, and the schema keeps them separate on purpose.
+
+**Identity — who a person is at the university.** A student, an employee, an alumnus, or a guest. This is a long-lived fact about a person and is what an institution would eventually source from an authoritative directory (for example `myMSEUF` SSO).
+
+**Authorization / responsibility — what a person may do in Ingress, and for which event.** An attendee, event staff, organizer, or admin. These are *event-scoped responsibilities*: the same person can be a student (identity) and event staff (responsibility) for one event while being an ordinary attendee for every other.
+
+The current implementation reflects this deliberately:
+
+- `users.role` is a **coarse portal flag** used for routing and portal-level access (which app area you land in, whether the organizer console is reachable). Its constants (`admin`, `organizer`, `staff`, `student`) are a short-term convenience, not the responsibility model.
+- The **responsibility model lives in `event_staff`**: a per-event assignment row with an optional specific gate. `AdmitTicket` authorizes a scan from `isAdmin() || event.organizer_id === user.id || an event_staff row exists` and never from `users.role` alone. A student who is assigned as staff for one event can therefore scan that event without gaining any other staff capability.
+
+### Known conflation, deferred to the second half
+
+Two places still read `users.role` where they should read a responsibility:
+
+1. `mobile/app/index.tsx` routes a signed-in user to the staff scanner when `role === 'staff'`. A student who is also event staff lands in attendee mode and must switch manually.
+2. `OrganizerEventController` offers only users whose `role` is `staff` in the staff picker, so a student cannot be assigned as event staff through the UI.
+
+Neither is a security gap — the *authorization* decision is already assignment-based — but both are functional limitations. Resolving them means splitting identity from responsibility properly (separate tables or a many-to-many), which is a second-half change: this milestone intentionally does not redesign authentication or build a general RBAC system.
+
+---
+
+## 8. Authentication, Rate Limiting, and Demo Mode
+
+**Mobile** authenticates with Sanctum bearer tokens issued by `/api/v1/auth/login` and stored on-device in hardware-backed secure storage (`expo-secure-store`). A token is only meaningful to the server that issued it, so changing the configured Event Node clears the stored token and cached identity before the new address is saved, and returns the user to the login screen.
+
+Session restoration distinguishes two failure modes:
+
+| `/me` result | Behaviour |
+| :--- | :--- |
+| `401` | The token is invalid for this server — stored token and cached identity are cleared. |
+| Transport failure (`status: 0`) | The server is unreachable — the cached identity is kept so the app can show who is signed in, while every server action still fails closed. |
+
+**Organizer web** uses ordinary Laravel session authentication. Only users who pass `isOrganizer()` may enter the organizer console; a student who authenticates successfully is logged straight back out with an explanatory error.
+
+### Login rate limiting
+
+Both login entry points share one named limiter, `throttle:login`, defined in `AppServiceProvider`:
+
+- **5 attempts per minute**, keyed by lowercased **email + client IP**.
+- **Every** attempt counts, including successful ones, because the middleware runs before the controller and the counter cannot be reset from inside the request.
+- Keying on email+IP means one account under attack does not lock out other accounts behind the same campus NAT, and a shared IP cannot be used to spread guesses across accounts without each account being counted.
+- API clients receive the JSON `429`; a throttled browser login is redirected back to the form with a readable message instead of a bare error page.
+
+Throttle state uses the configured cache store (`database` in production, `array` in tests).
+
+### Demo mode
+
+`INGRESS_DEMO_MODE` → `config('app.demo_mode')` (default **false**) gates every predictable credential in the system. See ADR 010 for the decision; the operational effect is that the seeder, the organizer login hint, and the mobile quick-select are all inert unless an environment opts in, and `APP_ENV=production` with demo mode on is a hard boot error.

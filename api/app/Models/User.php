@@ -18,6 +18,19 @@ class User extends Authenticatable
     /** @use HasFactory<UserFactory> */
     use HasApiTokens, HasFactory, Notifiable;
 
+    /**
+     * Coarse portal flag, not the full responsibility model.
+     *
+     * `role` decides which portal a user lands in (organizer console vs mobile app)
+     * and is checked by `EnsureOrganizer` / `EnsureStaff`. Event-scoped
+     * responsibility lives in the `event_staff` table instead, because the same
+     * person can be event staff for one event while remaining an ordinary attendee
+     * for every other. Authorization decisions for scanning are therefore
+     * assignment-based (see `AdmitTicket`), never `role`-based.
+     *
+     * Identity (student / employee / alumni / guest) is intentionally not modelled
+     * here yet; see `docs/architecture.md` §7.
+     */
     public const ROLE_ADMIN = 'admin';
     public const ROLE_ORGANIZER = 'organizer';
     public const ROLE_STAFF = 'staff';

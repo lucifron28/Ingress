@@ -101,7 +101,7 @@ ingress/
 │   │   └── seeders/      # Synthetic demonstration accounts and campus events
 │   ├── resources/views/  # Organizer Blade layouts & attendance command center
 │   ├── public/images/    # Generated Ingress brand assets (lockup, mark, favicon)
-│   └── tests/Feature/    # 51 feature tests covering all guarantees
+│   └── tests/Feature/    # 61 feature tests covering all guarantees
 ├── mobile/               # Expo React Native Mobile Application
 │   ├── app/              # Expo Router file-based pages
 │   │   ├── (attendee)/   # Discover catalog, Event detail, Ticket wallet, QR view, Profile
@@ -109,6 +109,7 @@ ingress/
 │   │   ├── login.tsx     # MSEUF-inspired login with demo switcher
 │   │   └── server-settings.tsx # In-app LAN server configurator & connection tester
 │   ├── assets/           # Generated app icon, adaptive icon layers, favicon
+│   ├── tests/            # Node-run session checks (no JS test runner in the app)
 │   └── src/
 │       ├── context/      # AuthContext session management
 │       └── services/     # api-client (dynamic LAN resolution) & auth-storage (SecureStore)
@@ -122,9 +123,16 @@ ingress/
 
 ---
 
-## Pre-Configured Demo Accounts
+## Demo Mode and Demo Accounts
 
-All demo accounts use the standard password: `password`.
+The synthetic demonstration accounts below exist **only in demo mode**. Copying `api/.env.example` enables it (`INGRESS_DEMO_MODE=true`), which keeps the quickstart below working out of the box. The setting defaults to **off**, so an environment that does not opt in creates no predictable credential, and enabling it while `APP_ENV=production` is a hard boot error.
+
+Outside demo mode there are no accounts at all. Provision the first administrator yourself:
+
+```bash
+cd api
+php artisan tinker --execute="\App\Models\User::create(['name'=>'Event Administrator','email'=>'you@mseuf.edu.ph','role'=>'admin','password'=>bcrypt('a-real-password')]);"
+```
 
 | Role | Name | Email | Usage |
 | :--- | :--- | :--- | :--- |
@@ -136,6 +144,10 @@ All demo accounts use the standard password: `password`.
 | **Student 1** | Carlo Mendoza (`2024-01001`) | `student1@mseuf.edu.ph` | Mobile Attendee App |
 | **Student 2** | Patricia Reyes (`2024-01002`)| `student2@mseuf.edu.ph` | Mobile Attendee App |
 | **Student 3** | Mark Aquino (`2024-01003`) | `student3@mseuf.edu.ph` | Mobile Attendee App |
+
+All demo accounts use the standard password: `password`. The mobile demo quick-select and pre-filled password appear only when the app is built with `EXPO_PUBLIC_INGRESS_DEMO_MODE=true` (see `mobile/.env.example`).
+
+> **Transport security**: the LAN procedure in this README and in `docs/lan-demo.md` uses plain HTTP over a controlled local network, which is fine for a prototype demonstration. Production Event Node traffic must use HTTPS/TLS — passwords, bearer tokens, QR credentials, and identity data must not cross the network in cleartext. See ADR 009 in `docs/design-decisions.md`.
 
 ---
 
@@ -163,7 +175,7 @@ php artisan serve --host=0.0.0.0 --port=8000
 Organizer portal available at: `http://localhost:8000/login`
 
 ### 3. Run Backend Integration Tests
-The fast feature suite runs on in-memory SQLite (51 tests, 275 assertions):
+The fast feature suite runs on in-memory SQLite (61 tests, 330 assertions):
 ```bash
 cd api
 php artisan test
@@ -178,7 +190,7 @@ php artisan test --filter=RegistrationTest
 
 #### PostgreSQL concurrency verification (separate)
 
-SQLite serializes writers, so it cannot prove real race behaviour. Four guarantees
+SQLite serializes writers, so it cannot prove real race behaviour. Six guarantees
 are verified against the real PostgreSQL server using genuinely overlapping
 transactions released through a two-process barrier:
 
@@ -188,18 +200,32 @@ transactions released through a two-process barrier:
 4. a worker forced to reach the admission insert and collide on the
    `admissions.client_scan_id` unique index (proves the conflict mapping, not just
    whichever branch the scheduler happened to pick)
+5. a cancellation held open while a scan is in flight — the scan blocks and is then
+   rejected, proving cancellation cannot race through admission
+6. two different tickets scanned while a shared event lock is held — both are
+   admitted, proving scanners are not serialized behind each other
 
 ```bash
 cd api
 php scripts/verify_pgsql_concurrency.php
 ```
 
-Case 4 holds an uncommitted conflicting insert from a second connection, waits until
-PostgreSQL reports the worker blocked on the unique index (`pg_stat_activity`), then
-releases it. The script provisions its own `ingress_concurrency` database (recreated
-on each run) so demonstration data is never touched, and exits non-zero if any
-invariant is violated. Override the database name with `INGRESS_CONCURRENCY_DB` if
-needed.
+Cases 4 and 5 hold an uncommitted conflicting write from a second connection, wait
+until PostgreSQL reports the worker blocked (`pg_stat_activity`), then release it.
+The script provisions its own `ingress_concurrency` database (recreated on each run)
+so demonstration data is never touched, and exits non-zero if any invariant is
+violated. Override the database name with `INGRESS_CONCURRENCY_DB` if needed.
+
+#### Mobile session checks
+
+The mobile app has no JavaScript test runner, so its session rules are checked by a
+small dependency-free script that runs the real service modules under Node with the
+two native packages stubbed:
+
+```bash
+cd mobile
+node tests/session.test.mjs
+```
 
 ### 4. Mobile Client (Expo React Native)
 ```bash
