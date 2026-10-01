@@ -80,7 +80,7 @@ class RegisterForEvent
             }
 
             // Generate cryptographically secure opaque QR credential (256-bit CSPRNG secret)
-            $publicId = 'ING-' . strtoupper(Str::random(10));
+            $publicId = 'ING-'.strtoupper(Str::random(10));
             $secret = bin2hex(random_bytes(32)); // 64 hex characters
             $qrHash = hash('sha256', $secret);
 
@@ -113,6 +113,7 @@ class RegisterForEvent
                         'qr_hash' => $qrHash,
                         'encrypted_secret' => Crypt::encryptString($secret),
                         'status' => Ticket::STATUS_ACTIVE,
+                        'credential_version' => 1,
                         'issued_at' => Carbon::now(),
                     ]);
                 }
@@ -130,6 +131,7 @@ class RegisterForEvent
                     'qr_hash' => $qrHash,
                     'encrypted_secret' => Crypt::encryptString($secret),
                     'status' => Ticket::STATUS_ACTIVE,
+                    'credential_version' => 1,
                     'issued_at' => Carbon::now(),
                 ]);
             }
