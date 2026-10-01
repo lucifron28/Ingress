@@ -6,14 +6,17 @@ use App\Http\Controllers\Controller;
 use App\Models\AccessPoint;
 use App\Models\Event;
 use App\Models\EventStaff;
+use App\Models\Registration;
 use App\Models\User;
 use App\Models\Venue;
-use Carbon\Carbon;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class OrganizerEventController extends Controller
@@ -65,6 +68,7 @@ class OrganizerEventController extends Controller
     public function create(): View
     {
         $venues = Venue::orderBy('name')->get();
+
         return view('organizer.events.create', compact('venues'));
     }
 
@@ -145,6 +149,7 @@ class OrganizerEventController extends Controller
         Gate::authorize('update', $event);
 
         $venues = Venue::orderBy('name')->get();
+
         return view('organizer.events.edit', compact('event', 'venues'));
     }
 
@@ -166,7 +171,23 @@ class OrganizerEventController extends Controller
             'ends_at' => ['required', 'date', 'after:starts_at'],
         ]);
 
-        $event->update($validated);
+        // Serialize with RegisterForEvent by locking the same events row it locks,
+        // so the confirmed count cannot change between the check and the write.
+        DB::transaction(function () use ($event, $validated) {
+            $lockedEvent = Event::whereKey($event->getKey())->lockForUpdate()->firstOrFail();
+
+            $confirmed = Registration::where('event_id', $lockedEvent->id)
+                ->where('status', Registration::STATUS_CONFIRMED)
+                ->count();
+
+            if ($validated['capacity'] < $confirmed) {
+                throw ValidationException::withMessages([
+                    'capacity' => "Capacity cannot be lowered below the {$confirmed} confirmed registrations for this event.",
+                ]);
+            }
+
+            $lockedEvent->update($validated);
+        });
 
         return redirect()->route('organizer.events.show', $event)
             ->with('success', 'Event updated successfully.');
@@ -235,11 +256,11 @@ class OrganizerEventController extends Controller
         $validated = $request->validate([
             'user_id' => [
                 'required',
-                \Illuminate\Validation\Rule::exists('users', 'id')->where(fn ($q) => $q->where('role', User::ROLE_STAFF)),
+                Rule::exists('users', 'id')->where(fn ($q) => $q->where('role', User::ROLE_STAFF)),
             ],
             'access_point_id' => [
                 'nullable',
-                \Illuminate\Validation\Rule::exists('access_points', 'id')->where(fn ($q) => $q->where('event_id', $event->id)),
+                Rule::exists('access_points', 'id')->where(fn ($q) => $q->where('event_id', $event->id)),
             ],
         ]);
 
