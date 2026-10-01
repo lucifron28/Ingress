@@ -5,7 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{{ $title ?? 'Ingress' }} - MSEUF Event Management</title>
-    
+
+    <link rel="icon" type="image/png" href="{{ asset('images/ingress-favicon.png') }}">
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -195,7 +197,10 @@
         <div style="max-width: 1200px; margin: 0 auto; padding: 0.75rem 1.5rem; display: flex; justify-content: space-between; align-items: center;">
             <div style="display: flex; align-items: center; gap: 1.25rem;">
                 <a href="{{ route('organizer.dashboard') }}" style="color: #ffffff; text-decoration: none; font-weight: 700; font-size: 1.25rem; letter-spacing: -0.025em; display: flex; align-items: center; gap: 0.5rem;">
-                    <span style="background: #ffffff; color: var(--mseuf-maroon); padding: 0.15rem 0.5rem; border-radius: 3px; font-size: 0.85rem; font-weight: 800;">MSEUF</span>
+                    {{-- The mark is maroon, so it needs a light plate to read on the maroon header. --}}
+                    <span style="background: #ffffff; padding: 0.2rem 0.4rem; border-radius: 4px; display: inline-flex; align-items: center;">
+                        <img src="{{ asset('images/ingress-mark.png') }}" alt="" style="display: block; height: 22px; width: auto;">
+                    </span>
                     INGRESS
                 </a>
                 <nav style="display: flex; gap: 1rem; font-size: 0.875rem;">
