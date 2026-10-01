@@ -148,6 +148,19 @@ class AdmitTicket
             ->first();
 
         if ($existingById) {
+            $isMatchingTicket = (int) $existingById->ticket_id === (int) $ticket->id;
+            $isMatchingGate = (int) $existingById->access_point_id === (int) $accessPoint->id;
+            $isMatchingEvent = (int) $existingById->accessPoint?->event_id === (int) $event->id;
+
+            if (! $isMatchingTicket || ! $isMatchingGate || ! $isMatchingEvent) {
+                return [
+                    'http_code' => 409,
+                    'status' => 'idempotency_conflict',
+                    'message' => 'Idempotency Key Conflict',
+                    'detail' => 'The client scan ID was already used for a different admission request.',
+                ];
+            }
+
             $formattedTime = $existingById->admitted_at->format('g:i A');
             return [
                 'http_code' => 200,
@@ -158,7 +171,7 @@ class AdmitTicket
                     'id' => $existingById->id,
                     'admitted_at' => $existingById->admitted_at->toISOString(),
                     'access_point' => $existingById->accessPoint->name,
-                    'scanned_by' => $existingById->scannedBy->name,
+                    'scanned_by' => $existingById->scannedBy?->name ?? 'Staff',
                 ],
                 'ticket' => [
                     'public_id' => $ticket->public_id,
@@ -168,10 +181,52 @@ class AdmitTicket
             ];
         }
 
-        // Check 11: Anti-Passback / Duplicate Admission Protection (Transactional)
-        return DB::transaction(function () use ($staff, $ticket, $accessPoint, $clientScanId) {
+        // Check 11: Anti-Passback / Duplicate Admission Protection (Transactional with Ticket Row Lock)
+        return DB::transaction(function () use ($staff, $ticket, $accessPoint, $event, $clientScanId) {
+            // Lock authoritative ticket row to serialize concurrent gate scans
+            $lockedTicket = Ticket::where('id', $ticket->id)->lockForUpdate()->first();
+
+            // Re-verify idempotency under lock in case of concurrent identical submissions
+            $existingUnderLock = Admission::with(['accessPoint', 'scannedBy'])
+                ->where('client_scan_id', $clientScanId)
+                ->first();
+
+            if ($existingUnderLock) {
+                $isMatchingTicket = (int) $existingUnderLock->ticket_id === (int) $lockedTicket->id;
+                $isMatchingGate = (int) $existingUnderLock->access_point_id === (int) $accessPoint->id;
+                $isMatchingEvent = (int) $existingUnderLock->accessPoint?->event_id === (int) $event->id;
+
+                if (! $isMatchingTicket || ! $isMatchingGate || ! $isMatchingEvent) {
+                    return [
+                        'http_code' => 409,
+                        'status' => 'idempotency_conflict',
+                        'message' => 'Idempotency Key Conflict',
+                        'detail' => 'The client scan ID was already used for a different admission request.',
+                    ];
+                }
+
+                $formattedTime = $existingUnderLock->admitted_at->format('g:i A');
+                return [
+                    'http_code' => 200,
+                    'status' => 'admitted',
+                    'message' => 'Ticket Valid',
+                    'detail' => "Admitted at {$formattedTime}",
+                    'admission' => [
+                        'id' => $existingUnderLock->id,
+                        'admitted_at' => $existingUnderLock->admitted_at->toISOString(),
+                        'access_point' => $existingUnderLock->accessPoint->name,
+                        'scanned_by' => $existingUnderLock->scannedBy?->name ?? 'Staff',
+                    ],
+                    'ticket' => [
+                        'public_id' => $lockedTicket->public_id,
+                        'attendee_name' => $lockedTicket->registration->user->name,
+                        'student_id' => $lockedTicket->registration->user->student_id,
+                    ],
+                ];
+            }
+
             $previousAdmission = Admission::with(['accessPoint', 'scannedBy'])
-                ->where('ticket_id', $ticket->id)
+                ->where('ticket_id', $lockedTicket->id)
                 ->first();
 
             if ($previousAdmission) {
@@ -189,16 +244,16 @@ class AdmitTicket
                         'scanned_by' => $previousAdmission->scannedBy?->name ?? 'Staff',
                     ],
                     'ticket' => [
-                        'public_id' => $ticket->public_id,
-                        'attendee_name' => $ticket->registration->user->name,
-                        'student_id' => $ticket->registration->user->student_id,
+                        'public_id' => $lockedTicket->public_id,
+                        'attendee_name' => $lockedTicket->registration->user->name,
+                        'student_id' => $lockedTicket->registration->user->student_id,
                     ],
                 ];
             }
 
             // Create authoritative admission record
             $admission = Admission::create([
-                'ticket_id' => $ticket->id,
+                'ticket_id' => $lockedTicket->id,
                 'access_point_id' => $accessPoint->id,
                 'scanned_by_user_id' => $staff->id,
                 'client_scan_id' => $clientScanId,
@@ -219,9 +274,9 @@ class AdmitTicket
                     'scanned_by' => $staff->name,
                 ],
                 'ticket' => [
-                    'public_id' => $ticket->public_id,
-                    'attendee_name' => $ticket->registration->user->name,
-                    'student_id' => $ticket->registration->user->student_id,
+                    'public_id' => $lockedTicket->public_id,
+                    'attendee_name' => $lockedTicket->registration->user->name,
+                    'student_id' => $lockedTicket->registration->user->student_id,
                 ],
             ];
         });

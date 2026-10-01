@@ -228,6 +228,66 @@ class AdmissionTest extends TestCase
         $this->assertEquals(1, Admission::where('client_scan_id', $scanId)->count());
     }
 
+    public function test_idempotency_key_cannot_be_reused_for_different_ticket(): void
+    {
+        $scanId = (string) Str::uuid();
+
+        // 1. Initial scan for Student 1 ticket
+        $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
+                'access_point_id' => $this->gateA->id,
+                'qr_payload' => $this->validQrPayload,
+                'client_scan_id' => $scanId,
+            ])
+            ->assertStatus(200);
+
+        // 2. Second student registers and gets ticket
+        $student2 = User::factory()->create(['role' => User::ROLE_STUDENT]);
+        $action = new RegisterForEvent();
+        $student2Result = $action->execute($student2, $this->event->id);
+
+        // 3. Scanner sends the same client_scan_id for Student 2's ticket
+        $conflictResponse = $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
+                'access_point_id' => $this->gateA->id,
+                'qr_payload' => $student2Result['qr_payload'],
+                'client_scan_id' => $scanId, // Reused scan ID
+            ]);
+
+        $conflictResponse->assertStatus(409)
+            ->assertJson([
+                'status' => 'idempotency_conflict',
+                'message' => 'Idempotency Key Conflict',
+            ]);
+    }
+
+    public function test_idempotency_key_cannot_be_reused_for_different_access_point(): void
+    {
+        $scanId = (string) Str::uuid();
+
+        // 1. Initial scan at Gate A
+        $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
+                'access_point_id' => $this->gateA->id,
+                'qr_payload' => $this->validQrPayload,
+                'client_scan_id' => $scanId,
+            ])
+            ->assertStatus(200);
+
+        // 2. Same scan ID sent for Gate B
+        $conflictResponse = $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
+                'access_point_id' => $this->gateB->id, // Different gate
+                'qr_payload' => $this->validQrPayload,
+                'client_scan_id' => $scanId, // Reused scan ID
+            ]);
+
+        $conflictResponse->assertStatus(409)
+            ->assertJson([
+                'status' => 'idempotency_conflict',
+                'message' => 'Idempotency Key Conflict',
+            ]);
+    }
     public function test_ticket_for_another_event_is_rejected(): void
     {
         // Issue ticket for otherEvent
