@@ -31,6 +31,7 @@ use App\Models\Registration;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Models\Venue;
+use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -39,7 +40,7 @@ use Illuminate\Support\Str;
 require __DIR__.'/../vendor/autoload.php';
 
 $app = require __DIR__.'/../bootstrap/app.php';
-$app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+$app->make(Kernel::class)->bootstrap();
 
 $testDatabase = getenv('INGRESS_CONCURRENCY_DB') ?: 'ingress_concurrency';
 $childScript = __DIR__.'/pgsql_concurrency_child.php';
@@ -106,7 +107,7 @@ $organizer = User::create([
  * @param  array<int, array{0: string, 1: array<string, mixed>}>  $jobs
  * @return array<int, array<string, mixed>>
  */
-$runConcurrently = function (array $jobs, string $childScript, string $testDatabase) use ($baseConnection): array {
+$runConcurrently = function (array $jobs, string $childScript, string $testDatabase): array {
     $processes = [];
     $pipes = [];
 
@@ -325,6 +326,60 @@ echo "  admission rows for the ticket: {$admissionCount}\n";
 $assert($scanSuccesses === 1, 'exactly one gate reported a successful admission');
 $assert($alreadyAdmitted === 1, 'the losing gate reported already_admitted');
 $assert($admissionCount === 1, 'exactly one admission row exists (anti-passback holds)');
+echo "\n";
+
+// =============================================================================
+// CASE C — The same client_scan_id is submitted for two different tickets
+// =============================================================================
+echo "CASE C: the same client_scan_id submitted for two different tickets\n";
+
+// Two freshly issued, unused tickets: the CASE B ticket has already been admitted.
+$caseCStudents = collect([1, 2])->map(fn (int $n) => User::create([
+    'name' => "Duplicate Key Attendee {$n}",
+    'email' => "race.dup.{$n}.{$suffix}@mseuf.edu.ph",
+    'student_id' => "RACE{$n}-{$suffix}",
+    'role' => User::ROLE_STUDENT,
+    'password' => Hash::make('password'),
+]));
+
+$caseCTickets = $caseCStudents->map(
+    fn (User $student) => (new RegisterForEvent)->execute($student, $scanEvent->id)
+);
+
+// Deliberately reuse one idempotency key across two unrelated, unused tickets.
+$sharedScanId = (string) Str::uuid();
+
+$duplicateKeyResults = $runConcurrently([
+    ['scan', [
+        'staff_user_id' => $scanStaff['A'],
+        'event_id' => $scanEvent->id,
+        'access_point_id' => $gateA->id,
+        'qr_payload' => $caseCTickets[0]['qr_payload'],
+        'client_scan_id' => $sharedScanId,
+    ]],
+    ['scan', [
+        'staff_user_id' => $scanStaff['A'],
+        'event_id' => $scanEvent->id,
+        'access_point_id' => $gateA->id,
+        'qr_payload' => $caseCTickets[1]['qr_payload'],
+        'client_scan_id' => $sharedScanId,
+    ]],
+], $childScript, $testDatabase);
+
+foreach ($duplicateKeyResults as $index => $result) {
+    echo '  worker '.($index + 1).': '.json_encode($result).PHP_EOL;
+}
+
+$sharedKeyAdmissions = Admission::where('client_scan_id', $sharedScanId)->count();
+$duplicateKeySuccesses = count(array_filter($duplicateKeyResults, fn ($r) => ($r['ok'] ?? false) === true));
+$duplicateKeyConflicts = count(array_filter($duplicateKeyResults, fn ($r) => ($r['status'] ?? null) === 'idempotency_conflict'));
+$duplicateKeyErrors = count(array_filter($duplicateKeyResults, fn ($r) => in_array($r['reason'] ?? null, ['exception', 'no_result'], true)));
+
+echo "  admission rows for the shared scan id: {$sharedKeyAdmissions}\n";
+$assert($duplicateKeySuccesses === 1, 'exactly one request was admitted');
+$assert($duplicateKeyConflicts === 1, 'the replayed scan id was rejected with an idempotency conflict');
+$assert($duplicateKeyErrors === 0, 'no worker surfaced an unhandled exception (no HTTP 500)');
+$assert($sharedKeyAdmissions === 1, 'exactly one admission row carries the shared scan id');
 echo "\n";
 
 // =============================================================================

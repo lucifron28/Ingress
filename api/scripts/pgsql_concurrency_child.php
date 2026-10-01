@@ -13,6 +13,7 @@
 use App\Actions\AdmitTicket;
 use App\Actions\RegisterForEvent;
 use App\Models\User;
+use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -20,7 +21,7 @@ use Illuminate\Validation\ValidationException;
 require __DIR__.'/../vendor/autoload.php';
 
 $app = require __DIR__.'/../bootstrap/app.php';
-$app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+$app->make(Kernel::class)->bootstrap();
 
 $mode = $argv[1] ?? '';
 $payload = json_decode(base64_decode($argv[2] ?? ''), true) ?: [];
@@ -28,6 +29,12 @@ $payload = json_decode(base64_decode($argv[2] ?? ''), true) ?: [];
 // Point this worker at the dedicated concurrency database.
 config(['database.connections.pgsql.database' => $payload['db']]);
 DB::purge('pgsql');
+
+// Open the PostgreSQL connection (full handshake) before announcing readiness, so
+// the only work left after the barrier is the contested transaction. Otherwise the
+// connection setup cost would let one worker finish before the other even connects,
+// silently degrading the race into a sequential run that still passes.
+DB::select('select 1');
 
 $emit = function (array $result): void {
     fwrite(STDOUT, 'RESULT:'.json_encode($result).PHP_EOL);
