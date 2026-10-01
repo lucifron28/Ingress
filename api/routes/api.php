@@ -21,5 +21,12 @@ Route::prefix('v1')->group(function () {
         Route::delete('/events/{event}/registration', [\App\Http\Controllers\Api\V1\RegistrationController::class, 'destroy']);
         Route::get('/me/tickets', [\App\Http\Controllers\Api\V1\TicketController::class, 'myTickets']);
         Route::get('/tickets/{ticket}', [\App\Http\Controllers\Api\V1\TicketController::class, 'show']);
+
+        // Staff Admission & Multi-Gate Scanning
+        Route::prefix('staff')->group(function () {
+            Route::get('/events', [\App\Http\Controllers\Api\V1\StaffAdmissionController::class, 'assignedEvents']);
+            Route::get('/events/{event}/access-points', [\App\Http\Controllers\Api\V1\StaffAdmissionController::class, 'accessPoints']);
+            Route::post('/events/{event}/admissions', [\App\Http\Controllers\Api\V1\StaffAdmissionController::class, 'scan']);
+        });
     });
 });
