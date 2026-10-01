@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
@@ -15,6 +15,7 @@ import { useAuth } from '../src/context/AuthContext';
 
 export default function LoginScreen() {
   const { login, serverUrl } = useAuth();
+  const { notice } = useLocalSearchParams<{ notice?: string }>();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('password');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -60,6 +61,14 @@ export default function LoginScreen() {
             <Text style={styles.title}>INGRESS</Text>
             <Text style={styles.subtitle}>Campus Event Ticketing &amp; Admission</Text>
           </View>
+
+          {notice === 'server-changed' && (
+            <View style={styles.noticeBanner}>
+              <Text style={styles.noticeText}>
+                Event server changed. Sign in again to continue.
+              </Text>
+            </View>
+          )}
 
           {errorMessage && (
             <View style={styles.errorBanner}>
@@ -206,6 +215,19 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#64748b',
     marginTop: 2,
+  },
+  noticeBanner: {
+    backgroundColor: '#e0f2fe',
+    borderLeftWidth: 4,
+    borderLeftColor: '#0284c7',
+    padding: 10,
+    borderRadius: 4,
+    marginBottom: 16,
+  },
+  noticeText: {
+    color: '#075985',
+    fontSize: 13,
+    fontWeight: '500',
   },
   errorBanner: {
     backgroundColor: '#fee2e2',
