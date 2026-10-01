@@ -34,14 +34,18 @@ class TicketController extends Controller
         $user = $request->user();
         $ticket->load(['registration.event.venue', 'registration.user']);
 
-        // Check ownership or staff privileges
-        $isOwner = $ticket->registration && $ticket->registration->user_id === $user->id;
-        if (! $isOwner && ! $user->isStaff() && ! $user->isOrganizer() && ! $user->isAdmin()) {
+        // Access control: Only attendee owner, the organizer of this event, or an admin
+        $isOwner = $ticket->registration && (int) $ticket->registration->user_id === (int) $user->id;
+        $isEventOrganizer = $ticket->registration
+            && $ticket->registration->event
+            && (int) $ticket->registration->event->organizer_id === (int) $user->id;
+        $isAdmin = $user->isAdmin();
+
+        if (! $isOwner && ! $isEventOrganizer && ! $isAdmin) {
             return response()->json([
                 'message' => 'Unauthorized access to ticket details.',
             ], 403);
         }
-
         return response()->json([
             'ticket' => new TicketResource($ticket),
         ]);

@@ -14,16 +14,18 @@ class TicketResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
+        $user = $request->user();
         $registration = $this->registration;
         $event = $registration?->event;
         $attendee = $registration?->user;
+        $isOwner = $user && $registration && (int) $registration->user_id === (int) $user->id;
 
         return [
             'id' => $this->id,
             'public_id' => $this->public_id,
             'status' => $this->status,
             'issued_at' => $this->issued_at?->toISOString(),
-            'qr_payload' => $this->getQrPayload(),
+            'qr_payload' => $this->when($isOwner, fn () => $this->getQrPayload()),
             'event' => [
                 'id' => $event?->id,
                 'title' => $event?->title,

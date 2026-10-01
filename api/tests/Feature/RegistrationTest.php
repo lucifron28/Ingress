@@ -238,9 +238,8 @@ class RegistrationTest extends TestCase
 
         $response = $this->actingAs($this->student1)
             ->getJson('/api/v1/me/tickets');
-
-        $response->assertStatus(200)
-            ->assertJsonStructure([
+        $response->assertStatus(200);
+        $response->assertJsonStructure([
                 'data' => [
                     '*' => [
                         'id',
