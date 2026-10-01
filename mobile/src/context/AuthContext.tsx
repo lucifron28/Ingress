@@ -24,7 +24,11 @@ interface AuthContextType {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
-  updateServerUrl: (url: string) => Promise<void>;
+  /**
+   * Points the app at a different Event Node. Resolves to true when the change
+   * invalidated the current session, so the caller can send the user to login.
+   */
+  updateServerUrl: (url: string) => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -50,13 +54,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setToken(storedToken);
           setUser(JSON.parse(storedUser) as UserProfile);
 
-          // Verify token validity with backend
+          // Confirm the stored token is still valid for this server.
           try {
             const meRes = await apiRequest<{ user: UserProfile }>('/me');
             setUser(meRes.user);
             await AuthStorage.saveUser(JSON.stringify(meRes.user));
-          } catch {
-            // If offline, keep cached user profile; if 401, clear
+          } catch (err: unknown) {
+            const status = (err as { status?: number } | null)?.status;
+
+            if (status === 401) {
+              // The server rejected the token (revoked, expired, or issued by a
+              // different Event Node). Drop the session entirely.
+              setToken(null);
+              setUser(null);
+              await AuthStorage.clearAll();
+            }
+
+            // Any other failure means the server was unreachable. Keep the cached
+            // identity so the app can still say who is signed in; every server
+            // action remains fail-closed through apiRequest.
           }
         }
       } catch {
@@ -99,10 +115,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const updateServerUrl = async (newUrl: string): Promise<void> => {
+  const updateServerUrl = async (newUrl: string): Promise<boolean> => {
     const formatted = newUrl.trim().replace(/\/+$/, '');
+    const isChange = formatted !== serverUrl;
+
+    // A Sanctum token is only meaningful to the server that issued it. Pointing the
+    // app at a different Event Node therefore drops the session before the new URL
+    // is stored, so a Server A token can never be sent to Server B.
+    if (isChange) {
+      setToken(null);
+      setUser(null);
+      await AuthStorage.clearAll();
+    }
+
     setServerUrl(formatted);
     await AuthStorage.saveServerUrl(formatted);
+
+    return isChange;
   };
 
   return (

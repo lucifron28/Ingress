@@ -49,7 +49,15 @@ export default function ServerSettingsScreen() {
 
   const handleSave = async () => {
     const cleanUrl = urlInput.trim().replace(/\/+$/, '');
-    await updateServerUrl(cleanUrl);
+    const sessionCleared = await updateServerUrl(cleanUrl);
+
+    if (sessionCleared) {
+      // The switch invalidated the session: a token issued by the previous Event
+      // Node must never be presented to the new one.
+      router.replace({ pathname: '/login', params: { notice: 'server-changed' } });
+      return;
+    }
+
     router.back();
   };
 
