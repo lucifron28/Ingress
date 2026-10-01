@@ -524,6 +524,247 @@ $assert(Admission::where('client_scan_id', $heldScanId)->count() === 1, 'no dupl
 echo "\n";
 
 // =============================================================================
+// CASE E — A cancellation cannot race past an in-flight admission
+// =============================================================================
+// The admission transaction revalidates event state under a FOR SHARE lock. To
+// prove it, the orchestrator holds an *uncommitted* cancellation (which takes
+// FOR UPDATE on the events row). A worker scanning a valid ticket must block on
+// that shared lock, and once the cancellation commits it must see the cancelled
+// event and record no admission.
+echo "CASE E: a held cancellation blocks an in-flight admission\n";
+
+$raceStudents = collect([1, 2])->map(fn (int $n) => User::create([
+    'name' => "Cancellation Race Attendee {$n}",
+    'email' => "race.cancel.{$n}.{$suffix}@mseuf.edu.ph",
+    'student_id' => "CXL{$n}-{$suffix}",
+    'role' => User::ROLE_STUDENT,
+    'password' => Hash::make('password'),
+]));
+
+$raceEvent = Event::create([
+    'organizer_id' => $organizer->id,
+    'venue_id' => $venue->id,
+    'title' => 'Cancellation Race Event',
+    'slug' => "cancellation-race-{$suffix}",
+    'capacity' => 50,
+    'registration_opens_at' => now()->subHour(),
+    'registration_closes_at' => now()->addDay(),
+    'starts_at' => now()->subMinutes(10),
+    'ends_at' => now()->addHours(6),
+    'status' => Event::STATUS_PUBLISHED,
+]);
+
+$raceGate = AccessPoint::create([
+    'event_id' => $raceEvent->id,
+    'name' => 'Race Gate',
+    'code' => 'CXL-GATE',
+    'is_active' => true,
+]);
+
+$raceStaff = User::create([
+    'name' => 'Cancellation Race Staff',
+    'email' => "race.cancel.staff.{$suffix}@mseuf.edu.ph",
+    'role' => User::ROLE_STAFF,
+    'password' => Hash::make('password'),
+]);
+
+EventStaff::create([
+    'event_id' => $raceEvent->id,
+    'user_id' => $raceStaff->id,
+    'access_point_id' => $raceGate->id,
+]);
+
+$raceTickets = $raceStudents->map(
+    fn (User $student) => (new RegisterForEvent)->execute($student, $raceEvent->id)
+);
+
+$rawConnection = function (string $database) use ($baseConnection): PDO {
+    return new PDO(
+        sprintf('pgsql:host=%s;port=%s;dbname=%s', $baseConnection['host'], $baseConnection['port'], $database),
+        $baseConnection['username'],
+        $baseConnection['password'],
+        [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+    );
+};
+
+$spawnWorker = function (string $mode, array $payload, string $jobDatabase, string $script): array {
+    $payload['db'] = $jobDatabase;
+
+    $process = proc_open(
+        [PHP_BINARY, $script, $mode, base64_encode(json_encode($payload))],
+        [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        $pipes,
+        dirname($script, 2),
+        null,
+        ['bypass_shell' => true]
+    );
+
+    if (! is_resource($process)) {
+        throw new RuntimeException('Failed to spawn worker.');
+    }
+
+    return [$process, $pipes];
+};
+
+$collectWorker = function ($process, array $pipes): array {
+    $stdout = stream_get_contents($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]);
+    fclose($pipes[0]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    proc_close($process);
+
+    $result = null;
+    foreach (explode(PHP_EOL, (string) $stdout) as $line) {
+        if (str_starts_with($line, 'RESULT:')) {
+            $result = json_decode(substr($line, 7), true);
+        }
+    }
+
+    return $result ?? ['ok' => false, 'reason' => 'no_result', 'detail' => trim($stdout.' '.$stderr)];
+};
+
+$blockedBackends = function (PDO $connection, string $database): int {
+    $statement = $connection->prepare(
+        'select count(*) from pg_stat_activity
+         where datname = :db and wait_event_type = :wait_type and pid <> pg_backend_pid()'
+    );
+    $statement->execute(['db' => $database, 'wait_type' => 'Lock']);
+
+    return (int) $statement->fetchColumn();
+};
+
+$cancelConnection = $rawConnection($testDatabase);
+$cancelConnection->beginTransaction();
+$cancelConnection->prepare('update events set status = ?, updated_at = now() where id = ?')
+    ->execute([Event::STATUS_CANCELLED, $raceEvent->id]);
+
+[$cancelProcess, $cancelPipes] = $spawnWorker('scan', [
+    'staff_user_id' => $raceStaff->id,
+    'event_id' => $raceEvent->id,
+    'access_point_id' => $raceGate->id,
+    'qr_payload' => $raceTickets[0]['qr_payload'],
+    'client_scan_id' => (string) Str::uuid(),
+], $testDatabase, $childScript);
+
+$cancelWorkerReady = trim((string) fgets($cancelPipes[1])) === 'READY';
+stream_set_write_buffer($cancelPipes[0], 0);
+fwrite($cancelPipes[0], 'GO'.PHP_EOL);
+fflush($cancelPipes[0]);
+
+$blockedDeadline = microtime(true) + 20.0;
+$observedBlocked = 0;
+while (microtime(true) < $blockedDeadline) {
+    $observedBlocked = $blockedBackends($cancelConnection, $testDatabase);
+    if ($observedBlocked > 0) {
+        break;
+    }
+    usleep(50_000);
+}
+
+echo "  admission blocked on the cancelled event row (blocked backends: {$observedBlocked})\n";
+$cancelConnection->commit();
+
+$cancelResult = $collectWorker($cancelProcess, $cancelPipes);
+echo '  worker: '.json_encode($cancelResult).PHP_EOL;
+
+$raceAdmissions = Admission::where('ticket_id', $raceTickets[0]['ticket']->id)->count();
+echo "  admission rows for the scanned ticket: {$raceAdmissions}\n";
+
+$assert($cancelWorkerReady, 'the cancellation-race worker reached the barrier');
+$assert($observedBlocked > 0, 'the admission blocked on the event row rather than racing past the cancellation');
+$assert(($cancelResult['status'] ?? null) === 'event_cancelled', 'the admission saw the committed cancellation and was rejected');
+$assert($raceAdmissions === 0, 'a cancelled event recorded no admission');
+echo "\n";
+
+// =============================================================================
+// CASE F — Scanners for different tickets are not serialized by the event lock
+// =============================================================================
+// The admission transaction takes the event row FOR SHARE precisely so that
+// concurrent scanners do not queue behind each other. Holding a FOR SHARE lock
+// from a separate connection reproduces that contention: because shared locks are
+// mutually compatible, both workers must still complete while the orchestrator's
+// shared lock is held. If the lock were exclusive, this case would deadlock.
+echo "CASE F: two different tickets scan concurrently while a shared event lock is held\n";
+
+$parallelEvent = Event::create([
+    'organizer_id' => $organizer->id,
+    'venue_id' => $venue->id,
+    'title' => 'Parallel Scan Event',
+    'slug' => "parallel-scan-{$suffix}",
+    'capacity' => 50,
+    'registration_opens_at' => now()->subHour(),
+    'registration_closes_at' => now()->addDay(),
+    'starts_at' => now()->subMinutes(10),
+    'ends_at' => now()->addHours(6),
+    'status' => Event::STATUS_PUBLISHED,
+]);
+
+$parallelGate = AccessPoint::create([
+    'event_id' => $parallelEvent->id,
+    'name' => 'Parallel Gate',
+    'code' => 'PAR-GATE',
+    'is_active' => true,
+]);
+
+EventStaff::create([
+    'event_id' => $parallelEvent->id,
+    'user_id' => $raceStaff->id,
+    'access_point_id' => $parallelGate->id,
+]);
+
+$parallelStudents = collect([3, 4])->map(fn (int $n) => User::create([
+    'name' => "Parallel Scan Attendee {$n}",
+    'email' => "race.parallel.{$n}.{$suffix}@mseuf.edu.ph",
+    'student_id' => "PAR{$n}-{$suffix}",
+    'role' => User::ROLE_STUDENT,
+    'password' => Hash::make('password'),
+]));
+
+$parallelTickets = $parallelStudents->map(
+    fn (User $student) => (new RegisterForEvent)->execute($student, $parallelEvent->id)
+);
+
+$shareConnection = $rawConnection($testDatabase);
+$shareConnection->beginTransaction();
+$shareConnection->prepare('select id from events where id = ? for share')->execute([$parallelEvent->id]);
+
+$shareStart = microtime(true);
+$shareResults = $runConcurrently([
+    ['scan', [
+        'staff_user_id' => $raceStaff->id,
+        'event_id' => $parallelEvent->id,
+        'access_point_id' => $parallelGate->id,
+        'qr_payload' => $parallelTickets[0]['qr_payload'],
+        'client_scan_id' => (string) Str::uuid(),
+    ]],
+    ['scan', [
+        'staff_user_id' => $raceStaff->id,
+        'event_id' => $parallelEvent->id,
+        'access_point_id' => $parallelGate->id,
+        'qr_payload' => $parallelTickets[1]['qr_payload'],
+        'client_scan_id' => (string) Str::uuid(),
+    ]],
+], $childScript, $testDatabase);
+
+// Only now release the orchestrator's shared lock.
+$shareConnection->commit();
+$shareElapsed = microtime(true) - $shareStart;
+
+foreach ($shareResults as $index => $result) {
+    echo '  worker '.($index + 1).': '.json_encode($result).PHP_EOL;
+}
+echo '  both workers completed in '.round($shareElapsed, 2)."s while a shared event lock was held\n";
+
+$shareAdmissions = Admission::whereIn('ticket_id', $parallelTickets->pluck('ticket.id')->all())->count();
+$shareSuccesses = count(array_filter($shareResults, fn ($r) => ($r['ok'] ?? false) === true));
+
+echo "  admission rows for both tickets: {$shareAdmissions}\n";
+$assert($shareSuccesses === 2, 'both different-ticket scans were admitted despite the shared event lock');
+$assert($shareAdmissions === 2, 'each ticket recorded exactly one admission');
+echo "\n";
+
+// =============================================================================
 // Summary
 // =============================================================================
 if ($failures === []) {
