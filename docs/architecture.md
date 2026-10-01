@@ -180,16 +180,16 @@ Because both paths lock the same row first, the count cannot change between the 
 
 ### Lock ordering
 
-Every path acquires the `events` row before any ticket or registration row:
+Locks are ordered to guarantee that no deadlock cycle can form:
 
 | Path | Order |
 | :--- | :--- |
 | Organizer creates a registration | `events` FOR UPDATE → `registrations`/`tickets` |
 | Organizer edits an event | `events` FOR UPDATE → `registrations` (count) |
 | Scanner admits a ticket | `events` FOR SHARE → `tickets` FOR UPDATE |
+| Attendee cancels registration | `tickets` FOR UPDATE → `registrations` |
 
-Acquiring `events` first everywhere means no lock cycle can form, so no two operations can deadlock. The scanner takes `FOR SHARE` rather than `FOR UPDATE` deliberately: shared locks are mutually compatible, so scanners for *different* tickets still run in parallel, while any event writer (cancel, complete, or the capacity edit above, which takes `FOR UPDATE`) is forced to wait and cannot commit in the middle of an admission.
-
+No lock cycle can form because any path that locks the `events` row acquires it **before** any ticket or registration row, while `RegistrationController::destroy()` locks only `tickets` and never requests an `events` lock while holding the ticket lock. The scanner takes `FOR SHARE` on `events` rather than `FOR UPDATE` deliberately: shared locks are mutually compatible, so scanners for *different* tickets run in parallel without serializing each other, while event writers (cancel, complete, or capacity edits taking `FOR UPDATE`) must wait until the in-flight admission commits.
 ### Re-registration after cancellation
 
 `registrations` carries `UNIQUE(event_id, user_id)`, so a cancelled registration cannot simply be replaced by a new row. When a previously cancelled attendee registers again, the existing row is reactivated (`status = confirmed`, `cancelled_at = null`) and the ticket credential is rotated — a new `public_id`, a new 256-bit secret, a new `qr_hash`, `revoked_at = null`, and `credential_version` incremented.

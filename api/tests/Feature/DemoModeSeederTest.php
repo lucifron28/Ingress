@@ -7,6 +7,8 @@ use App\Models\User;
 use App\Models\Venue;
 use App\Providers\AppServiceProvider;
 use Database\Seeders\DatabaseSeeder;
+use Database\Seeders\EventSeeder;
+use Database\Seeders\UserSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -55,6 +57,19 @@ class DemoModeSeederTest extends TestCase
 
         $this->expectException(\LogicException::class);
 
-        (new AppServiceProvider($this->app))->boot();
+        (new \App\Providers\AppServiceProvider($this->app))->boot();
+    }
+
+    public function test_leaf_seeders_cannot_be_invoked_directly_outside_demo_mode(): void
+    {
+        config(['app.demo_mode' => false]);
+
+        // `db:seed --class=…` is a normal Laravel invocation and must not be a way
+        // around the demo gate.
+        $this->seed(UserSeeder::class);
+        $this->seed(EventSeeder::class);
+
+        $this->assertEquals(0, User::count(), 'UserSeeder must not create accounts outside demo mode');
+        $this->assertEquals(0, Event::count(), 'EventSeeder must not create events outside demo mode');
     }
 }

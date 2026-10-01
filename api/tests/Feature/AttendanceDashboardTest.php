@@ -200,9 +200,49 @@ class AttendanceDashboardTest extends TestCase
         $this->actingAs($this->organizerA)
             ->get("/organizer/events/{$this->event->id}")
             ->assertStatus(200);
+    }
 
-        $this->actingAs($this->organizerA)
-            ->get("/organizer/events/{$this->event->id}/attendance")
+    public function test_a_cancelled_registration_stops_counting_as_checked_in(): void
+    {
+        $admitAction = new AdmitTicket();
+
+        // Register and admit at Gate A.
+        $registration = $this->actingAs($this->student, 'sanctum')
+            ->postJson("/api/v1/events/{$this->event->id}/registration");
+        $qrPayload = $registration->json('qr_payload');
+
+        $admitAction->execute(
+            staff: $this->organizerA,
+            eventId: $this->event->id,
+            accessPointId: $this->gateA->id,
+            qrPayload: $qrPayload,
+            clientScanId: (string) Str::uuid()
+        );
+
+        $before = $this->actingAs($this->organizerA)
+            ->getJson("/organizer/events/{$this->event->id}/attendance/feed");
+        $before->assertJson(['stats' => ['registered_count' => 1, 'checked_in_count' => 1]]);
+
+        // Cancelling after admission must not leave a checked-in count that exceeds
+        // the registered count.
+        $this->actingAs($this->student, 'sanctum')
+            ->deleteJson("/api/v1/events/{$this->event->id}/registration")
             ->assertStatus(200);
+
+        $after = $this->actingAs($this->organizerA)
+            ->getJson("/organizer/events/{$this->event->id}/attendance/feed");
+
+        $after->assertStatus(200)
+            ->assertJson([
+                'stats' => [
+                    'registered_count' => 0,
+                    'checked_in_count' => 0,
+                    'not_arrived_count' => 0,
+                    'attendance_percentage' => 0,
+                ],
+            ]);
+
+        $this->assertEmpty($after->json('recent_admissions'), 'the live feed must agree with the KPI');
+        $this->assertEquals(0, collect($after->json('gate_stats'))->sum('count'), 'gate breakdown must agree too');
     }
 }
