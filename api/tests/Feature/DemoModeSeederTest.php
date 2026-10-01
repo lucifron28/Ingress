@@ -22,10 +22,8 @@ class DemoModeSeederTest extends TestCase
 
         $this->seed(DatabaseSeeder::class);
 
-        // No predictable credential may be created.
         $this->assertEquals(0, User::count(), 'demo mode off must not create any user');
 
-        // Venues are harmless reference data and are still seeded.
         $this->assertGreaterThan(0, Venue::count());
         $this->assertEquals(0, Event::count());
     }
@@ -50,8 +48,6 @@ class DemoModeSeederTest extends TestCase
 
     public function test_demo_mode_is_rejected_in_production(): void
     {
-        // The provider guard must fail closed rather than serve predictable
-        // credentials in production.
         $this->app->detectEnvironment(fn () => 'production');
         config(['app.demo_mode' => true]);
 
@@ -64,8 +60,6 @@ class DemoModeSeederTest extends TestCase
     {
         config(['app.demo_mode' => false]);
 
-        // `db:seed --class=…` is a normal Laravel invocation and must not be a way
-        // around the demo gate.
         $this->seed(UserSeeder::class);
         $this->seed(EventSeeder::class);
 

@@ -71,7 +71,6 @@ class EventManagementTest extends TestCase
 
         $response->assertRedirect(route('organizer.events.show', $event));
 
-        // Verify default access points were provisioned
         $this->assertCount(3, $event->accessPoints);
         $this->assertTrue($event->accessPoints()->where('code', 'MAIN')->exists());
         $this->assertTrue($event->accessPoints()->where('code', 'GATE-A')->exists());
@@ -137,7 +136,6 @@ class EventManagementTest extends TestCase
             'status' => Event::STATUS_DRAFT,
         ]);
 
-        // Organizer A tries to update Organizer B's event
         $response = $this->actingAs($this->organizerA)
             ->put("/organizer/events/{$eventB->id}", [
                 'venue_id' => $this->venue->id,
@@ -152,7 +150,6 @@ class EventManagementTest extends TestCase
         $response->assertStatus(403);
         $this->assertEquals('Organizer B Private Event', $eventB->fresh()->title);
 
-        // Organizer A tries to cancel Organizer B's event
         $cancelResponse = $this->actingAs($this->organizerA)
             ->post("/organizer/events/{$eventB->id}/cancel");
 
@@ -187,7 +184,6 @@ class EventManagementTest extends TestCase
             'role' => User::ROLE_STAFF,
         ]);
 
-        // Add custom gate
         $gateResponse = $this->actingAs($this->organizerA)
             ->post("/organizer/events/{$event->id}/access-points", [
                 'name' => 'South Turnstile',
@@ -198,7 +194,6 @@ class EventManagementTest extends TestCase
         $gate = $event->accessPoints()->where('code', 'GATE-S')->first();
         $this->assertNotNull($gate);
 
-        // Assign staff to gate
         $assignResponse = $this->actingAs($this->organizerA)
             ->post("/organizer/events/{$event->id}/staff", [
                 'user_id' => $staffUser->id,
@@ -229,7 +224,6 @@ class EventManagementTest extends TestCase
             'status' => Event::STATUS_DRAFT,
         ]);
 
-        // Attempting to assign student as staff
         $response = $this->actingAs($this->organizerA)
             ->post("/organizer/events/{$event->id}/staff", [
                 'user_id' => $this->student->id, // Student role, not staff!
@@ -275,7 +269,6 @@ class EventManagementTest extends TestCase
 
         $staffUser = User::factory()->create(['role' => User::ROLE_STAFF]);
 
-        // Attempt to assign Event 1 staff to Event 2's gate
         $response = $this->actingAs($this->organizerA)
             ->post("/organizer/events/{$event1->id}/staff", [
                 'user_id' => $staffUser->id,
@@ -300,7 +293,6 @@ class EventManagementTest extends TestCase
             'status' => Event::STATUS_PUBLISHED,
         ]);
 
-        // 420 confirmed registrations against a capacity of 500.
         User::factory()->count(420)->create(['role' => User::ROLE_STUDENT])
             ->each(function (User $student) use ($event) {
                 Registration::create([
@@ -321,14 +313,12 @@ class EventManagementTest extends TestCase
             'ends_at' => Carbon::now()->addDays(6)->addHours(3)->toDateTimeString(),
         ];
 
-        // Lowering below the confirmed count is rejected and changes nothing.
         $this->actingAs($this->organizerA)
             ->put("/organizer/events/{$event->id}", $payload(300))
             ->assertSessionHasErrors(['capacity']);
 
         $this->assertEquals(500, $event->fresh()->capacity, 'rejected update must not change capacity');
 
-        // Lowering to exactly the confirmed count is allowed.
         $this->actingAs($this->organizerA)
             ->put("/organizer/events/{$event->id}", $payload(420))
             ->assertSessionHasNoErrors();

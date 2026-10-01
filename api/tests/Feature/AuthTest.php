@@ -175,8 +175,7 @@ class AuthTest extends TestCase
 
     public function test_mobile_login_rejects_a_malformed_email_shape_without_erroring(): void
     {
-        // The limiter runs before validation, so it must tolerate a non-string
-        // `email` instead of raising a 500 and leaving the endpoint unthrottled.
+        // The limiter must handle malformed input because it runs before validation.
         $this->postJson('/api/v1/auth/login', [
             'email' => ['not-a-string@mseuf.edu.ph'],
             'password' => 'secret',
@@ -196,7 +195,6 @@ class AuthTest extends TestCase
             'password' => bcrypt('password'),
         ]);
 
-        // Wrong password so the session stays a guest and the form stays reachable.
         for ($attempt = 1; $attempt <= 5; $attempt++) {
             $this->post('/login', [
                 'email' => $organizer->email,
@@ -211,9 +209,7 @@ class AuthTest extends TestCase
 
         $blocked->assertRedirect(route('login'));
 
-        // Assert on the rendered form rather than on the session bag: reading
-        // `session('errors')` between the POST and this GET rewraps the flashed bag
-        // and it then fails to re-render, which is a test-harness artifact.
+        // Render the form to assert the flashed throttle message.
         $form = $this->get(route('login'));
 
         $form->assertSee('Too many login attempts. Please try again in a minute.');
