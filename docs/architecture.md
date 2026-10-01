@@ -178,20 +178,23 @@ Two consequences follow:
 
 ### Verifying concurrency on real PostgreSQL
 
-SQLite serializes writers and cannot demonstrate real lock contention, so the behavioural suite (which runs on in-memory SQLite) proves logic but not races. Three invariants are verified separately against real PostgreSQL:
+SQLite serializes writers and cannot demonstrate real lock contention, so the behavioural suite (which runs on in-memory SQLite) proves logic but not races. Four invariants are verified separately against real PostgreSQL:
 
 | Invariant | Contested resource | Expected outcome |
 | :--- | :--- | :--- |
 | Final-seat registration | `events` row (capacity 1) | exactly one confirmed registration |
 | Same-ticket admission | `tickets` row | exactly one admission row; loser receives `already_admitted` |
 | Replayed `client_scan_id` across two tickets | `admissions.client_scan_id` unique index | exactly one admission row; loser receives `idempotency_conflict`, never an unhandled 500 |
+| Unique-violation mapping | `admissions.client_scan_id` unique index, deterministically | a worker held behind an uncommitted conflicting insert is mapped to `idempotency_conflict` |
 
 ```bash
 cd api
 php scripts/verify_pgsql_concurrency.php
 ```
 
-The verifier provisions a dedicated `ingress_concurrency` database, spawns two Laravel child processes per case, signals `READY` only after each child has completed its PostgreSQL handshake, and releases both through a `GO` barrier so their transactions genuinely overlap before asserting the outcomes above. It exits non-zero on failure and never touches demonstration data.
+The verifier provisions a dedicated `ingress_concurrency` database, spawns two Laravel child processes per case, signals `READY` only after each child has completed its PostgreSQL handshake, and releases both through a `GO` barrier so their transactions genuinely overlap before asserting the outcomes above.
+
+The fourth case exists because the third case's branch depends on OS scheduling — the loser can be decided either by the idempotency pre-check or by the unique index. The mapping case holds an uncommitted conflicting insert on a second connection, polls `pg_stat_activity` until the worker is provably blocked on the unique index, then commits, so the mapped path is always exercised. Each worker reports whether it reached the admission insert (observed via `DB::beforeExecuting`, because `DB::listen` only fires for statements that return). It exits non-zero on failure and never touches demonstration data.
 
 ---
 

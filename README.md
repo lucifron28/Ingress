@@ -157,7 +157,7 @@ php artisan serve --host=0.0.0.0 --port=8000
 Organizer portal available at: `http://localhost:8000/login`
 
 ### 3. Run Backend Integration Tests
-The fast feature suite runs on in-memory SQLite (50 tests, 265 assertions):
+The fast feature suite runs on in-memory SQLite (51 tests, 275 assertions):
 ```bash
 cd api
 php artisan test
@@ -172,22 +172,28 @@ php artisan test --filter=RegistrationTest
 
 #### PostgreSQL concurrency verification (separate)
 
-SQLite serializes writers, so it cannot prove real race behaviour. Three guarantees
+SQLite serializes writers, so it cannot prove real race behaviour. Four guarantees
 are verified against the real PostgreSQL server using genuinely overlapping
 transactions released through a two-process barrier:
 
 1. two simultaneous registrations competing for the final seat
 2. two simultaneous gates scanning the same unused ticket
 3. the same `client_scan_id` replayed for two different tickets
+4. a worker forced to reach the admission insert and collide on the
+   `admissions.client_scan_id` unique index (proves the conflict mapping, not just
+   whichever branch the scheduler happened to pick)
 
 ```bash
 cd api
 php scripts/verify_pgsql_concurrency.php
 ```
 
-The script provisions its own `ingress_concurrency` database (recreated on each run)
-so demonstration data is never touched, and exits non-zero if any invariant is
-violated. Override the database name with `INGRESS_CONCURRENCY_DB` if needed.
+Case 4 holds an uncommitted conflicting insert from a second connection, waits until
+PostgreSQL reports the worker blocked on the unique index (`pg_stat_activity`), then
+releases it. The script provisions its own `ingress_concurrency` database (recreated
+on each run) so demonstration data is never touched, and exits non-zero if any
+invariant is violated. Override the database name with `INGRESS_CONCURRENCY_DB` if
+needed.
 
 ### 4. Mobile Client (Expo React Native)
 ```bash
