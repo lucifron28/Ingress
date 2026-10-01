@@ -173,6 +173,21 @@ class AuthTest extends TestCase
         ])->assertStatus(422);
     }
 
+    public function test_mobile_login_rejects_a_malformed_email_shape_without_erroring(): void
+    {
+        // The limiter runs before validation, so it must tolerate a non-string
+        // `email` instead of raising a 500 and leaving the endpoint unthrottled.
+        $this->postJson('/api/v1/auth/login', [
+            'email' => ['not-a-string@mseuf.edu.ph'],
+            'password' => 'secret',
+        ])->assertStatus(422);
+
+        $this->postJson('/api/v1/auth/login', [
+            'email' => ['not-a-string@mseuf.edu.ph'],
+            'password' => 'secret',
+        ])->assertStatus(422);
+    }
+
     public function test_organizer_web_login_is_throttled_after_five_attempts(): void
     {
         $organizer = User::factory()->create([

@@ -458,8 +458,8 @@ Returned when staff bound to one gate attempt to scan through another.
 ```
 
 #### Response 7: Idempotency Key Conflict (`409 Conflict`)
-Returned when a `client_scan_id` is replayed for a **different** ticket, event, or access point. A replay for the *same* ticket/event/gate returns the original `200 Ticket Valid` response instead.
-
+Returned when a `client_scan_id` is replayed for a **different** ticket, credential version, event, or access point. A replay for the *same* ticket/credential/event/gate returns the original `200 Ticket Valid` response instead.
+An insert that loses a race on the `UNIQUE(client_scan_id)` index is also mapped to this response.
 ```json
 {
   "status": "idempotency_conflict",
@@ -543,6 +543,9 @@ The server evaluates these conditions in order and stops at the first failure:
 12. `client_scan_id` is a replay only for the same ticket, credential version, event, and gate
 13. no admission exists for this ticket's **current credential issuance**
 
-Steps 2, 12, and 13 are re-evaluated authoritatively **inside** the admission transaction: step 2 under a `FOR SHARE` lock on the event row (so a concurrent cancellation or completion cannot commit mid-admission), and 12–13 under a `FOR UPDATE` lock on the ticket row. Steps 1–11 outside the transaction are a fast pre-check only.
+Steps 2, 8–11, 12, and 13 are re-evaluated authoritatively **inside** the admission transaction:
+- Step 2 under an `Event::sharedLock()` (`FOR SHARE`) on the event row, so a concurrent cancellation or completion cannot commit mid-admission.
+- Steps 8–11 and 12–13 under a `Ticket::lockForUpdate()` (`FOR UPDATE`) on the ticket row, re-validating the secret, ticket status, registration status, event match, and in-lock idempotency.
+Steps 1–11 outside the transaction serve as a fast pre-check path.
 
 Step 13 compares `admissions.credential_version` with `tickets.credential_version`, so admission history recorded under a credential retired by a cancellation/re-registration is retained for audit but does not block the newly issued credential.

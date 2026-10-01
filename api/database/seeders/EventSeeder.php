@@ -18,6 +18,12 @@ class EventSeeder extends Seeder
      */
     public function run(): void
     {
+        // Demonstration events exist only to make a demo environment usable, and
+        // they depend on the demo users. Guarded here as well as in DatabaseSeeder.
+        if (! config('app.demo_mode')) {
+            return;
+        }
+
         $organizer1 = User::where('email', 'organizer@mseuf.edu.ph')->first();
         $organizer2 = User::where('email', 'organizer2@mseuf.edu.ph')->first();
         $staffA = User::where('email', 'staff.gate_a@mseuf.edu.ph')->first();

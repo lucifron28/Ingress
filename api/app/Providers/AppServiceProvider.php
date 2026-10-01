@@ -43,9 +43,15 @@ class AppServiceProvider extends ServiceProvider
         // accounts from the same campus NAT, and one shared IP cannot be used to
         // spread guesses across many accounts without each account being counted.
         RateLimiter::for('login', function (Request $request) {
-            $email = Str::lower(trim((string) $request->input('email')));
+            // The limiter runs before request validation, so `email` may be any
+            // shape the client sent. Only a string can key the bucket; anything
+            // else shares the empty-email bucket for that IP and is rejected by
+            // validation immediately afterwards.
+            $email = $request->input('email');
 
-            return Limit::perMinute(5)->by($email.'|'.$request->ip());
+            return Limit::perMinute(5)->by(
+                (is_string($email) ? Str::lower(trim($email)) : '').'|'.$request->ip()
+            );
         });
     }
 }

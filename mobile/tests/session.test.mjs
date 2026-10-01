@@ -129,12 +129,15 @@ check('a transport failure remains fail-closed for server actions', offlineMessa
 
 globalThis.fetch = realFetch;
 
-// --- after a node switch, only the new URL and a new token may exist ---------
+// --- storage primitives allow independent URL updates ------------------------
+// Note: React-level wiring in AuthContext.updateServerUrl and server-settings.tsx
+// (forced sign-out and navigation to /login) is verified via TypeScript typechecking
+// and code review because no React Native test runner is configured.
 await AuthStorage.saveServerUrl('http://10.0.0.9:8000/api/v1');
 await AuthStorage.saveToken('token-from-server-b');
 
 check(
-  'after switching Event Nodes only the new URL and new token remain',
+  'storage primitives allow updating the Event Node URL independently of tokens',
   (await AuthStorage.getServerUrl()) === 'http://10.0.0.9:8000/api/v1' &&
     (await AuthStorage.getToken()) === 'token-from-server-b',
 );

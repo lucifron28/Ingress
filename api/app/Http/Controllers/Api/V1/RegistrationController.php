@@ -11,6 +11,7 @@ use App\Models\Ticket;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class RegistrationController extends Controller
@@ -54,17 +55,40 @@ class RegistrationController extends Controller
             ]);
         }
 
-        $registration->update([
-            'status' => Registration::STATUS_CANCELLED,
-            'cancelled_at' => Carbon::now(),
-        ]);
+        // Cancel inside one transaction that locks the ticket row first — the same
+        // order the admission transaction uses. Without this, the two statements
+        // below autocommit separately, so a scan could read a still-confirmed
+        // registration and insert an admission in between, leaving a cancelled
+        // registration with a current-credential admission.
+        $cancelledAt = Carbon::now();
 
-        if ($registration->ticket) {
-            $registration->ticket->update([
-                'status' => Ticket::STATUS_REVOKED,
-                'revoked_at' => Carbon::now(),
+        DB::transaction(function () use ($registration, $cancelledAt) {
+            $ticketId = $registration->ticket?->id;
+            $lockedTicket = $ticketId
+                ? Ticket::whereKey($ticketId)->lockForUpdate()->first()
+                : null;
+
+            // Re-read under the lock: a concurrent request may have changed it.
+            $lockedRegistration = Registration::whereKey($registration->getKey())
+                ->where('status', Registration::STATUS_CONFIRMED)
+                ->first();
+
+            if (! $lockedRegistration) {
+                throw ValidationException::withMessages([
+                    'registration' => ['No active confirmed registration found for this event.'],
+                ]);
+            }
+
+            $lockedRegistration->update([
+                'status' => Registration::STATUS_CANCELLED,
+                'cancelled_at' => $cancelledAt,
             ]);
-        }
+
+            $lockedTicket?->update([
+                'status' => Ticket::STATUS_REVOKED,
+                'revoked_at' => $cancelledAt,
+            ]);
+        });
 
         return response()->json([
             'message' => 'Registration cancelled and digital ticket revoked.',

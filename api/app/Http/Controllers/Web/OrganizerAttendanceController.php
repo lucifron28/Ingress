@@ -102,8 +102,13 @@ class OrganizerAttendanceController extends Controller
 
         // Only admissions taken with the ticket's current credential count as
         // checked in; history from a retired credential is retained for audit.
+        // The registration must still be confirmed, otherwise an attendee who was
+        // admitted and then cancelled would be counted as checked in while no
+        // longer being counted as registered.
         $checkedIn = Admission::forCurrentCredential()
-            ->whereHas('ticket.registration', fn ($q) => $q->where('event_id', $event->id))
+            ->whereHas('ticket.registration', fn ($q) => $q
+                ->where('event_id', $event->id)
+                ->where('status', Registration::STATUS_CONFIRMED))
             ->count();
 
         $notArrived = max(0, $registered - $checkedIn);
@@ -125,9 +130,12 @@ class OrganizerAttendanceController extends Controller
      */
     private function calculateGateStats(Event $event): array
     {
-        return $event->accessPoints->map(function ($ap) {
+        return $event->accessPoints->map(function ($ap) use ($event) {
             $count = Admission::forCurrentCredential()
                 ->where('access_point_id', $ap->id)
+                ->whereHas('ticket.registration', fn ($q) => $q
+                    ->where('event_id', $event->id)
+                    ->where('status', Registration::STATUS_CONFIRMED))
                 ->count();
             return [
                 'id' => $ap->id,
@@ -141,15 +149,17 @@ class OrganizerAttendanceController extends Controller
     /**
      * Get recent admissions stream for the event.
      *
-     * Scoped to each ticket's current credential so the operational feed stays
-     * consistent with the "checked in" KPI: an admission superseded by a
-     * cancellation and re-registration is audit history, not current state.
+     * Scoped to each ticket's current credential and to still-confirmed
+     * registrations so the operational feed, the gate breakdown, and the
+     * "checked in" KPI always describe the same set of people.
      */
     private function getRecentAdmissions(Event $event)
     {
         return Admission::with(['ticket.registration.user', 'accessPoint', 'scannedBy'])
             ->forCurrentCredential()
-            ->whereHas('ticket.registration', fn ($q) => $q->where('event_id', $event->id))
+            ->whereHas('ticket.registration', fn ($q) => $q
+                ->where('event_id', $event->id)
+                ->where('status', Registration::STATUS_CONFIRMED))
             ->orderBy('admitted_at', 'desc')
             ->take(10)
             ->get();
