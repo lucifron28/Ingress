@@ -46,7 +46,9 @@
 
     <div style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--neutral-border); font-size: 0.75rem; color: var(--neutral-muted); text-align: center;">
         <p>Students and Event Staff should use the Ingress Mobile App.</p>
-        <p style="margin-top: 0.35rem;">Default Demo Organizer: <code style="color: var(--mseuf-maroon); font-weight: 600;">organizer@mseuf.edu.ph</code> / <code style="color: var(--mseuf-maroon);">password</code></p>
+        @if (config('app.demo_mode'))
+            <p style="margin-top: 0.35rem;">Default Demo Organizer: <code style="color: var(--mseuf-maroon); font-weight: 600;">organizer@mseuf.edu.ph</code> / <code style="color: var(--mseuf-maroon);">password</code></p>
+        @endif
     </div>
 </div>
 @endsection

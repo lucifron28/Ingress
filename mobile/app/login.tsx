@@ -12,12 +12,13 @@ import {
   View,
 } from 'react-native';
 import { useAuth } from '../src/context/AuthContext';
+import { DEMO_MODE } from '../src/services/api-client';
 
 export default function LoginScreen() {
   const { login, serverUrl } = useAuth();
   const { notice } = useLocalSearchParams<{ notice?: string }>();
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('password');
+  const [password, setPassword] = useState(DEMO_MODE ? 'password' : '');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -117,31 +118,33 @@ export default function LoginScreen() {
             )}
           </Pressable>
 
-          {/* Quick Demo Credentials */}
-          <View style={styles.demoSection}>
-            <Text style={styles.demoHeading}>Demo Quick Select</Text>
-            <Pressable
-              style={styles.demoChip}
-              onPress={() => handleSelectDemoAccount('student1@mseuf.edu.ph')}
-            >
-              <Text style={styles.demoChipRole}>STUDENT</Text>
-              <Text style={styles.demoChipText}>Carlo Mendoza (student1@mseuf.edu.ph)</Text>
-            </Pressable>
-            <Pressable
-              style={styles.demoChip}
-              onPress={() => handleSelectDemoAccount('staff.gate_a@mseuf.edu.ph')}
-            >
-              <Text style={styles.demoChipRole}>STAFF</Text>
-              <Text style={styles.demoChipText}>Alex Rivera (Gate A)</Text>
-            </Pressable>
-            <Pressable
-              style={styles.demoChip}
-              onPress={() => handleSelectDemoAccount('staff.gate_b@mseuf.edu.ph')}
-            >
-              <Text style={styles.demoChipRole}>STAFF</Text>
-              <Text style={styles.demoChipText}>Bea Ramos (Gate B)</Text>
-            </Pressable>
-          </View>
+          {/* Quick Demo Credentials — development and classroom builds only */}
+          {DEMO_MODE && (
+            <View style={styles.demoSection}>
+              <Text style={styles.demoHeading}>Demo Quick Select</Text>
+              <Pressable
+                style={styles.demoChip}
+                onPress={() => handleSelectDemoAccount('student1@mseuf.edu.ph')}
+              >
+                <Text style={styles.demoChipRole}>STUDENT</Text>
+                <Text style={styles.demoChipText}>Carlo Mendoza (student1@mseuf.edu.ph)</Text>
+              </Pressable>
+              <Pressable
+                style={styles.demoChip}
+                onPress={() => handleSelectDemoAccount('staff.gate_a@mseuf.edu.ph')}
+              >
+                <Text style={styles.demoChipRole}>STAFF</Text>
+                <Text style={styles.demoChipText}>Alex Rivera (Gate A)</Text>
+              </Pressable>
+              <Pressable
+                style={styles.demoChip}
+                onPress={() => handleSelectDemoAccount('staff.gate_b@mseuf.edu.ph')}
+              >
+                <Text style={styles.demoChipRole}>STAFF</Text>
+                <Text style={styles.demoChipText}>Bea Ramos (Gate B)</Text>
+              </Pressable>
+            </View>
+          )}
 
           {/* LAN Server Indicator & Configuration Link */}
           <View style={styles.lanContainer}>

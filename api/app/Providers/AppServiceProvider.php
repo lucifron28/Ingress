@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
+use LogicException;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -23,6 +24,16 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Demo mode creates accounts with a known password. Refuse to serve at all
+        // rather than run a production deployment that hands out predictable
+        // credentials.
+        if (config('app.demo_mode') && $this->app->environment('production')) {
+            throw new LogicException(
+                'INGRESS_DEMO_MODE is enabled while APP_ENV=production. Disable demo mode '
+                .'and provision real accounts before serving traffic.'
+            );
+        }
+
         // Applied to both the mobile API login and the organizer web login via the
         // `throttle:login` route middleware.
         //

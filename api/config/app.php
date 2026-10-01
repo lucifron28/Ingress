@@ -17,6 +17,22 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Demo Mode
+    |--------------------------------------------------------------------------
+    |
+    | When enabled, the database seeder creates the synthetic demonstration
+    | accounts (all sharing the password "password") and the UI advertises them.
+    | That is convenient for development and classroom demonstrations and is
+    | never appropriate in production, so the default here is off: an
+    | environment that does not opt in explicitly gets no predictable
+    | credentials. Enabling it while APP_ENV=production is a hard error.
+    |
+    */
+
+    'demo_mode' => (bool) env('INGRESS_DEMO_MODE', false),
+
+    /*
+    |--------------------------------------------------------------------------
     | Application Environment
     |--------------------------------------------------------------------------
     |
