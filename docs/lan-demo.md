@@ -46,6 +46,7 @@ Or start manually via `pg_ctl`:
 ```cmd
 "C:\Program Files\PostgreSQL\18\bin\pg_ctl.exe" -D "C:\Users\Ron\ingress_db" -l "C:\Users\Ron\ingress_db\server.log" start
 ```
+
 ### Step 2.3: Allow Ingress Port 8000 in Windows Firewall
 Ensure inbound traffic on port 8000 is allowed so mobile phones on the Wi-Fi subnet can reach Laravel:
 ```powershell
