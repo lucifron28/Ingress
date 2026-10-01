@@ -10,6 +10,7 @@ use App\Models\Registration;
 use App\Models\Ticket;
 use App\Models\User;
 use Carbon\Carbon;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
 class AdmitTicket
@@ -95,6 +96,7 @@ class AdmitTicket
             if ((int) $staffAssignment->access_point_id !== (int) $accessPoint->id) {
                 $assignedGate = AccessPoint::find($staffAssignment->access_point_id);
                 $assignedName = $assignedGate?->name ?? 'another gate';
+
                 return [
                     'http_code' => 403,
                     'status' => 'gate_mismatch',
@@ -165,6 +167,7 @@ class AdmitTicket
         // Check 9: Event ownership match
         if ($ticket->registration->event_id !== $event->id) {
             $ticketEventTitle = $ticket->registration->event->title ?? 'Another Event';
+
             return [
                 'http_code' => 422,
                 'status' => 'wrong_event',
@@ -193,6 +196,7 @@ class AdmitTicket
             }
 
             $formattedTime = $existingById->admitted_at->format('g:i A');
+
             return [
                 'http_code' => 200,
                 'status' => 'admitted',
@@ -213,56 +217,119 @@ class AdmitTicket
         }
 
         // Check 11: Anti-Passback / Duplicate Admission Protection (Transactional with Ticket Row Lock)
-        return DB::transaction(function () use ($staff, $ticket, $accessPoint, $event, $clientScanId, $scannedSecret) {
-            // Lock authoritative ticket row to serialize concurrent gate scans
-            $lockedTicket = Ticket::where('id', $ticket->id)->lockForUpdate()->first();
+        try {
+            return DB::transaction(function () use ($staff, $ticket, $accessPoint, $event, $clientScanId, $scannedSecret) {
+                // Lock authoritative ticket row to serialize concurrent gate scans
+                $lockedTicket = Ticket::where('id', $ticket->id)->lockForUpdate()->first();
 
-            // Re-validate credential state under the lock. A concurrent cancellation or
-            // credential rotation must not slip through between the pre-checks and the insert.
-            if (! $lockedTicket
-                || ! $lockedTicket->verifySecret($scannedSecret)
-                || ! $lockedTicket->isActive()
-                || ! $lockedTicket->registration
-                || $lockedTicket->registration->status !== Registration::STATUS_CONFIRMED
-                || (int) $lockedTicket->registration->event_id !== (int) $event->id) {
-                return [
-                    'http_code' => 422,
-                    'status' => 'invalid_ticket',
-                    'message' => 'Invalid Ticket',
-                    'detail' => 'This ticket could not be verified.',
-                ];
-            }
-
-            // Re-verify idempotency under lock in case of concurrent identical submissions
-            $existingUnderLock = Admission::with(['accessPoint', 'scannedBy'])
-                ->where('client_scan_id', $clientScanId)
-                ->first();
-
-            if ($existingUnderLock) {
-                $isMatchingTicket = (int) $existingUnderLock->ticket_id === (int) $lockedTicket->id;
-                $isMatchingGate = (int) $existingUnderLock->access_point_id === (int) $accessPoint->id;
-                $isMatchingEvent = (int) $existingUnderLock->accessPoint?->event_id === (int) $event->id;
-
-                if (! $isMatchingTicket || ! $isMatchingGate || ! $isMatchingEvent) {
+                // Re-validate credential state under the lock. A concurrent cancellation or
+                // credential rotation must not slip through between the pre-checks and the insert.
+                if (! $lockedTicket
+                    || ! $lockedTicket->verifySecret($scannedSecret)
+                    || ! $lockedTicket->isActive()
+                    || ! $lockedTicket->registration
+                    || $lockedTicket->registration->status !== Registration::STATUS_CONFIRMED
+                    || (int) $lockedTicket->registration->event_id !== (int) $event->id) {
                     return [
-                        'http_code' => 409,
-                        'status' => 'idempotency_conflict',
-                        'message' => 'Idempotency Key Conflict',
-                        'detail' => 'The client scan ID was already used for a different admission request.',
+                        'http_code' => 422,
+                        'status' => 'invalid_ticket',
+                        'message' => 'Invalid Ticket',
+                        'detail' => 'This ticket could not be verified.',
                     ];
                 }
 
-                $formattedTime = $existingUnderLock->admitted_at->format('g:i A');
+                // Re-verify idempotency under lock in case of concurrent identical submissions
+                $existingUnderLock = Admission::with(['accessPoint', 'scannedBy'])
+                    ->where('client_scan_id', $clientScanId)
+                    ->first();
+
+                if ($existingUnderLock) {
+                    $isMatchingTicket = (int) $existingUnderLock->ticket_id === (int) $lockedTicket->id;
+                    $isMatchingGate = (int) $existingUnderLock->access_point_id === (int) $accessPoint->id;
+                    $isMatchingEvent = (int) $existingUnderLock->accessPoint?->event_id === (int) $event->id;
+
+                    if (! $isMatchingTicket || ! $isMatchingGate || ! $isMatchingEvent) {
+                        return [
+                            'http_code' => 409,
+                            'status' => 'idempotency_conflict',
+                            'message' => 'Idempotency Key Conflict',
+                            'detail' => 'The client scan ID was already used for a different admission request.',
+                        ];
+                    }
+
+                    $formattedTime = $existingUnderLock->admitted_at->format('g:i A');
+
+                    return [
+                        'http_code' => 200,
+                        'status' => 'admitted',
+                        'message' => 'Ticket Valid',
+                        'detail' => "Admitted at {$formattedTime}",
+                        'admission' => [
+                            'id' => $existingUnderLock->id,
+                            'admitted_at' => $existingUnderLock->admitted_at->toISOString(),
+                            'access_point' => $existingUnderLock->accessPoint->name,
+                            'scanned_by' => $existingUnderLock->scannedBy?->name ?? 'Staff',
+                        ],
+                        'ticket' => [
+                            'public_id' => $lockedTicket->public_id,
+                            'attendee_name' => $lockedTicket->registration->user->name,
+                            'student_id' => $lockedTicket->registration->user->student_id,
+                        ],
+                    ];
+                }
+
+                // Anti-passback is scoped to the credential issuance that produced the
+                // admission: history from a retired credential is retained but does not
+                // block the credential issued after a cancellation/re-registration.
+                $previousAdmission = Admission::with(['accessPoint', 'scannedBy'])
+                    ->where('ticket_id', $lockedTicket->id)
+                    ->where('credential_version', $lockedTicket->credential_version)
+                    ->first();
+
+                if ($previousAdmission) {
+                    $gateName = $previousAdmission->accessPoint?->name ?? 'Another Gate';
+                    $time = $previousAdmission->admitted_at->format('g:i A');
+
+                    return [
+                        'http_code' => 409,
+                        'status' => 'already_admitted',
+                        'message' => 'Already Checked In',
+                        'detail' => "Previously admitted at {$gateName}, {$time}",
+                        'previous_admission' => [
+                            'admitted_at' => $previousAdmission->admitted_at->toISOString(),
+                            'access_point' => $gateName,
+                            'scanned_by' => $previousAdmission->scannedBy?->name ?? 'Staff',
+                        ],
+                        'ticket' => [
+                            'public_id' => $lockedTicket->public_id,
+                            'attendee_name' => $lockedTicket->registration->user->name,
+                            'student_id' => $lockedTicket->registration->user->student_id,
+                        ],
+                    ];
+                }
+
+                // Create authoritative admission record
+                $admission = Admission::create([
+                    'ticket_id' => $lockedTicket->id,
+                    'access_point_id' => $accessPoint->id,
+                    'scanned_by_user_id' => $staff->id,
+                    'client_scan_id' => $clientScanId,
+                    'credential_version' => $lockedTicket->credential_version,
+                    'admitted_at' => Carbon::now(),
+                ]);
+
+                $formattedTime = $admission->admitted_at->format('g:i A');
+
                 return [
                     'http_code' => 200,
                     'status' => 'admitted',
                     'message' => 'Ticket Valid',
                     'detail' => "Admitted at {$formattedTime}",
                     'admission' => [
-                        'id' => $existingUnderLock->id,
-                        'admitted_at' => $existingUnderLock->admitted_at->toISOString(),
-                        'access_point' => $existingUnderLock->accessPoint->name,
-                        'scanned_by' => $existingUnderLock->scannedBy?->name ?? 'Staff',
+                        'id' => $admission->id,
+                        'admitted_at' => $admission->admitted_at->toISOString(),
+                        'access_point' => $accessPoint->name,
+                        'scanned_by' => $staff->name,
                     ],
                     'ticket' => [
                         'public_id' => $lockedTicket->public_id,
@@ -270,67 +337,18 @@ class AdmitTicket
                         'student_id' => $lockedTicket->registration->user->student_id,
                     ],
                 ];
-            }
-
-            // Anti-passback is scoped to the credential issuance that produced the
-            // admission: history from a retired credential is retained but does not
-            // block the credential issued after a cancellation/re-registration.
-            $previousAdmission = Admission::with(['accessPoint', 'scannedBy'])
-                ->where('ticket_id', $lockedTicket->id)
-                ->where('credential_version', $lockedTicket->credential_version)
-                ->first();
-
-            if ($previousAdmission) {
-                $gateName = $previousAdmission->accessPoint?->name ?? 'Another Gate';
-                $time = $previousAdmission->admitted_at->format('g:i A');
-
-                return [
-                    'http_code' => 409,
-                    'status' => 'already_admitted',
-                    'message' => 'Already Checked In',
-                    'detail' => "Previously admitted at {$gateName}, {$time}",
-                    'previous_admission' => [
-                        'admitted_at' => $previousAdmission->admitted_at->toISOString(),
-                        'access_point' => $gateName,
-                        'scanned_by' => $previousAdmission->scannedBy?->name ?? 'Staff',
-                    ],
-                    'ticket' => [
-                        'public_id' => $lockedTicket->public_id,
-                        'attendee_name' => $lockedTicket->registration->user->name,
-                        'student_id' => $lockedTicket->registration->user->student_id,
-                    ],
-                ];
-            }
-
-            // Create authoritative admission record
-            $admission = Admission::create([
-                'ticket_id' => $lockedTicket->id,
-                'access_point_id' => $accessPoint->id,
-                'scanned_by_user_id' => $staff->id,
-                'client_scan_id' => $clientScanId,
-                'credential_version' => $lockedTicket->credential_version,
-                'admitted_at' => Carbon::now(),
-            ]);
-
-            $formattedTime = $admission->admitted_at->format('g:i A');
-
+            });
+        } catch (UniqueConstraintViolationException) {
+            // Two requests carried the same client_scan_id for different tickets and
+            // were therefore not serialized by the ticket row lock. Only
+            // admissions.client_scan_id is written inside this transaction, so the
+            // violation identifies a replayed idempotency key.
             return [
-                'http_code' => 200,
-                'status' => 'admitted',
-                'message' => 'Ticket Valid',
-                'detail' => "Admitted at {$formattedTime}",
-                'admission' => [
-                    'id' => $admission->id,
-                    'admitted_at' => $admission->admitted_at->toISOString(),
-                    'access_point' => $accessPoint->name,
-                    'scanned_by' => $staff->name,
-                ],
-                'ticket' => [
-                    'public_id' => $lockedTicket->public_id,
-                    'attendee_name' => $lockedTicket->registration->user->name,
-                    'student_id' => $lockedTicket->registration->user->student_id,
-                ],
+                'http_code' => 409,
+                'status' => 'idempotency_conflict',
+                'message' => 'Idempotency Key Conflict',
+                'detail' => 'The client scan ID was already used for a different admission request.',
             ];
-        });
+        }
     }
 }
