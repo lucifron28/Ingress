@@ -81,7 +81,7 @@ export default function LoginScreen() {
             <Text style={styles.label}>University Email</Text>
             <TextInput
               style={styles.input}
-              placeholder="e.g. student1@mseuf.edu.ph"
+              placeholder="e.g. a23-35524@student.mseuf.edu.ph"
               value={email}
               onChangeText={setEmail}
               autoCapitalize="none"
@@ -124,24 +124,31 @@ export default function LoginScreen() {
               <Text style={styles.demoHeading}>Demo Quick Select</Text>
               <Pressable
                 style={styles.demoChip}
-                onPress={() => handleSelectDemoAccount('student1@mseuf.edu.ph')}
+                onPress={() => handleSelectDemoAccount('a23-35524@student.mseuf.edu.ph')}
               >
                 <Text style={styles.demoChipRole}>STUDENT</Text>
-                <Text style={styles.demoChipText}>Carlo Mendoza (student1@mseuf.edu.ph)</Text>
+                <Text style={styles.demoChipText}>Ron Vincent Cada (a23-35524@student.mseuf.edu.ph)</Text>
               </Pressable>
               <Pressable
                 style={styles.demoChip}
                 onPress={() => handleSelectDemoAccount('staff.gate_a@mseuf.edu.ph')}
               >
                 <Text style={styles.demoChipRole}>STAFF</Text>
-                <Text style={styles.demoChipText}>Alex Rivera (Gate A)</Text>
+                <Text style={styles.demoChipText}>Alex Rivera (Entrance 1)</Text>
               </Pressable>
               <Pressable
                 style={styles.demoChip}
                 onPress={() => handleSelectDemoAccount('staff.gate_b@mseuf.edu.ph')}
               >
                 <Text style={styles.demoChipRole}>STAFF</Text>
-                <Text style={styles.demoChipText}>Bea Ramos (Gate B)</Text>
+                <Text style={styles.demoChipText}>Bea Ramos (Entrance 2)</Text>
+              </Pressable>
+              <Pressable
+                style={styles.demoChip}
+                onPress={() => handleSelectDemoAccount('staff.gate_c@mseuf.edu.ph')}
+              >
+                <Text style={styles.demoChipRole}>STAFF</Text>
+                <Text style={styles.demoChipText}>Chris Dizon (Entrance 3)</Text>
               </Pressable>
             </View>
           )}

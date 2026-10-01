@@ -17,7 +17,7 @@ This guide provides concrete instructions for reproducing and defending the Ingr
            │                         │                         │
      192.168.x.x               192.168.x.x               192.168.x.x
      [Developer Laptop]       [Staff Phone 1]           [Staff Phone 2]
-     • Laravel 13 Server      • Gate A Scanner          • Gate B Scanner
+     • Laravel 13 Server      • Entrance 1 Scanner      • Entrance 2 Scanner
      • PostgreSQL 18 DB
      • Blade Dashboard
 ```
@@ -77,9 +77,10 @@ php artisan tinker --execute="\App\Models\User::create(['name'=>'Event Administr
 | :--- | :--- | :--- | :--- |
 | **Admin** | MSEUF Administrator | `admin@mseuf.edu.ph` | Web Management |
 | **Organizer** | Prof. Juan Dela Cruz (CCS) | `organizer@mseuf.edu.ph` | Web Management |
-| **Staff Gate A** | Staff Alex Rivera | `staff.gate_a@mseuf.edu.ph` | Mobile Scanner |
-| **Staff Gate B** | Staff Bea Ramos | `staff.gate_b@mseuf.edu.ph` | Mobile Scanner |
-| **Student 1** | Carlo Mendoza (`2024-01001`) | `student1@mseuf.edu.ph` | Mobile Attendee |
+| **Staff Entrance 1** | Staff Alex Rivera | `staff.gate_a@mseuf.edu.ph` | Mobile Scanner |
+| **Staff Entrance 2** | Staff Bea Ramos | `staff.gate_b@mseuf.edu.ph` | Mobile Scanner |
+| **Staff Entrance 3** | Staff Chris Dizon | `staff.gate_c@mseuf.edu.ph` | Mobile Scanner |
+| **Student 1 (Primary)** | Ron Vincent Cada (`A23-35524`)| `a23-35524@student.mseuf.edu.ph` | Mobile Attendee |
 | **Student 2** | Patricia Reyes (`2024-01002`)| `student2@mseuf.edu.ph` | Mobile Attendee |
 | **Student 3** | Mark Aquino (`2024-01003`) | `student3@mseuf.edu.ph` | Mobile Attendee |
 
@@ -117,46 +118,44 @@ Execute this exact scenario to prove all architectural guarantees to the evaluat
 ### Step 1: Open Organizer Attendance View on Laptop
 1. Open browser to `http://localhost:8000/login`.
 2. Sign in as `organizer@mseuf.edu.ph` / `password`.
-3. Click **Attendance** on **MSEUF Annual Tech Symposium 2026**.
-4. Observe the live KPI cards: Checked In = 0, Not Arrived = N, Attendance Rate = 0%.
+3. Click **Attendance** on **MSEUF University Intramurals 2026**.
 
-### Step 2: Staff Phone 1 — Select Gate A
-1. On Staff Phone 1, tap demo button: **Staff Alex Rivera (Gate A)**.
+### Step 2: Staff Phone 1 — Select Entrance 1
+1. On Staff Phone 1, tap demo button: **Staff Alex Rivera (Entrance 1)**.
 2. Sign in.
-3. Select **Gate A - West Wing** &rarr; **Scan**.
-4. Viewfinder opens with green reticle and gate indicator: `GATE: Gate A - West Wing`.
+3. Select **Entrance 1** &rarr; **Scan**.
+4. Viewfinder opens with green reticle and gate indicator: `GATE: Entrance 1`.
 
-### Step 3: Staff Phone 2 — Select Gate B
-1. On Staff Phone 2, tap demo button: **Staff Bea Ramos (Gate B)**.
+### Step 3: Staff Phone 2 — Select Entrance 2
+1. On Staff Phone 2, tap demo button: **Staff Bea Ramos (Entrance 2)**.
 2. Sign in.
-3. Select **Gate B - East Wing** &rarr; **Scan**.
-4. Viewfinder opens with gate indicator: `GATE: Gate B - East Wing`.
-
+3. Select **Entrance 2** &rarr; **Scan**.
+4. Viewfinder opens with gate indicator: `GATE: Entrance 2`.
 ### Step 4: Student Phone — Display Digital QR Ticket
-1. On Student Phone (or browser tab), sign in as `student1@mseuf.edu.ph`.
-2. Navigate to **Discover** &rarr; Select **MSEUF Annual Tech Symposium 2026**.
+1. On Student Phone (or browser tab), sign in as `a23-35524@student.mseuf.edu.ph` (or tap **Ron Vincent Cada** demo chip).
+2. Navigate to **Discover** &rarr; Select **MSEUF University Intramurals 2026**.
 3. Tap **Register for Event**.
 4. Tap **Show Digital Ticket**.
 5. Display the high-contrast opaque QR ticket.
 
-### Step 5: Admit Ticket at Gate A
-1. Point Staff Phone 1 (Gate A) at Carlo Mendoza's QR code.
+### Step 5: Admit Ticket at Entrance 1
+1. Point Staff Phone 1 (Entrance 1) at Ron Vincent Cada's QR code.
 2. **Result**: Staff Phone 1 instantly displays:
    ```
    [✓] Ticket Valid
    Admitted at 1:42 PM
-   Attendee: Carlo Mendoza (2024-01001)
+   Attendee: Ron Vincent Cada (A23-35524)
    ```
-3. Look at the laptop organizer dashboard: The **Checked In** count increments to 1, and the recent admissions feed displays Carlo Mendoza admitted at Gate A.
+3. Look at the laptop organizer dashboard: The **Checked In** count increments to 1, and the recent admissions feed displays Ron Vincent Cada admitted at Entrance 1.
 
-### Step 6: Anti-Passback Test — Attempt Admission at Gate B
-1. Immediately take Student Phone's QR code to Staff Phone 2 (Gate B).
+### Step 6: Anti-Passback Test — Attempt Admission at Entrance 2
+1. Immediately take Student Phone's QR code to Staff Phone 2 (Entrance 2).
 2. Point Staff Phone 2 at the exact same QR code.
 3. **Result**: Staff Phone 2 immediately rejects entry with:
    ```
    [!] Already Checked In
-   Previously admitted at Gate A - West Wing, 1:42 PM
-   Attendee: Carlo Mendoza (2024-01001)
+   Previously admitted at Entrance 1, 1:42 PM
+   Attendee: Ron Vincent Cada (A23-35524)
    ```
 4. Verify the organizer attendance view: No second admission row is created.
 
@@ -166,8 +165,7 @@ Execute this exact scenario to prove all architectural guarantees to the evaluat
 
 ### Step 8: Admit Another Student Without Internet
 1. On Student Phone 2, sign in as `student2@mseuf.edu.ph` and open their ticket.
-2. Scan ticket at Gate B.
-3. **Result**: Ticket admission **still succeeds instantaneously** over the LAN!
+2. Scan ticket at Entrance 2.
 4. The organizer dashboard immediately updates over the local network.
 
 ### Step 9: Fail-Closed Security Test

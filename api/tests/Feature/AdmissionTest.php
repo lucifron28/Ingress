@@ -64,8 +64,8 @@ class AdmissionTest extends TestCase
         ]);
 
         $this->student = User::factory()->create([
-            'name' => 'Carlo Mendoza',
-            'email' => 'student.carlo@mseuf.edu.ph',
+            'name' => 'Ron Vincent Cada',
+            'email' => 'a23-35524@student.mseuf.edu.ph',
             'role' => User::ROLE_STUDENT,
         ]);
 
@@ -159,7 +159,7 @@ class AdmissionTest extends TestCase
                 ],
                 'ticket' => [
                     'public_id' => $this->ticket->public_id,
-                    'attendee_name' => 'Carlo Mendoza',
+                    'attendee_name' => 'Ron Vincent Cada',
                 ],
             ]);
 

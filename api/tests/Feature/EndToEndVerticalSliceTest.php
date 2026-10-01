@@ -68,9 +68,9 @@ class EndToEndVerticalSliceTest extends TestCase
         ]);
 
         $student = User::factory()->create([
-            'name' => 'Carlo Mendoza',
-            'email' => 'student1@mseuf.edu.ph',
-            'student_id' => '2024-01001',
+            'name' => 'Ron Vincent Cada',
+            'email' => 'a23-35524@student.mseuf.edu.ph',
+            'student_id' => 'A23-35524',
             'role' => User::ROLE_STUDENT,
             'password' => bcrypt('password'),
         ]);
@@ -140,9 +140,9 @@ class EndToEndVerticalSliceTest extends TestCase
         // 3. STUDENT LOGS IN & DISCOVERS EVENT (MOBILE API)
         // ---------------------------------------------------------
         $studentLoginRes = $this->postJson('/api/v1/auth/login', [
-            'email' => 'student1@mseuf.edu.ph',
+            'email' => 'a23-35524@student.mseuf.edu.ph',
             'password' => 'password',
-            'device_name' => 'Carlo-Android-Phone',
+            'device_name' => 'Ron-Android-Phone',
         ]);
         $studentLoginRes->assertStatus(200);
         $studentToken = $studentLoginRes->json('token');
@@ -179,9 +179,9 @@ class EndToEndVerticalSliceTest extends TestCase
         $this->assertEquals(1, $event->fresh()->getConfirmedRegistrationsCount());
 
         // Invariant: Zero student PII inside QR payload
-        $this->assertStringNotContainsString('Carlo', $qrPayload);
-        $this->assertStringNotContainsString('student1@mseuf.edu.ph', $qrPayload);
-        $this->assertStringNotContainsString('2024-01001', $qrPayload);
+        $this->assertStringNotContainsString('Ron', $qrPayload);
+        $this->assertStringNotContainsString('a23-35524@student.mseuf.edu.ph', $qrPayload);
+        $this->assertStringNotContainsString('A23-35524', $qrPayload);
 
         // Student checks ticket details via mobile API
         $ticketRes = $this->withHeader('Authorization', 'Bearer '.$studentToken)
@@ -233,8 +233,8 @@ class EndToEndVerticalSliceTest extends TestCase
                 ],
                 'ticket' => [
                     'public_id' => $ticketPublicId,
-                    'attendee_name' => 'Carlo Mendoza',
-                    'student_id' => '2024-01001',
+                    'attendee_name' => 'Ron Vincent Cada',
+                    'student_id' => 'A23-35524',
                 ],
             ]);
 
@@ -303,7 +303,7 @@ class EndToEndVerticalSliceTest extends TestCase
 
         $attendanceViewRes = $this->get("/organizer/events/{$event->id}/attendance");
         $attendanceViewRes->assertStatus(200);
-        $attendanceViewRes->assertSee('Carlo Mendoza');
+        $attendanceViewRes->assertSee('Ron Vincent Cada');
         $attendanceViewRes->assertSee('Gate A');
         $attendanceViewRes->assertSee('Admitted');
 
@@ -322,7 +322,7 @@ class EndToEndVerticalSliceTest extends TestCase
 
         $recentAdmissions = $feedRes->json('recent_admissions');
         $this->assertNotEmpty($recentAdmissions);
-        $this->assertEquals('Carlo Mendoza', $recentAdmissions[0]['attendee_name']);
+        $this->assertEquals('Ron Vincent Cada', $recentAdmissions[0]['attendee_name']);
         $this->assertEquals('Gate A', $recentAdmissions[0]['access_point']);
     }
 }
