@@ -27,4 +27,5 @@ Route::middleware(['auth', 'organizer'])->prefix('organizer')->name('organizer.'
 
     // Attendance view route (detailed in Phase 8)
     Route::get('/events/{event}/attendance', [\App\Http\Controllers\Web\OrganizerAttendanceController::class, 'show'])->name('attendance');
+    Route::get('/events/{event}/attendance/feed', [\App\Http\Controllers\Web\OrganizerAttendanceController::class, 'feed'])->name('attendance.feed');
 });
