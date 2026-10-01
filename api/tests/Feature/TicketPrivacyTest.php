@@ -136,7 +136,6 @@ class TicketPrivacyTest extends TestCase
                 ],
             ]);
 
-        // Invariant: Non-owner MUST NOT receive the reusable qr_payload
         $this->assertArrayNotHasKey('qr_payload', $response->json('ticket'));
     }
 

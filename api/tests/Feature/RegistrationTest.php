@@ -305,7 +305,6 @@ class RegistrationTest extends TestCase
             'status' => 'cancelled',
         ]);
 
-        // 3. Re-registration (Must NOT violate UNIQUE(event_id, user_id))
         $reg2Res = $this->actingAs($this->student1, 'sanctum')
             ->postJson("/api/v1/events/{$this->event->id}/registration");
         $reg2Res->assertStatus(201);
@@ -399,8 +398,7 @@ class RegistrationTest extends TestCase
         );
         $this->assertEquals('invalid_ticket', $oldScan['status']);
 
-        // 4. The freshly issued credential is admittable — the admission recorded
-        //    under the retired credential must not block it.
+        // Re-registration reuses the row, but the new credential must remain admittable.
         $newScan = $admitAction->execute(
             staff: $staff,
             eventId: $this->event->id,

@@ -175,7 +175,6 @@ class AdmissionTest extends TestCase
         $scanId1 = (string) Str::uuid();
         $scanId2 = (string) Str::uuid();
 
-        // 1. First scan: Admitted at Gate A
         $this->actingAs($this->staffGateA)
             ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
                 'access_point_id' => $this->gateA->id,
@@ -184,7 +183,6 @@ class AdmissionTest extends TestCase
             ])
             ->assertStatus(200);
 
-        // 2. Second scan: Same ticket scanned immediately at Gate B
         $responseGateB = $this->actingAs($this->staffGateB)
             ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
                 'access_point_id' => $this->gateB->id,
@@ -202,7 +200,6 @@ class AdmissionTest extends TestCase
                 ],
             ]);
 
-        // Verify only 1 admission row exists in the database
         $admissionCount = Admission::where('ticket_id', $this->ticket->id)->count();
         $this->assertEquals(1, $admissionCount, 'Anti-passback must prevent second admission row creation.');
     }
@@ -211,7 +208,6 @@ class AdmissionTest extends TestCase
     {
         $scanId = (string) Str::uuid();
 
-        // Initial submission
         $res1 = $this->actingAs($this->staffGateA)
             ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
                 'access_point_id' => $this->gateA->id,
@@ -220,7 +216,6 @@ class AdmissionTest extends TestCase
             ]);
         $res1->assertStatus(200);
 
-        // Network retry with identical client_scan_id
         $res2 = $this->actingAs($this->staffGateA)
             ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
                 'access_point_id' => $this->gateA->id,
@@ -241,7 +236,6 @@ class AdmissionTest extends TestCase
     {
         $scanId = (string) Str::uuid();
 
-        // 1. Initial scan for Student 1 ticket
         $this->actingAs($this->staffGateA)
             ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
                 'access_point_id' => $this->gateA->id,
@@ -250,12 +244,10 @@ class AdmissionTest extends TestCase
             ])
             ->assertStatus(200);
 
-        // 2. Second student registers and gets ticket
         $student2 = User::factory()->create(['role' => User::ROLE_STUDENT]);
         $action = new RegisterForEvent;
         $student2Result = $action->execute($student2, $this->event->id);
 
-        // 3. Scanner sends the same client_scan_id for Student 2's ticket
         $conflictResponse = $this->actingAs($this->staffGateA)
             ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
                 'access_point_id' => $this->gateA->id,
@@ -274,7 +266,6 @@ class AdmissionTest extends TestCase
     {
         $scanId = (string) Str::uuid();
 
-        // 1. Initial scan at Gate A
         $this->actingAs($this->staffGateA)
             ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
                 'access_point_id' => $this->gateA->id,
@@ -283,7 +274,6 @@ class AdmissionTest extends TestCase
             ])
             ->assertStatus(200);
 
-        // 2. Same scan ID sent for Gate B by organizer (who has access to all gates)
         $conflictResponse = $this->actingAs($this->event->organizer)
             ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
                 'access_point_id' => $this->gateB->id, // Different gate
@@ -302,7 +292,6 @@ class AdmissionTest extends TestCase
     {
         $scanId = (string) Str::uuid();
 
-        // 1. Admit under credential version 1, recording the scan id.
         $this->actingAs($this->staffGateA)
             ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
                 'access_point_id' => $this->gateA->id,
@@ -311,7 +300,6 @@ class AdmissionTest extends TestCase
             ])
             ->assertStatus(200);
 
-        // 2. Cancel and register again: the same ticket row rotates its credential.
         $this->actingAs($this->student, 'sanctum')
             ->deleteJson("/api/v1/events/{$this->event->id}/registration")
             ->assertStatus(200);
@@ -323,8 +311,7 @@ class AdmissionTest extends TestCase
         $rotatedQrPayload = $reRegister->json('qr_payload');
         $this->assertEquals(2, $this->ticket->fresh()->credential_version);
 
-        // 3. Replaying the old scan id must not be treated as a retry: it belongs to
-        //    the retired issuance, so it cannot validate the rotated credential.
+        // A scan ID from the retired credential must not validate the rotated credential.
         $replay = $this->actingAs($this->staffGateA)
             ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
                 'access_point_id' => $this->gateA->id,
@@ -338,7 +325,6 @@ class AdmissionTest extends TestCase
                 'message' => 'Idempotency Key Conflict',
             ]);
 
-        // 4. The rotated credential remains admittable under a fresh scan id.
         $this->actingAs($this->staffGateA)
             ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
                 'access_point_id' => $this->gateA->id,
@@ -372,7 +358,6 @@ class AdmissionTest extends TestCase
             'role' => User::ROLE_STAFF,
         ]);
 
-        // Assigned with access_point_id = null (roving)
         EventStaff::create([
             'event_id' => $this->event->id,
             'user_id' => $rovingStaff->id,
@@ -416,8 +401,7 @@ class AdmissionTest extends TestCase
 
     public function test_admission_is_rejected_after_the_event_ends(): void
     {
-        // A concluded event: doors have closed. Note starts_at is also in the past,
-        // so this proves the ends_at gate rather than a start-time gate.
+        // Keep starts_at in the past so this test isolates the ends_at rule.
         $this->event->update([
             'starts_at' => Carbon::now()->subHours(3),
             'ends_at' => Carbon::now()->subHour(),
@@ -441,7 +425,6 @@ class AdmissionTest extends TestCase
 
     public function test_admission_is_allowed_before_the_event_starts(): void
     {
-        // Doors may open before the scheduled start; admission must not require starts_at.
         $this->event->update([
             'starts_at' => Carbon::now()->addHours(2),
             'ends_at' => Carbon::now()->addHours(6),
@@ -470,12 +453,10 @@ class AdmissionTest extends TestCase
         $assignedEvent = collect($response->json('events'))->firstWhere('id', $this->event->id);
         $this->assertNotNull($assignedEvent);
 
-        // Should ONLY contain Gate A
         $gateCodes = collect($assignedEvent['access_points'])->pluck('code');
         $this->assertTrue($gateCodes->contains('GATE-A'));
         $this->assertFalse($gateCodes->contains('GATE-B'));
 
-        // Access points endpoint should also only return Gate A
         $apResponse = $this->actingAs($this->staffGateA)
             ->getJson("/api/v1/staff/events/{$this->event->id}/access-points");
 
@@ -486,7 +467,6 @@ class AdmissionTest extends TestCase
 
     public function test_ticket_for_another_event_is_rejected(): void
     {
-        // Issue ticket for otherEvent
         $action = new RegisterForEvent;
         $otherResult = $action->execute($this->student, $this->otherEvent->id);
 
@@ -542,7 +522,6 @@ class AdmissionTest extends TestCase
 
     public function test_malformed_or_counterfeit_qr_payload_is_rejected(): void
     {
-        // Malformed string
         $this->actingAs($this->staffGateA)
             ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
                 'access_point_id' => $this->gateA->id,
@@ -552,7 +531,6 @@ class AdmissionTest extends TestCase
             ->assertStatus(422)
             ->assertJson(['status' => 'invalid_ticket']);
 
-        // Counterfeit secret
         $fakePayload = "ingress:v1:{$this->ticket->public_id}:".str_repeat('0', 64);
         $this->actingAs($this->staffGateA)
             ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [

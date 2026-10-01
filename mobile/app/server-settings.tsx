@@ -34,7 +34,7 @@ export default function ServerSettingsScreen() {
 
       clearTimeout(timeout);
 
-      // A 422 Unprocessable Content means the server is reachable and active!
+      // Validation errors still prove the Event Node is reachable.
       if (res.status === 422 || res.ok) {
         setTestStatus('SUCCESS: Connected to Ingress Event Server');
       } else {
@@ -52,8 +52,6 @@ export default function ServerSettingsScreen() {
     const sessionCleared = await updateServerUrl(cleanUrl);
 
     if (sessionCleared) {
-      // The switch invalidated the session: a token issued by the previous Event
-      // Node must never be presented to the new one.
       router.replace({ pathname: '/login', params: { notice: 'server-changed' } });
       return;
     }

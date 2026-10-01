@@ -14,11 +14,7 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // Venues are reference data with nothing predictable in them, so they are
-        // always seeded. The demonstration accounts and events exist only to make a
-        // development or classroom environment immediately usable, and they are
-        // deliberately withheld outside demo mode: this seeder must never be the
-        // source of a predictable production credential.
+        // Outside demo mode, seed reference data only.
         if (! config('app.demo_mode')) {
             $this->call(VenueSeeder::class);
 

@@ -80,7 +80,6 @@ export async function apiRequest<T = unknown>(
     if (err && typeof err === 'object' && 'status' in err) {
       throw err as ApiError;
     }
-    // Fail-closed network error
     const networkError: ApiError = {
       message: 'SERVER UNAVAILABLE. Reconnect to the event network before scanning.',
       status: 0,

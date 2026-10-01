@@ -18,8 +18,7 @@ class EventSeeder extends Seeder
      */
     public function run(): void
     {
-        // Demonstration events exist only to make a demo environment usable, and
-        // they depend on the demo users. Guarded here as well as in DatabaseSeeder.
+        // Demo events depend on the demo users and stay behind the same guard.
         if (! config('app.demo_mode')) {
             return;
         }
@@ -33,7 +32,6 @@ class EventSeeder extends Seeder
         $aud = Venue::where('code', 'AUD')->first();
         $mph = Venue::where('code', 'MPH')->first();
 
-        // 1. Published flagship symposium (organizer 1)
         $symposium = Event::updateOrCreate(
             ['slug' => 'mseuf-annual-tech-symposium-2026'],
             [
@@ -50,7 +48,6 @@ class EventSeeder extends Seeder
             ]
         );
 
-        // Access points for symposium
         $mainGate = AccessPoint::updateOrCreate(
             ['event_id' => $symposium->id, 'code' => 'MAIN'],
             ['name' => 'Main Turnstile Entrance', 'is_active' => true]
@@ -64,7 +61,6 @@ class EventSeeder extends Seeder
             ['name' => 'Gate B - East Wing', 'is_active' => true]
         );
 
-        // Assign staff to gates
         if ($staffA) {
             EventStaff::updateOrCreate(
                 ['event_id' => $symposium->id, 'user_id' => $staffA->id],
@@ -78,7 +74,6 @@ class EventSeeder extends Seeder
             );
         }
 
-        // 2. Published hackathon (organizer 2)
         $hackathon = Event::updateOrCreate(
             ['slug' => 'coe-engineering-hackathon-2026'],
             [
@@ -100,7 +95,6 @@ class EventSeeder extends Seeder
             ['name' => 'MPH Entrance Gate', 'is_active' => true]
         );
 
-        // 3. Draft event (organizer 1)
         Event::updateOrCreate(
             ['slug' => 'cas-freshmen-orientation-2026'],
             [

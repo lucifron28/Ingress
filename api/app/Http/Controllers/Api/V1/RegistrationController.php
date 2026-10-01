@@ -55,11 +55,8 @@ class RegistrationController extends Controller
             ]);
         }
 
-        // Cancel inside one transaction that locks the ticket row first — the same
-        // order the admission transaction uses. Without this, the two statements
-        // below autocommit separately, so a scan could read a still-confirmed
-        // registration and insert an admission in between, leaving a cancelled
-        // registration with a current-credential admission.
+        // Lock the ticket while revoking registration so a scan cannot commit between
+        // the registration and ticket updates.
         $cancelledAt = Carbon::now();
 
         DB::transaction(function () use ($registration, $cancelledAt) {
@@ -68,7 +65,7 @@ class RegistrationController extends Controller
                 ? Ticket::whereKey($ticketId)->lockForUpdate()->first()
                 : null;
 
-            // Re-read under the lock: a concurrent request may have changed it.
+            // Re-read after locking because another request may have changed the registration.
             $lockedRegistration = Registration::whereKey($registration->getKey())
                 ->where('status', Registration::STATUS_CONFIRMED)
                 ->first();

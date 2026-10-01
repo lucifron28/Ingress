@@ -22,7 +22,7 @@ class RegisterForEvent
     public function execute(User $user, int $eventId): array
     {
         return DB::transaction(function () use ($user, $eventId) {
-            // Pessimistic write lock on Event row to strictly enforce: confirmed <= capacity
+            // Registration and capacity edits lock the same event row to prevent overbooking.
             $event = Event::where('id', $eventId)->lockForUpdate()->first();
 
             if (! $event) {
@@ -56,7 +56,6 @@ class RegisterForEvent
                 ]);
             }
 
-            // Check existing registration records for this user and event
             $existingRegistration = Registration::with('ticket')
                 ->where('event_id', $event->id)
                 ->where('user_id', $user->id)
@@ -68,7 +67,6 @@ class RegisterForEvent
                 ]);
             }
 
-            // Concurrency-safe capacity check against row-locked event
             $confirmedCount = Registration::where('event_id', $event->id)
                 ->where('status', Registration::STATUS_CONFIRMED)
                 ->count();
@@ -79,22 +77,20 @@ class RegisterForEvent
                 ]);
             }
 
-            // Generate cryptographically secure opaque QR credential (256-bit CSPRNG secret)
+            // Keep ticket credentials opaque; only the server stores the recoverable secret.
             $publicId = 'ING-'.strtoupper(Str::random(10));
             $secret = bin2hex(random_bytes(32)); // 64 hex characters
             $qrHash = hash('sha256', $secret);
 
             if ($existingRegistration) {
-                // Reactivate previously cancelled registration to respect UNIQUE(event_id, user_id)
+                // Reuse the cancelled registration because (event_id, user_id) is unique.
                 $existingRegistration->update([
                     'status' => Registration::STATUS_CONFIRMED,
                     'cancelled_at' => null,
                 ]);
                 $registration = $existingRegistration;
 
-                // Rotate ticket credential: previous revoked QR secret is invalidated,
-                // and the credential version is bumped so admissions recorded under the
-                // retired credential no longer gate this newly issued one.
+                // Rotate the credential so the revoked QR cannot be reused.
                 $ticket = $existingRegistration->ticket;
                 if ($ticket) {
                     $ticket->update([

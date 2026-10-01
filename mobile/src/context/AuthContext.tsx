@@ -54,7 +54,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setToken(storedToken);
           setUser(JSON.parse(storedUser) as UserProfile);
 
-          // Confirm the stored token is still valid for this server.
           try {
             const meRes = await apiRequest<{ user: UserProfile }>('/me');
             setUser(meRes.user);
@@ -63,16 +62,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const status = (err as { status?: number } | null)?.status;
 
             if (status === 401) {
-              // The server rejected the token (revoked, expired, or issued by a
-              // different Event Node). Drop the session entirely.
+              // A rejected token is no longer a valid local session.
               setToken(null);
               setUser(null);
               await AuthStorage.clearAll();
             }
 
-            // Any other failure means the server was unreachable. Keep the cached
-            // identity so the app can still say who is signed in; every server
-            // action remains fail-closed through apiRequest.
+            // Keep cached identity when the Event Node is unreachable; server actions still fail.
           }
         }
       } catch {
@@ -119,9 +115,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const formatted = newUrl.trim().replace(/\/+$/, '');
     const isChange = formatted !== serverUrl;
 
-    // A Sanctum token is only meaningful to the server that issued it. Pointing the
-    // app at a different Event Node therefore drops the session before the new URL
-    // is stored, so a Server A token can never be sent to Server B.
+    // Tokens are Event Node-specific. Switching servers invalidates the local session.
     if (isChange) {
       setToken(null);
       setUser(null);

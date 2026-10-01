@@ -41,9 +41,7 @@ DB::select('select 1');
 // or by the unique index on admissions.client_scan_id; reporting the branch keeps
 // the harness honest about which path it exercised.
 //
-// beforeExecuting is used rather than listen() because listen() only fires after a
-// statement returns: an insert that blocks and then fails the unique index would
-// never be observed.
+// beforeExecuting records the insert before PostgreSQL can block or reject it.
 $attemptedAdmissionInsert = false;
 
 DB::beforeExecuting(function (string $query) use (&$attemptedAdmissionInsert): void {
