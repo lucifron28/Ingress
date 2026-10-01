@@ -11,6 +11,17 @@ import { AuthStorage } from './auth-storage';
 export const DEFAULT_API_URL =
   process.env.EXPO_PUBLIC_API_URL?.trim().replace(/\/+$/, '') || 'http://localhost:8000/api/v1';
 
+/**
+ * Whether this build may advertise the synthetic demonstration accounts.
+ *
+ * This is a build-time flag and only controls client-side conveniences: it offers
+ * the demo quick-select and pre-fills the known demo password. It cannot make the
+ * server any less safe — the server decides whether demo accounts exist at all
+ * via INGRESS_DEMO_MODE. Defaults to false so a production build has to opt in
+ * explicitly to showing predictable credentials.
+ */
+export const DEMO_MODE = process.env.EXPO_PUBLIC_INGRESS_DEMO_MODE === 'true';
+
 export interface ApiError {
   message: string;
   errors?: Record<string, string[]>;

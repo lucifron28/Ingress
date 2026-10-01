@@ -58,7 +58,7 @@ export async function resolve(specifier, context, nextResolve) {
 register(LOADER, import.meta.url);
 
 const { AuthStorage } = await import('../src/services/auth-storage.ts');
-const { apiRequest } = await import('../src/services/api-client.ts');
+const { apiRequest, DEMO_MODE } = await import('../src/services/api-client.ts');
 
 let passed = 0;
 const failures = [];
@@ -71,6 +71,13 @@ const check = (label, ok, detail = '') => {
     console.log(`FAIL  ${label}${detail ? '  -- ' + detail : ''}`);
   }
 };
+
+// --- the demo affordances must be opt-in -------------------------------------
+check(
+  'demo affordances are off unless the build opts in explicitly',
+  DEMO_MODE === false,
+  `DEMO_MODE=${DEMO_MODE}`,
+);
 
 // --- a session and a configured Event Node -----------------------------------
 await AuthStorage.saveServerUrl('http://192.168.1.50:8000/api/v1');
