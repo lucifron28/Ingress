@@ -1,0 +1,46 @@
+# Ingress Root .gitignore
+
+# Dependencies
+/api/vendor/
+/mobile/node_modules/
+node_modules/
+
+# Environment files
+*.env
+*.env.backup
+*.env.production
+*.env.local
+!.env.example
+
+# Laravel storage & cache
+/api/storage/*.key
+/api/storage/logs/*.log
+/api/storage/framework/cache/data/*
+/api/storage/framework/sessions/*
+/api/storage/framework/views/*
+/api/bootstrap/cache/*.php
+/api/public/storage
+/api/public/hot
+
+# Expo & Mobile
+/mobile/.expo/
+/mobile/dist/
+/mobile/web-build/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+
+# Operating System & IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local database data & logs
+pgdata/
+*.log
