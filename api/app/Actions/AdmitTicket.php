@@ -213,9 +213,25 @@ class AdmitTicket
         }
 
         // Check 11: Anti-Passback / Duplicate Admission Protection (Transactional with Ticket Row Lock)
-        return DB::transaction(function () use ($staff, $ticket, $accessPoint, $event, $clientScanId) {
+        return DB::transaction(function () use ($staff, $ticket, $accessPoint, $event, $clientScanId, $scannedSecret) {
             // Lock authoritative ticket row to serialize concurrent gate scans
             $lockedTicket = Ticket::where('id', $ticket->id)->lockForUpdate()->first();
+
+            // Re-validate credential state under the lock. A concurrent cancellation or
+            // credential rotation must not slip through between the pre-checks and the insert.
+            if (! $lockedTicket
+                || ! $lockedTicket->verifySecret($scannedSecret)
+                || ! $lockedTicket->isActive()
+                || ! $lockedTicket->registration
+                || $lockedTicket->registration->status !== Registration::STATUS_CONFIRMED
+                || (int) $lockedTicket->registration->event_id !== (int) $event->id) {
+                return [
+                    'http_code' => 422,
+                    'status' => 'invalid_ticket',
+                    'message' => 'Invalid Ticket',
+                    'detail' => 'This ticket could not be verified.',
+                ];
+            }
 
             // Re-verify idempotency under lock in case of concurrent identical submissions
             $existingUnderLock = Admission::with(['accessPoint', 'scannedBy'])
