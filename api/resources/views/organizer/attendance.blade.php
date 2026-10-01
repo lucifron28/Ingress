@@ -252,11 +252,11 @@
                 gateContainer.innerHTML = data.gate_stats.map(gate => `
                     <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; background: #f8fafc; border: 1px solid var(--neutral-border); border-radius: 4px;">
                         <div>
-                            <span class="mono" style="font-size: 0.75rem; font-weight: 700; background: #e2e8f0; padding: 0.15rem 0.4rem; border-radius: 3px; margin-right: 0.5rem;">\${gate.code}</span>
-                            <strong style="font-size: 0.875rem;">\${gate.name}</strong>
+                            <span class="mono" style="font-size: 0.75rem; font-weight: 700; background: #e2e8f0; padding: 0.15rem 0.4rem; border-radius: 3px; margin-right: 0.5rem;">${gate.code}</span>
+                            <strong style="font-size: 0.875rem;">${gate.name}</strong>
                         </div>
                         <div class="mono" style="font-size: 1.1rem; font-weight: 700; color: var(--mseuf-maroon);">
-                            \${gate.count}
+                            ${gate.count}
                         </div>
                     </div>
                 `).join('');
@@ -268,12 +268,12 @@
                 tbody.innerHTML = data.recent_admissions.map(adm => `
                     <tr>
                         <td class="mono" style="font-size: 0.8rem; font-weight: 600; color: var(--mseuf-maroon);">
-                            \${adm.admitted_at}
+                            ${adm.admitted_at}
                         </td>
-                        <td><strong>\${adm.attendee_name}</strong></td>
-                        <td class="mono" style="font-size: 0.8rem;">\${adm.student_id}</td>
-                        <td><span class="badge badge-info">\${adm.access_point}</span></td>
-                        <td style="font-size: 0.8rem; color: var(--neutral-muted);">\${adm.scanned_by}</td>
+                        <td><strong>${adm.attendee_name}</strong></td>
+                        <td class="mono" style="font-size: 0.8rem;">${adm.student_id}</td>
+                        <td><span class="badge badge-info">${adm.access_point}</span></td>
+                        <td style="font-size: 0.8rem; color: var(--neutral-muted);">${adm.scanned_by}</td>
                     </tr>
                 `).join('');
             }
