@@ -169,7 +169,12 @@ Under high concurrent load (e.g. 50 students competing for the final seat), data
 
 ### Re-registration after cancellation
 
-`registrations` carries `UNIQUE(event_id, user_id)`, so a cancelled registration cannot simply be replaced by a new row. When a previously cancelled attendee registers again, the existing row is reactivated (`status = confirmed`, `cancelled_at = null`) and the ticket credential is rotated — a new `public_id`, a new 256-bit secret, a new `qr_hash`, and `revoked_at = null`. The previously revoked QR therefore fails constant-time verification while the newly issued QR validates normally.
+`registrations` carries `UNIQUE(event_id, user_id)`, so a cancelled registration cannot simply be replaced by a new row. When a previously cancelled attendee registers again, the existing row is reactivated (`status = confirmed`, `cancelled_at = null`) and the ticket credential is rotated — a new `public_id`, a new 256-bit secret, a new `qr_hash`, `revoked_at = null`, and `credential_version` incremented.
+
+Two consequences follow:
+
+- The previously revoked QR fails constant-time verification, while the newly issued QR validates normally.
+- Because the rotated credential reuses the same `tickets` row, the admission history recorded under the retired credential would otherwise still satisfy the anti-passback check. Each admission therefore snapshots the `credential_version` that admitted it, and anti-passback only considers admissions matching the ticket's **current** `credential_version`. Audit history is preserved in the `admissions` table, but a credential issued after a cancellation is immediately admittable.
 
 ### Verifying concurrency on real PostgreSQL
 
@@ -221,9 +226,10 @@ When a staff member scans a ticket, the mobile app posts `{ access_point_id, qr_
 8. **Ticket Revocation**: Verifies ticket status is `active` (not revoked or cancelled).
 9. **Event Match**: Confirms ticket belongs to the currently selected event.
 10. **Idempotency Check**: If an admission already exists with the same `client_scan_id`, the request is only treated as a retry when it also matches the same `ticket_id`, `access_point_id`, and event. A mismatch returns HTTP 409 `idempotency_conflict`; a match returns the original admission response (HTTP 200).
-11. **Anti-Passback Check (row-locked)**: Inside `DB::transaction()`, the authoritative `tickets` row is locked with `lockForUpdate()` before admission state is read or written. Idempotency is re-checked under the lock.
+11. **Anti-Passback Check (row-locked)**: Inside `DB::transaction()`, the authoritative `tickets` row is locked with `lockForUpdate()`, and the credential state (secret, ticket status, registration status, event) is re-validated under that lock. Idempotency is also re-checked under the lock.
     - Concurrent scans of the same ticket are therefore serialised by PostgreSQL: the first commits, and every later scanner observes the committed admission.
-    - If an admission exists: returns **`Already Checked In`** (HTTP 409 Conflict) with the previous gate name and timestamp.
+    - Passback only considers admissions whose `credential_version` matches the ticket's current one.
+    - If such an admission exists: returns **`Already Checked In`** (HTTP 409 Conflict) with the previous gate name and timestamp.
     - If none exists: creates the `Admission` row and returns **`Ticket Valid`** (HTTP 200).
 
 > No `UNIQUE(ticket_id)` constraint is used for anti-passback. Admission state is serialised in application transactional logic so that later milestones can record multiple admission events per ticket (ENTRY, EXIT, RE-ENTRY).

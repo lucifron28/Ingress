@@ -227,7 +227,7 @@ Cancels registration and revokes the active ticket.
 ---
 
 ### 3.3 My Tickets (Ticket Wallet)
-Returns all tickets issued to the authenticated student.
+Returns all tickets issued to the authenticated student. Because the response contains only the caller's own tickets, each entry includes the reusable `qr_payload`.
 
 - **Method**: `GET`
 - **Endpoint**: `/me/tickets`
@@ -267,11 +267,52 @@ Returns all tickets issued to the authenticated student.
 ---
 
 ### 3.4 Ticket Details
-Retrieves single ticket details including opaque QR payload.
+Retrieves single ticket details. The reusable `qr_payload` is returned **only to the attendee who owns the ticket**.
 
 - **Method**: `GET`
 - **Endpoint**: `/tickets/{id}`
-- **Access**: Authenticated Ticket Owner, Staff, Organizer, or Admin
+- **Access**:
+  - **Attendee owner** — full ticket, including `qr_payload`.
+  - **Event organizer** (organizer of the ticket's event) — ticket metadata only; `qr_payload` is omitted.
+  - **Admin** — ticket metadata only; `qr_payload` is omitted.
+  - **Event staff** — `403 Forbidden`. Staff obtain verified attendee information through the admission endpoint instead, never by reading ticket secrets.
+
+`encrypted_secret` is never serialised on any endpoint.
+
+#### Attendee Owner Response (`200 OK`)
+```json
+{
+  "ticket": {
+    "id": 1,
+    "public_id": "ING-A92B48EF12",
+    "status": "active",
+    "issued_at": "2026-10-01T02:15:00.000000Z",
+    "qr_payload": "ingress:v1:ING-A92B48EF12:6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+    "event": {
+      "id": 1,
+      "title": "MSEUF Annual Tech Symposium 2026",
+      "venue": { "id": 1, "name": "MSEUF University Gymnasium", "location": "Lucena City" },
+      "starts_at": "2026-10-03T09:00:00.000000Z",
+      "ends_at": "2026-10-03T17:00:00.000000Z"
+    },
+    "attendee": {
+      "name": "Carlo Mendoza",
+      "student_id": "2024-01001",
+      "email": "student1@mseuf.edu.ph"
+    }
+  }
+}
+```
+
+#### Organizer / Admin Response (`200 OK`)
+Identical shape, but the `qr_payload` key is **absent**.
+
+#### Staff Response (`403 Forbidden`)
+```json
+{
+  "message": "Unauthorized access to ticket details."
+}
+```
 
 ---
 
@@ -283,8 +324,12 @@ Lists events where the authenticated staff member is assigned to scan tickets.
 - **Method**: `GET`
 - **Endpoint**: `/staff/events`
 - **Access**: Authenticated Event Staff / Admin (`auth:sanctum`)
+- **Gate visibility**: `access_points` is scoped to what the caller may actually operate.
+  - A staff member bound to a specific gate receives only that gate.
+  - A staff member assigned to the event without a specific gate receives all active gates.
+  - Admins and the event organizer receive all active gates.
 
-#### Success Response (`200 OK`)
+#### Success Response (`200 OK`) — staff member bound to Gate A
 ```json
 {
   "events": [
@@ -298,14 +343,14 @@ Lists events where the authenticated staff member is assigned to scan tickets.
       "starts_at": "2026-10-03T09:00:00.000000Z",
       "ends_at": "2026-10-03T17:00:00.000000Z",
       "access_points": [
-        { "id": 1, "name": "Main Entrance", "code": "MAIN" },
-        { "id": 2, "name": "Gate A - West Wing", "code": "GATE-A" },
-        { "id": 3, "name": "Gate B - East Wing", "code": "GATE-B" }
+        { "id": 2, "name": "Gate A - West Wing", "code": "GATE-A" }
       ]
     }
   ]
 }
 ```
+
+`GET /staff/events/{event}/access-points` applies the same scoping and returns `403 Forbidden` when the caller is not assigned to the event at all.
 
 ---
 
@@ -390,3 +435,92 @@ Server-authoritative ticket scan validation with anti-passback and idempotency c
   "detail": "You are not assigned to operate entrance scanners for this event."
 }
 ```
+
+#### Response 6: Unauthorized Access Point / Gate Mismatch (`403 Forbidden`)
+Returned when staff bound to one gate attempt to scan through another.
+
+```json
+{
+  "status": "gate_mismatch",
+  "message": "Unauthorized Access Point",
+  "detail": "You are assigned to scan at Gate A - West Wing. You cannot operate scanners at Gate B - East Wing."
+}
+```
+
+#### Response 7: Idempotency Key Conflict (`409 Conflict`)
+Returned when a `client_scan_id` is replayed for a **different** ticket, event, or access point. A replay for the *same* ticket/event/gate returns the original `200 Ticket Valid` response instead.
+
+```json
+{
+  "status": "idempotency_conflict",
+  "message": "Idempotency Key Conflict",
+  "detail": "The client scan ID was already used for a different admission request."
+}
+```
+
+#### Response 8: Event Cancelled (`422 Unprocessable Content`)
+```json
+{
+  "status": "event_cancelled",
+  "message": "Event Cancelled",
+  "detail": "This event has been cancelled and cannot admit attendees."
+}
+```
+
+#### Response 9: Event Completed (`422 Unprocessable Content`)
+```json
+{
+  "status": "event_completed",
+  "message": "Event Completed",
+  "detail": "This event has already concluded."
+}
+```
+
+#### Response 10: Revoked Ticket (`422 Unprocessable Content`)
+```json
+{
+  "status": "revoked_ticket",
+  "message": "Revoked Ticket",
+  "detail": "Ticket is revoked and not eligible for admission."
+}
+```
+
+#### Response 11: Invalid Gate (`422 Unprocessable Content`)
+Returned when the access point does not belong to the event or is inactive.
+
+```json
+{
+  "status": "invalid_gate",
+  "message": "Invalid Gate",
+  "detail": "The selected access point is invalid or currently inactive."
+}
+```
+
+#### Response 12: Event Not Found (`404 Not Found`)
+```json
+{
+  "status": "not_found",
+  "message": "Event Not Found",
+  "detail": "The requested event does not exist."
+}
+```
+
+### 4.3 Admission evaluation order
+
+The server evaluates these conditions in order and stops at the first failure:
+
+1. event exists
+2. event is neither `cancelled` nor `completed`
+3. caller is the organizer, an admin, or assigned in `event_staff`
+4. access point exists, belongs to the event, and is active
+5. staff bound to a specific gate is scanning that gate
+6. QR payload matches `ingress:v1:<public_id>:<64 hex secret>`
+7. a ticket with that `public_id` exists
+8. `sha256(secret)` matches the stored `qr_hash` (constant time)
+9. registration is `confirmed`
+10. ticket is `active`
+11. ticket belongs to the selected event
+12. `client_scan_id` is a replay only for the same ticket/event/gate
+13. no admission exists for this ticket's **current credential issuance**
+
+Steps 12 and 13 run inside a transaction that holds a `SELECT … FOR UPDATE` lock on the ticket row, so concurrent scans of the same ticket are serialised by PostgreSQL. Step 13 uses `admissions.credential_version` matched against `tickets.credential_version`, so admission history recorded under a credential retired by a cancellation/re-registration is retained for audit but does not block the newly issued credential.
