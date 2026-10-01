@@ -121,4 +121,89 @@ class AuthTest extends TestCase
         $response->assertSessionHasErrors(['email']);
         $this->assertGuest();
     }
+
+    public function test_mobile_login_is_throttled_after_five_attempts(): void
+    {
+        User::factory()->create([
+            'email' => 'throttled@mseuf.edu.ph',
+            'password' => bcrypt('secret123'),
+        ]);
+
+        for ($attempt = 1; $attempt <= 5; $attempt++) {
+            $this->postJson('/api/v1/auth/login', [
+                'email' => 'throttled@mseuf.edu.ph',
+                'password' => 'wrong-password',
+            ])->assertStatus(422);
+        }
+
+        $this->postJson('/api/v1/auth/login', [
+            'email' => 'throttled@mseuf.edu.ph',
+            'password' => 'wrong-password',
+        ])->assertStatus(429);
+    }
+
+    public function test_mobile_login_throttle_is_scoped_per_email(): void
+    {
+        User::factory()->create([
+            'email' => 'exhausted@mseuf.edu.ph',
+            'password' => bcrypt('secret123'),
+        ]);
+
+        User::factory()->create([
+            'email' => 'unaffected@mseuf.edu.ph',
+            'password' => bcrypt('secret123'),
+        ]);
+
+        for ($attempt = 1; $attempt <= 5; $attempt++) {
+            $this->postJson('/api/v1/auth/login', [
+                'email' => 'exhausted@mseuf.edu.ph',
+                'password' => 'wrong-password',
+            ])->assertStatus(422);
+        }
+
+        $this->postJson('/api/v1/auth/login', [
+            'email' => 'exhausted@mseuf.edu.ph',
+            'password' => 'wrong-password',
+        ])->assertStatus(429);
+
+        // A different account from the same IP is not locked out.
+        $this->postJson('/api/v1/auth/login', [
+            'email' => 'unaffected@mseuf.edu.ph',
+            'password' => 'wrong-password',
+        ])->assertStatus(422);
+    }
+
+    public function test_organizer_web_login_is_throttled_after_five_attempts(): void
+    {
+        $organizer = User::factory()->create([
+            'email' => 'throttle.web@mseuf.edu.ph',
+            'role' => User::ROLE_ORGANIZER,
+            'password' => bcrypt('password'),
+        ]);
+
+        // Wrong password so the session stays a guest and the form stays reachable.
+        for ($attempt = 1; $attempt <= 5; $attempt++) {
+            $this->post('/login', [
+                'email' => $organizer->email,
+                'password' => 'wrong-password',
+            ])->assertSessionHasErrors('email');
+        }
+
+        $blocked = $this->post('/login', [
+            'email' => $organizer->email,
+            'password' => 'wrong-password',
+        ]);
+
+        $blocked->assertRedirect(route('login'));
+
+        // Assert on the rendered form rather than on the session bag: reading
+        // `session('errors')` between the POST and this GET rewraps the flashed bag
+        // and it then fails to re-render, which is a test-harness artifact.
+        $form = $this->get(route('login'));
+
+        $form->assertSee('Too many login attempts. Please try again in a minute.');
+        $form->assertDontSee('do not match our records');
+
+        $this->assertGuest();
+    }
 }
