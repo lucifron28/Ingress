@@ -45,11 +45,28 @@ class AdmitTicket
             ];
         }
 
-        $isAuthorized = $staff->isAdmin()
-            || $event->organizer_id === $staff->id
-            || EventStaff::where('event_id', $event->id)->where('user_id', $staff->id)->exists();
+        if ($event->isCancelled()) {
+            return [
+                'http_code' => 422,
+                'status' => 'event_cancelled',
+                'message' => 'Event Cancelled',
+                'detail' => 'This event has been cancelled and cannot admit attendees.',
+            ];
+        }
 
-        if (! $isAuthorized) {
+        if ($event->status === Event::STATUS_COMPLETED) {
+            return [
+                'http_code' => 422,
+                'status' => 'event_completed',
+                'message' => 'Event Completed',
+                'detail' => 'This event has already concluded.',
+            ];
+        }
+
+        $isSuperUser = $staff->isAdmin() || $event->organizer_id === $staff->id;
+        $staffAssignment = EventStaff::where('event_id', $event->id)->where('user_id', $staff->id)->first();
+
+        if (! $isSuperUser && ! $staffAssignment) {
             return [
                 'http_code' => 403,
                 'status' => 'unauthorized_staff',
@@ -71,6 +88,20 @@ class AdmitTicket
                 'message' => 'Invalid Gate',
                 'detail' => 'The selected access point is invalid or currently inactive.',
             ];
+        }
+
+        // Gate Assignment Enforcement: Staff bound to a specific gate cannot operate a different gate
+        if (! $isSuperUser && $staffAssignment && $staffAssignment->access_point_id !== null) {
+            if ((int) $staffAssignment->access_point_id !== (int) $accessPoint->id) {
+                $assignedGate = AccessPoint::find($staffAssignment->access_point_id);
+                $assignedName = $assignedGate?->name ?? 'another gate';
+                return [
+                    'http_code' => 403,
+                    'status' => 'gate_mismatch',
+                    'message' => 'Unauthorized Access Point',
+                    'detail' => "You are assigned to scan at {$assignedName}. You cannot operate scanners at {$accessPoint->name}.",
+                ];
+            }
         }
 
         // Check 4: QR Payload format verification

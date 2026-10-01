@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\AccessPoint;
 use App\Models\Event;
 use App\Models\User;
 use App\Models\Venue;
@@ -207,5 +208,76 @@ class EventManagementTest extends TestCase
                 ->where('access_point_id', $gate->id)
                 ->exists()
         );
+    }
+
+    public function test_organizer_cannot_assign_non_staff_user_to_event(): void
+    {
+        $event = Event::create([
+            'organizer_id' => $this->organizerA->id,
+            'venue_id' => $this->venue->id,
+            'title' => 'Validation Test Event',
+            'slug' => 'val-test-event',
+            'capacity' => 10,
+            'registration_opens_at' => Carbon::now(),
+            'registration_closes_at' => Carbon::now()->addDays(2),
+            'starts_at' => Carbon::now()->addDays(3),
+            'ends_at' => Carbon::now()->addDays(3)->addHours(2),
+            'status' => Event::STATUS_DRAFT,
+        ]);
+
+        // Attempting to assign student as staff
+        $response = $this->actingAs($this->organizerA)
+            ->post("/organizer/events/{$event->id}/staff", [
+                'user_id' => $this->student->id, // Student role, not staff!
+            ]);
+
+        $response->assertSessionHasErrors(['user_id']);
+        $this->assertFalse($event->staffAssignments()->where('user_id', $this->student->id)->exists());
+    }
+
+    public function test_organizer_cannot_assign_gate_from_another_event(): void
+    {
+        $event1 = Event::create([
+            'organizer_id' => $this->organizerA->id,
+            'venue_id' => $this->venue->id,
+            'title' => 'Event 1',
+            'slug' => 'event-1',
+            'capacity' => 10,
+            'registration_opens_at' => Carbon::now(),
+            'registration_closes_at' => Carbon::now()->addDays(2),
+            'starts_at' => Carbon::now()->addDays(3),
+            'ends_at' => Carbon::now()->addDays(3)->addHours(2),
+            'status' => Event::STATUS_DRAFT,
+        ]);
+
+        $event2 = Event::create([
+            'organizer_id' => $this->organizerA->id,
+            'venue_id' => $this->venue->id,
+            'title' => 'Event 2',
+            'slug' => 'event-2',
+            'capacity' => 10,
+            'registration_opens_at' => Carbon::now(),
+            'registration_closes_at' => Carbon::now()->addDays(2),
+            'starts_at' => Carbon::now()->addDays(3),
+            'ends_at' => Carbon::now()->addDays(3)->addHours(2),
+            'status' => Event::STATUS_DRAFT,
+        ]);
+
+        $event2Gate = AccessPoint::create([
+            'event_id' => $event2->id,
+            'name' => 'Event 2 Gate',
+            'code' => 'E2-GATE',
+        ]);
+
+        $staffUser = User::factory()->create(['role' => User::ROLE_STAFF]);
+
+        // Attempt to assign Event 1 staff to Event 2's gate
+        $response = $this->actingAs($this->organizerA)
+            ->post("/organizer/events/{$event1->id}/staff", [
+                'user_id' => $staffUser->id,
+                'access_point_id' => $event2Gate->id, // Belongs to event 2, not event 1!
+            ]);
+
+        $response->assertSessionHasErrors(['access_point_id']);
     }
 }

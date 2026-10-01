@@ -274,8 +274,8 @@ class AdmissionTest extends TestCase
             ])
             ->assertStatus(200);
 
-        // 2. Same scan ID sent for Gate B
-        $conflictResponse = $this->actingAs($this->staffGateA)
+        // 2. Same scan ID sent for Gate B by organizer (who has access to all gates)
+        $conflictResponse = $this->actingAs($this->event->organizer)
             ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
                 'access_point_id' => $this->gateB->id, // Different gate
                 'qr_payload' => $this->validQrPayload,
@@ -287,6 +287,92 @@ class AdmissionTest extends TestCase
                 'status' => 'idempotency_conflict',
                 'message' => 'Idempotency Key Conflict',
             ]);
+    }
+
+    public function test_staff_assigned_to_gate_a_cannot_scan_at_gate_b(): void
+    {
+        $response = $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
+                'access_point_id' => $this->gateB->id, // Assigned to Gate A, scanning at Gate B
+                'qr_payload' => $this->validQrPayload,
+                'client_scan_id' => (string) Str::uuid(),
+            ]);
+
+        $response->assertStatus(403)
+            ->assertJson([
+                'status' => 'gate_mismatch',
+                'message' => 'Unauthorized Access Point',
+            ]);
+    }
+
+    public function test_roving_staff_with_no_specific_gate_can_scan_any_gate(): void
+    {
+        $rovingStaff = User::factory()->create([
+            'name' => 'Roving Supervisor',
+            'role' => User::ROLE_STAFF,
+        ]);
+
+        // Assigned with access_point_id = null (roving)
+        EventStaff::create([
+            'event_id' => $this->event->id,
+            'user_id' => $rovingStaff->id,
+            'access_point_id' => null,
+        ]);
+
+        $scanId = (string) Str::uuid();
+        $response = $this->actingAs($rovingStaff)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
+                'access_point_id' => $this->gateB->id,
+                'qr_payload' => $this->validQrPayload,
+                'client_scan_id' => $scanId,
+            ]);
+
+        $response->assertStatus(200)
+            ->assertJson([
+                'status' => 'admitted',
+                'message' => 'Ticket Valid',
+            ]);
+    }
+
+    public function test_cancelled_event_rejects_admission(): void
+    {
+        $this->event->update(['status' => Event::STATUS_CANCELLED]);
+
+        $response = $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
+                'access_point_id' => $this->gateA->id,
+                'qr_payload' => $this->validQrPayload,
+                'client_scan_id' => (string) Str::uuid(),
+            ]);
+
+        $response->assertStatus(422)
+            ->assertJson([
+                'status' => 'event_cancelled',
+                'message' => 'Event Cancelled',
+            ]);
+    }
+
+    public function test_staff_events_api_only_returns_assigned_gate(): void
+    {
+        $response = $this->actingAs($this->staffGateA)
+            ->getJson('/api/v1/staff/events');
+
+        $response->assertStatus(200);
+        $assignedEvent = collect($response->json('events'))->firstWhere('id', $this->event->id);
+        $this->assertNotNull($assignedEvent);
+
+        // Should ONLY contain Gate A
+        $gateCodes = collect($assignedEvent['access_points'])->pluck('code');
+        $this->assertTrue($gateCodes->contains('GATE-A'));
+        $this->assertFalse($gateCodes->contains('GATE-B'));
+
+        // Access points endpoint should also only return Gate A
+        $apResponse = $this->actingAs($this->staffGateA)
+            ->getJson("/api/v1/staff/events/{$this->event->id}/access-points");
+
+        $apResponse->assertStatus(200);
+        $this->assertCount(1, $apResponse->json('access_points'));
+        $this->assertEquals('GATE-A', $apResponse->json('access_points.0.code'));
     }
     public function test_ticket_for_another_event_is_rejected(): void
     {

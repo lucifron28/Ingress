@@ -23,7 +23,7 @@ class StaffAdmissionController extends Controller
                 ->orderBy('starts_at', 'asc')
                 ->get();
         } else {
-            $events = Event::with(['venue', 'accessPoints'])
+            $events = Event::with(['venue', 'accessPoints', 'staffAssignments'])
                 ->whereHas('staffAssignments', fn ($q) => $q->where('user_id', $user->id))
                 ->published()
                 ->orderBy('starts_at', 'asc')
@@ -31,21 +31,31 @@ class StaffAdmissionController extends Controller
         }
 
         return response()->json([
-            'events' => $events->map(fn ($event) => [
-                'id' => $event->id,
-                'title' => $event->title,
-                'venue' => $event->venue ? [
-                    'name' => $event->venue->name,
-                    'location' => $event->venue->location,
-                ] : null,
-                'starts_at' => $event->starts_at?->toISOString(),
-                'ends_at' => $event->ends_at?->toISOString(),
-                'access_points' => $event->accessPoints->where('is_active', true)->values()->map(fn ($ap) => [
-                    'id' => $ap->id,
-                    'name' => $ap->name,
-                    'code' => $ap->code,
-                ]),
-            ]),
+            'events' => $events->map(function ($event) use ($user) {
+                $isSuper = $user->isAdmin() || $event->organizer_id === $user->id;
+                $assignment = $event->staffAssignments?->firstWhere('user_id', $user->id);
+
+                $gates = $event->accessPoints->where('is_active', true);
+                if (! $isSuper && $assignment && $assignment->access_point_id !== null) {
+                    $gates = $gates->where('id', $assignment->access_point_id);
+                }
+
+                return [
+                    'id' => $event->id,
+                    'title' => $event->title,
+                    'venue' => $event->venue ? [
+                        'name' => $event->venue->name,
+                        'location' => $event->venue->location,
+                    ] : null,
+                    'starts_at' => $event->starts_at?->toISOString(),
+                    'ends_at' => $event->ends_at?->toISOString(),
+                    'access_points' => $gates->values()->map(fn ($ap) => [
+                        'id' => $ap->id,
+                        'name' => $ap->name,
+                        'code' => $ap->code,
+                    ]),
+                ];
+            }),
         ]);
     }
 
@@ -54,8 +64,24 @@ class StaffAdmissionController extends Controller
      */
     public function accessPoints(Request $request, Event $event): JsonResponse
     {
+        $user = $request->user();
+        $isSuper = $user->isAdmin() || $event->organizer_id === $user->id;
+        $assignment = $event->staffAssignments()->where('user_id', $user->id)->first();
+
+        if (! $isSuper && ! $assignment) {
+            return response()->json([
+                'message' => 'Unauthorized. You are not assigned to this event.',
+            ], 403);
+        }
+
+        $query = $event->accessPoints()->where('is_active', true);
+
+        if (! $isSuper && $assignment->access_point_id !== null) {
+            $query->where('id', $assignment->access_point_id);
+        }
+
         return response()->json([
-            'access_points' => $event->accessPoints()->where('is_active', true)->get()->map(fn ($ap) => [
+            'access_points' => $query->get()->map(fn ($ap) => [
                 'id' => $ap->id,
                 'name' => $ap->name,
                 'code' => $ap->code,

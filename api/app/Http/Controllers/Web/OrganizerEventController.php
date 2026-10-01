@@ -233,8 +233,14 @@ class OrganizerEventController extends Controller
         Gate::authorize('manageStaff', $event);
 
         $validated = $request->validate([
-            'user_id' => ['required', 'exists:users,id'],
-            'access_point_id' => ['nullable', 'exists:access_points,id'],
+            'user_id' => [
+                'required',
+                \Illuminate\Validation\Rule::exists('users', 'id')->where(fn ($q) => $q->where('role', User::ROLE_STAFF)),
+            ],
+            'access_point_id' => [
+                'nullable',
+                \Illuminate\Validation\Rule::exists('access_points', 'id')->where(fn ($q) => $q->where('event_id', $event->id)),
+            ],
         ]);
 
         EventStaff::updateOrCreate(
