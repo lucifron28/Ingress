@@ -72,19 +72,16 @@ const check = (label, ok, detail = '') => {
   }
 };
 
-// --- the demo affordances must be opt-in -------------------------------------
 check(
   'demo affordances are off unless the build opts in explicitly',
   DEMO_MODE === false,
   `DEMO_MODE=${DEMO_MODE}`,
 );
 
-// --- a session and a configured Event Node -----------------------------------
 await AuthStorage.saveServerUrl('http://192.168.1.50:8000/api/v1');
 await AuthStorage.saveToken('token-from-server-a');
 await AuthStorage.saveUser(JSON.stringify({ id: 1, name: 'Carlo', role: 'student' }));
 
-// --- clearing the session keeps the server URL -------------------------------
 await AuthStorage.clearAll();
 
 check('clearing a session removes the bearer token', (await AuthStorage.getToken()) === null);
@@ -95,7 +92,6 @@ check(
   String(await AuthStorage.getServerUrl()),
 );
 
-// --- a revoked token is not confused with an unreachable server --------------
 const realFetch = globalThis.fetch;
 
 globalThis.fetch = async () =>
@@ -129,10 +125,7 @@ check('a transport failure remains fail-closed for server actions', offlineMessa
 
 globalThis.fetch = realFetch;
 
-// --- storage primitives allow independent URL updates ------------------------
-// Note: React-level wiring in AuthContext.updateServerUrl and server-settings.tsx
-// (forced sign-out and navigation to /login) is verified via TypeScript typechecking
-// and code review because no React Native test runner is configured.
+// React-level navigation is covered by typechecking and code review; this file tests the storage/service layer.
 await AuthStorage.saveServerUrl('http://10.0.0.9:8000/api/v1');
 await AuthStorage.saveToken('token-from-server-b');
 

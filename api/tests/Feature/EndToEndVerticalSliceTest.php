@@ -265,7 +265,6 @@ class EndToEndVerticalSliceTest extends TestCase
                 'client_scan_id' => $clientScanId2,
             ]);
 
-        // MUST be rejected with HTTP 409 and report previous admission details
         $scanGateBRes->assertStatus(409)
             ->assertJson([
                 'status' => 'already_admitted',
@@ -276,7 +275,6 @@ class EndToEndVerticalSliceTest extends TestCase
                 ],
             ]);
 
-        // Invariant: Exactly 1 admission row exists for this ticket in the database
         $this->assertEquals(1, Admission::whereHas('ticket', fn($q) => $q->where('public_id', $ticketPublicId))->count());
 
         // ---------------------------------------------------------
