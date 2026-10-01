@@ -20,7 +20,7 @@ Issues a personal access token for mobile attendees and event staff.
 #### Request Body
 ```json
 {
-  "email": "student1@mseuf.edu.ph",
+  "email": "a23-35524@student.mseuf.edu.ph",
   "password": "password",
   "device_name": "Pixel-7-Staff"
 }
@@ -32,11 +32,11 @@ Issues a personal access token for mobile attendees and event staff.
   "token": "1|g8G2k3bX...",
   "token_type": "Bearer",
   "user": {
-    "id": 6,
-    "name": "Carlo Mendoza",
-    "email": "student1@mseuf.edu.ph",
+    "id": 7,
+    "name": "Ron Vincent Cada",
+    "email": "a23-35524@student.mseuf.edu.ph",
     "role": "student",
-    "student_id": "2024-01001",
+    "student_id": "A23-35524",
     "created_at": "2026-10-01T02:00:00.000000Z"
   }
 }
@@ -118,9 +118,9 @@ Returns upcoming published campus events available for discovery and registratio
   "data": [
     {
       "id": 1,
-      "title": "MSEUF Annual Tech Symposium 2026",
-      "slug": "mseuf-annual-tech-symposium-2026",
-      "description": "Keynotes, student exhibitions, and industry networking.",
+      "title": "MSEUF University Intramurals 2026",
+      "slug": "mseuf-university-intramurals-2026",
+      "description": "The annual university-wide sports, parade, e-sports, and athletic competition.",
       "venue": {
         "id": 1,
         "name": "MSEUF University Gymnasium",
@@ -158,7 +158,7 @@ Retrieves single event details including user registration status.
 {
   "event": {
     "id": 1,
-    "title": "MSEUF Annual Tech Symposium 2026",
+    "title": "MSEUF University Intramurals 2026",
     "capacity": 50,
     "remaining_capacity": 38,
     "is_registration_open": true,
@@ -255,7 +255,7 @@ Returns all tickets issued to the authenticated student. Because the response co
       "qr_payload": "ingress:v1:ING-A92B48EF12:6b86b...",
       "event": {
         "id": 1,
-        "title": "MSEUF Annual Tech Symposium 2026",
+        "title": "MSEUF University Intramurals 2026",
         "venue": {
           "id": 1,
           "name": "MSEUF University Gymnasium",
@@ -265,9 +265,9 @@ Returns all tickets issued to the authenticated student. Because the response co
         "ends_at": "2026-10-03T17:00:00.000000Z"
       },
       "attendee": {
-        "name": "Carlo Mendoza",
-        "student_id": "2024-01001",
-        "email": "student1@mseuf.edu.ph"
+        "name": "Ron Vincent Cada",
+        "student_id": "A23-35524",
+        "email": "a23-35524@student.mseuf.edu.ph"
       }
     }
   ]
@@ -300,15 +300,15 @@ Retrieves single ticket details. The reusable `qr_payload` is returned **only to
     "qr_payload": "ingress:v1:ING-A92B48EF12:6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
     "event": {
       "id": 1,
-      "title": "MSEUF Annual Tech Symposium 2026",
+      "title": "MSEUF University Intramurals 2026",
       "venue": { "id": 1, "name": "MSEUF University Gymnasium", "location": "Lucena City" },
       "starts_at": "2026-10-03T09:00:00.000000Z",
       "ends_at": "2026-10-03T17:00:00.000000Z"
     },
     "attendee": {
-      "name": "Carlo Mendoza",
-      "student_id": "2024-01001",
-      "email": "student1@mseuf.edu.ph"
+      "name": "Ron Vincent Cada",
+      "student_id": "A23-35524",
+      "email": "a23-35524@student.mseuf.edu.ph"
     }
   }
 }
@@ -345,7 +345,7 @@ Lists events where the authenticated staff member is assigned to scan tickets.
   "events": [
     {
       "id": 1,
-      "title": "MSEUF Annual Tech Symposium 2026",
+      "title": "MSEUF University Intramurals 2026",
       "venue": {
         "name": "MSEUF University Gymnasium",
         "location": "Lucena City"
@@ -353,7 +353,7 @@ Lists events where the authenticated staff member is assigned to scan tickets.
       "starts_at": "2026-10-03T09:00:00.000000Z",
       "ends_at": "2026-10-03T17:00:00.000000Z",
       "access_points": [
-        { "id": 2, "name": "Gate A - West Wing", "code": "GATE-A" }
+        { "id": 1, "name": "Entrance 1", "code": "ENTRANCE-1" }
       ]
     }
   ]
@@ -389,13 +389,13 @@ Server-authoritative ticket scan validation with anti-passback and idempotency c
   "admission": {
     "id": 1,
     "admitted_at": "2026-10-01T01:42:00.000000Z",
-    "access_point": "Gate A - West Wing",
+    "access_point": "Entrance 1",
     "scanned_by": "Staff Alex Rivera"
   },
   "ticket": {
     "public_id": "ING-A92B48EF12",
-    "attendee_name": "Carlo Mendoza",
-    "student_id": "2024-01001"
+    "attendee_name": "Ron Vincent Cada",
+    "student_id": "A23-35524"
   }
 }
 ```
@@ -405,16 +405,16 @@ Server-authoritative ticket scan validation with anti-passback and idempotency c
 {
   "status": "already_admitted",
   "message": "Already Checked In",
-  "detail": "Previously admitted at Gate A - West Wing, 1:42 PM",
+  "detail": "Previously admitted at Entrance 1, 1:42 PM",
   "previous_admission": {
     "admitted_at": "2026-10-01T01:42:00.000000Z",
-    "access_point": "Gate A - West Wing",
+    "access_point": "Entrance 1",
     "scanned_by": "Staff Alex Rivera"
   },
   "ticket": {
     "public_id": "ING-A92B48EF12",
-    "attendee_name": "Carlo Mendoza",
-    "student_id": "2024-01001"
+    "attendee_name": "Ron Vincent Cada",
+    "student_id": "A23-35524"
   }
 }
 ```

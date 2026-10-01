@@ -21,14 +21,14 @@ The completed 50% milestone demonstrates the full end-to-end lifecycle across ro
 ORGANIZER WEB (Blade)
 Login (organizer@mseuf.edu.ph)
   ↓ Create Event & configure capacity
-  ↓ Provision access points (Gate A, Gate B)
+  ↓ Provision access points (Entrance 1, Entrance 2, Entrance 3)
   ↓ Assign event staff
   ↓ Publish Event
 
            ↓
 
 STUDENT MOBILE (Expo React Native)
-Login (student1@mseuf.edu.ph)
+Login (a23-35524@student.mseuf.edu.ph - Ron Vincent Cada)
   ↓ Discover Event
   ↓ View Event Details
   ↓ Register (Pessimistic row lock strictly guarantees confirmed <= capacity)
@@ -37,21 +37,20 @@ Login (student1@mseuf.edu.ph)
 
            ↓
 
-STAFF PHONE — GATE A (Mobile Scanner)
+STAFF PHONE — ENTRANCE 1 (Mobile Scanner)
 Login (staff.gate_a@mseuf.edu.ph)
-  ↓ Select Assigned Event
-  ↓ Select Gate A
+  ↓ Select Assigned Event (MSEUF University Intramurals 2026)
+  ↓ Select Entrance 1
   ↓ Scan Ticket
   ↓ [✓] TICKET VALID (Admission recorded transactionally)
 
            ↓
 
-STAFF PHONE — GATE B (Anti-Passback)
+STAFF PHONE — ENTRANCE 2 (Anti-Passback)
 Login (staff.gate_b@mseuf.edu.ph)
-  ↓ Scan exact same ticket at Gate B
-  ↓ [!] ALREADY CHECKED IN (Report previous admission: Gate A, previous timestamp)
+  ↓ Scan exact same ticket at Entrance 2
+  ↓ [!] ALREADY CHECKED IN (Report previous admission: Entrance 1, previous timestamp)
   ↓ No duplicate admission recorded
-
            ↓
 
 ORGANIZER WEB (Attendance View)
@@ -139,9 +138,10 @@ php artisan tinker --execute="\App\Models\User::create(['name'=>'Event Administr
 | **Admin** | MSEUF Administrator | `admin@mseuf.edu.ph` | Web Management |
 | **Organizer** | Prof. Juan Dela Cruz (CCS) | `organizer@mseuf.edu.ph` | Web Organizer Portal |
 | **Organizer 2**| Engr. Maria Santos (COE) | `organizer2@mseuf.edu.ph` | Web Organizer Portal |
-| **Staff Gate A**| Staff Alex Rivera | `staff.gate_a@mseuf.edu.ph` | Mobile Gate A Scanner |
-| **Staff Gate B**| Staff Bea Ramos | `staff.gate_b@mseuf.edu.ph` | Mobile Gate B Scanner |
-| **Student 1** | Carlo Mendoza (`2024-01001`) | `student1@mseuf.edu.ph` | Mobile Attendee App |
+| **Staff Entrance 1**| Staff Alex Rivera | `staff.gate_a@mseuf.edu.ph` | Mobile Entrance 1 Scanner |
+| **Staff Entrance 2**| Staff Bea Ramos | `staff.gate_b@mseuf.edu.ph` | Mobile Entrance 2 Scanner |
+| **Staff Entrance 3**| Staff Chris Dizon | `staff.gate_c@mseuf.edu.ph` | Mobile Entrance 3 Scanner |
+| **Student 1 (Primary)**| Ron Vincent Cada (`A23-35524`)| `a23-35524@student.mseuf.edu.ph`| Mobile Attendee App |
 | **Student 2** | Patricia Reyes (`2024-01002`)| `student2@mseuf.edu.ph` | Mobile Attendee App |
 | **Student 3** | Mark Aquino (`2024-01003`) | `student3@mseuf.edu.ph` | Mobile Attendee App |
 
@@ -268,3 +268,4 @@ npx expo start
 - [REST API Reference](docs/api.md)
 - [Classroom LAN Defense Guide](docs/lan-demo.md)
 - [Architecture Decision Records (ADRs)](docs/design-decisions.md)
+- [Demo Data & Official MSEUF Sources](docs/demo-data.md)

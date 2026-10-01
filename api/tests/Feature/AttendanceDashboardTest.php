@@ -35,9 +35,9 @@ class AttendanceDashboardTest extends TestCase
         $this->organizerA = User::factory()->create(['role' => User::ROLE_ORGANIZER]);
         $this->organizerB = User::factory()->create(['role' => User::ROLE_ORGANIZER]);
         $this->student = User::factory()->create([
-            'name' => 'Carlo Mendoza',
-            'email' => 'carlo@mseuf.edu.ph',
-            'student_id' => '2024-00123',
+            'name' => 'Ron Vincent Cada',
+            'email' => 'a23-35524@student.mseuf.edu.ph',
+            'student_id' => 'A23-35524',
             'role' => User::ROLE_STUDENT,
         ]);
 
@@ -89,7 +89,7 @@ class AttendanceDashboardTest extends TestCase
 
         $response->assertStatus(200);
         $response->assertSee('Event Attendance: Flagship Conference');
-        $response->assertSee('Carlo Mendoza');
+        $response->assertSee('Ron Vincent Cada');
         $response->assertSee('Gate A - West Wing');
         $response->assertSee('Admitted');
     }
@@ -130,7 +130,7 @@ class AttendanceDashboardTest extends TestCase
             ]);
 
         $this->assertNotEmpty($response->json('recent_admissions'));
-        $this->assertEquals('Carlo Mendoza', $response->json('recent_admissions.0.attendee_name'));
+        $this->assertEquals('Ron Vincent Cada', $response->json('recent_admissions.0.attendee_name'));
     }
 
     public function test_organizer_cannot_view_another_organizers_attendance(): void

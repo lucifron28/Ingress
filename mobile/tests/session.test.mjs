@@ -80,7 +80,7 @@ check(
 
 await AuthStorage.saveServerUrl('http://192.168.1.50:8000/api/v1');
 await AuthStorage.saveToken('token-from-server-a');
-await AuthStorage.saveUser(JSON.stringify({ id: 1, name: 'Carlo', role: 'student' }));
+await AuthStorage.saveUser(JSON.stringify({ id: 1, name: 'Ron', role: 'student' }));
 
 await AuthStorage.clearAll();
 

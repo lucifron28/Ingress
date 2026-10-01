@@ -41,9 +41,10 @@ Write-Host "API Base:    http://localhost:8000/api/v1" -ForegroundColor White
 Write-Host "`n--- Demonstration Credentials (Password: password) ---" -ForegroundColor Yellow
 Write-Host "  Organizer 1:   organizer@mseuf.edu.ph" -ForegroundColor White
 Write-Host "  Organizer 2:   organizer2@mseuf.edu.ph" -ForegroundColor White
-Write-Host "  Staff Gate A:  staff.gate_a@mseuf.edu.ph" -ForegroundColor White
-Write-Host "  Staff Gate B:  staff.gate_b@mseuf.edu.ph" -ForegroundColor White
-Write-Host "  Student 1:     student1@mseuf.edu.ph" -ForegroundColor White
+Write-Host "  Staff Entr 1:  staff.gate_a@mseuf.edu.ph" -ForegroundColor White
+Write-Host "  Staff Entr 2:  staff.gate_b@mseuf.edu.ph" -ForegroundColor White
+Write-Host "  Staff Entr 3:  staff.gate_c@mseuf.edu.ph" -ForegroundColor White
+Write-Host "  Student 1:     a23-35524@student.mseuf.edu.ph (Ron Vincent Cada)" -ForegroundColor White
 Write-Host "  Student 2:     student2@mseuf.edu.ph" -ForegroundColor White
 Write-Host "  Administrator: admin@mseuf.edu.ph" -ForegroundColor White
 

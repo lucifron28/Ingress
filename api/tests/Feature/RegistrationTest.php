@@ -36,9 +36,9 @@ class RegistrationTest extends TestCase
         ]);
 
         $this->student1 = User::factory()->create([
-            'name' => 'Carlo Mendoza',
-            'email' => 'student1@mseuf.edu.ph',
-            'student_id' => '2024-01001',
+            'name' => 'Ron Vincent Cada',
+            'email' => 'a23-35524@student.mseuf.edu.ph',
+            'student_id' => 'A23-35524',
             'role' => User::ROLE_STUDENT,
         ]);
 
@@ -88,9 +88,9 @@ class RegistrationTest extends TestCase
         $this->assertStringStartsWith('ingress:v1:ING-', $qrPayload);
 
         // Invariant: Zero PII in QR code
-        $this->assertStringNotContainsString('Carlo', $qrPayload);
-        $this->assertStringNotContainsString('student1@mseuf.edu.ph', $qrPayload);
-        $this->assertStringNotContainsString('2024-01001', $qrPayload);
+        $this->assertStringNotContainsString('Ron', $qrPayload);
+        $this->assertStringNotContainsString('a23-35524@student.mseuf.edu.ph', $qrPayload);
+        $this->assertStringNotContainsString('A23-35524', $qrPayload);
 
         // Verify database records
         $this->assertDatabaseHas('registrations', [

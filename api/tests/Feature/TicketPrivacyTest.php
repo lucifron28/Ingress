@@ -48,9 +48,9 @@ class TicketPrivacyTest extends TestCase
         ]);
 
         $this->student = User::factory()->create([
-            'name' => 'Carlo Mendoza',
-            'email' => 'carlo@mseuf.edu.ph',
-            'student_id' => '2024-00101',
+            'name' => 'Ron Vincent Cada',
+            'email' => 'a23-35524@student.mseuf.edu.ph',
+            'student_id' => 'A23-35524',
             'role' => User::ROLE_STUDENT,
         ]);
 
@@ -130,8 +130,8 @@ class TicketPrivacyTest extends TestCase
                     'public_id' => $this->ticket->public_id,
                     'status' => 'active',
                     'attendee' => [
-                        'name' => 'Carlo Mendoza',
-                        'student_id' => '2024-00101',
+                        'name' => 'Ron Vincent Cada',
+                        'student_id' => 'A23-35524',
                     ],
                 ],
             ]);
