@@ -18,11 +18,15 @@ class Ticket extends Model
         'registration_id',
         'public_id',
         'qr_hash',
+        'encrypted_secret',
         'status',
         'issued_at',
         'revoked_at',
     ];
 
+    protected $hidden = [
+        'encrypted_secret',
+    ];
     protected function casts(): array
     {
         return [
@@ -44,5 +48,24 @@ class Ticket extends Model
     public function isActive(): bool
     {
         return $this->status === self::STATUS_ACTIVE;
+    }
+
+    public function getQrPayload(): ?string
+    {
+        if (! $this->encrypted_secret) {
+            return null;
+        }
+
+        try {
+            $secret = \Illuminate\Support\Facades\Crypt::decryptString($this->encrypted_secret);
+            return "ingress:v1:{$this->public_id}:{$secret}";
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    public function verifySecret(string $scannedSecret): bool
+    {
+        return hash_equals($this->qr_hash, hash('sha256', $scannedSecret));
     }
 }

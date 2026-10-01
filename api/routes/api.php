@@ -15,5 +15,11 @@ Route::prefix('v1')->group(function () {
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('/auth/logout', [\App\Http\Controllers\Api\V1\AuthController::class, 'logout']);
         Route::get('/me', [\App\Http\Controllers\Api\V1\AuthController::class, 'me']);
+
+        // Attendee Registration & Digital Tickets
+        Route::post('/events/{event}/registration', [\App\Http\Controllers\Api\V1\RegistrationController::class, 'store']);
+        Route::delete('/events/{event}/registration', [\App\Http\Controllers\Api\V1\RegistrationController::class, 'destroy']);
+        Route::get('/me/tickets', [\App\Http\Controllers\Api\V1\TicketController::class, 'myTickets']);
+        Route::get('/tickets/{ticket}', [\App\Http\Controllers\Api\V1\TicketController::class, 'show']);
     });
 });

@@ -13,6 +13,7 @@ return new class extends Migration
             $table->foreignId('registration_id')->unique()->constrained('registrations')->cascadeOnDelete();
             $table->string('public_id', 64)->unique();
             $table->string('qr_hash', 64)->index();
+            $table->text('encrypted_secret')->nullable();
             $table->string('status', 32)->default('active')->index();
             $table->timestamp('issued_at');
             $table->timestamp('revoked_at')->nullable();
