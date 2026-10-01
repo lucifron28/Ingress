@@ -20,14 +20,23 @@ class AdmissionTest extends TestCase
     use RefreshDatabase;
 
     private User $staffGateA;
+
     private User $staffGateB;
+
     private User $unauthorizedStaff;
+
     private User $student;
+
     private Event $event;
+
     private Event $otherEvent;
+
     private AccessPoint $gateA;
+
     private AccessPoint $gateB;
+
     private string $validQrPayload;
+
     private Ticket $ticket;
 
     protected function setUp(): void
@@ -123,7 +132,7 @@ class AdmissionTest extends TestCase
         ]);
 
         // Register student and obtain ticket
-        $action = new RegisterForEvent();
+        $action = new RegisterForEvent;
         $result = $action->execute($this->student, $this->event->id);
         $this->validQrPayload = $result['qr_payload'];
         $this->ticket = $result['ticket'];
@@ -243,7 +252,7 @@ class AdmissionTest extends TestCase
 
         // 2. Second student registers and gets ticket
         $student2 = User::factory()->create(['role' => User::ROLE_STUDENT]);
-        $action = new RegisterForEvent();
+        $action = new RegisterForEvent;
         $student2Result = $action->execute($student2, $this->event->id);
 
         // 3. Scanner sends the same client_scan_id for Student 2's ticket
@@ -287,6 +296,57 @@ class AdmissionTest extends TestCase
                 'status' => 'idempotency_conflict',
                 'message' => 'Idempotency Key Conflict',
             ]);
+    }
+
+    public function test_a_scan_id_from_a_retired_credential_is_not_a_retry_for_the_rotated_credential(): void
+    {
+        $scanId = (string) Str::uuid();
+
+        // 1. Admit under credential version 1, recording the scan id.
+        $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
+                'access_point_id' => $this->gateA->id,
+                'qr_payload' => $this->validQrPayload,
+                'client_scan_id' => $scanId,
+            ])
+            ->assertStatus(200);
+
+        // 2. Cancel and register again: the same ticket row rotates its credential.
+        $this->actingAs($this->student, 'sanctum')
+            ->deleteJson("/api/v1/events/{$this->event->id}/registration")
+            ->assertStatus(200);
+
+        $reRegister = $this->actingAs($this->student, 'sanctum')
+            ->postJson("/api/v1/events/{$this->event->id}/registration");
+        $reRegister->assertStatus(201);
+
+        $rotatedQrPayload = $reRegister->json('qr_payload');
+        $this->assertEquals(2, $this->ticket->fresh()->credential_version);
+
+        // 3. Replaying the old scan id must not be treated as a retry: it belongs to
+        //    the retired issuance, so it cannot validate the rotated credential.
+        $replay = $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
+                'access_point_id' => $this->gateA->id,
+                'qr_payload' => $rotatedQrPayload,
+                'client_scan_id' => $scanId,
+            ]);
+
+        $replay->assertStatus(409)
+            ->assertJson([
+                'status' => 'idempotency_conflict',
+                'message' => 'Idempotency Key Conflict',
+            ]);
+
+        // 4. The rotated credential remains admittable under a fresh scan id.
+        $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
+                'access_point_id' => $this->gateA->id,
+                'qr_payload' => $rotatedQrPayload,
+                'client_scan_id' => (string) Str::uuid(),
+            ])
+            ->assertStatus(200)
+            ->assertJson(['status' => 'admitted']);
     }
 
     public function test_staff_assigned_to_gate_a_cannot_scan_at_gate_b(): void
@@ -423,10 +483,11 @@ class AdmissionTest extends TestCase
         $this->assertCount(1, $apResponse->json('access_points'));
         $this->assertEquals('GATE-A', $apResponse->json('access_points.0.code'));
     }
+
     public function test_ticket_for_another_event_is_rejected(): void
     {
         // Issue ticket for otherEvent
-        $action = new RegisterForEvent();
+        $action = new RegisterForEvent;
         $otherResult = $action->execute($this->student, $this->otherEvent->id);
 
         $response = $this->actingAs($this->staffGateA)
@@ -492,7 +553,7 @@ class AdmissionTest extends TestCase
             ->assertJson(['status' => 'invalid_ticket']);
 
         // Counterfeit secret
-        $fakePayload = "ingress:v1:{$this->ticket->public_id}:" . str_repeat('0', 64);
+        $fakePayload = "ingress:v1:{$this->ticket->public_id}:".str_repeat('0', 64);
         $this->actingAs($this->staffGateA)
             ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
                 'access_point_id' => $this->gateA->id,
