@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\AccessPoint;
 use App\Models\Event;
+use App\Models\Registration;
 use App\Models\User;
 use App\Models\Venue;
 use Carbon\Carbon;
@@ -15,8 +16,11 @@ class EventManagementTest extends TestCase
     use RefreshDatabase;
 
     private User $organizerA;
+
     private User $organizerB;
+
     private User $student;
+
     private Venue $venue;
 
     protected function setUp(): void
@@ -279,5 +283,56 @@ class EventManagementTest extends TestCase
             ]);
 
         $response->assertSessionHasErrors(['access_point_id']);
+    }
+
+    public function test_capacity_cannot_be_lowered_below_confirmed_registrations(): void
+    {
+        $event = Event::create([
+            'organizer_id' => $this->organizerA->id,
+            'venue_id' => $this->venue->id,
+            'title' => 'Capacity Floor Event',
+            'slug' => 'capacity-floor-event',
+            'capacity' => 500,
+            'registration_opens_at' => Carbon::now()->subDay(),
+            'registration_closes_at' => Carbon::now()->addDays(5),
+            'starts_at' => Carbon::now()->addDays(6),
+            'ends_at' => Carbon::now()->addDays(6)->addHours(3),
+            'status' => Event::STATUS_PUBLISHED,
+        ]);
+
+        // 420 confirmed registrations against a capacity of 500.
+        User::factory()->count(420)->create(['role' => User::ROLE_STUDENT])
+            ->each(function (User $student) use ($event) {
+                Registration::create([
+                    'event_id' => $event->id,
+                    'user_id' => $student->id,
+                    'status' => Registration::STATUS_CONFIRMED,
+                ]);
+            });
+
+        $payload = fn (int $capacity) => [
+            'venue_id' => $this->venue->id,
+            'title' => $event->title,
+            'description' => null,
+            'capacity' => $capacity,
+            'registration_opens_at' => Carbon::now()->subDay()->toDateTimeString(),
+            'registration_closes_at' => Carbon::now()->addDays(5)->toDateTimeString(),
+            'starts_at' => Carbon::now()->addDays(6)->toDateTimeString(),
+            'ends_at' => Carbon::now()->addDays(6)->addHours(3)->toDateTimeString(),
+        ];
+
+        // Lowering below the confirmed count is rejected and changes nothing.
+        $this->actingAs($this->organizerA)
+            ->put("/organizer/events/{$event->id}", $payload(300))
+            ->assertSessionHasErrors(['capacity']);
+
+        $this->assertEquals(500, $event->fresh()->capacity, 'rejected update must not change capacity');
+
+        // Lowering to exactly the confirmed count is allowed.
+        $this->actingAs($this->organizerA)
+            ->put("/organizer/events/{$event->id}", $payload(420))
+            ->assertSessionHasNoErrors();
+
+        $this->assertEquals(420, $event->fresh()->capacity);
     }
 }
