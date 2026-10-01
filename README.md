@@ -3,7 +3,7 @@
 **Manuel S. Enverga University Foundation (MSEUF)**  
 *Event Ticketing, Admission, and Attendance Management System*
 
-Ingress is a high-reliability, LAN-operable event platform designed for campus events at MSEUF. It combines a Laravel 12 web management console for organizers with an Expo React Native mobile application for student discovery, digital ticketing, and multi-gate admission scanning.
+Ingress is a high-reliability, LAN-operable event platform designed for campus events at MSEUF. It combines a Laravel 13 web management console for organizers with an Expo React Native mobile application for student discovery, digital ticketing, and multi-gate admission scanning.
 
 A key feature is **LAN-enabled event operation**: multiple gate staff phones connect to a local Ingress event server and validate tickets against one shared source of truth without requiring an active internet connection.
 
@@ -63,7 +63,7 @@ Dashboard updates in real-time
 
 | Component | Technology | Exact Version | Selection Justification |
 | :--- | :--- | :--- | :--- |
-| **Backend Framework** | Laravel | `12.34.0` | Latest stable release; slim skeleton; native Sanctum token integration; Eloquent locking. |
+| **Backend Framework** | Laravel | `13.34.0` | Latest stable release; slim skeleton; native Sanctum token integration; Eloquent locking. |
 | **PHP Runtime** | PHP | `8.4.24` | Modern property hooks, typed properties, native enums with model casts. |
 | **Database** | PostgreSQL | `18.4` | Native `timestamptz`, JSONB, atomic transaction isolation, robust row-level locking. |
 | **Web UI** | Laravel Blade | Built-in | Server-rendered admin console optimized for desktop/tablet event management without SPA overhead. |
@@ -73,6 +73,8 @@ Dashboard updates in real-time
 | **Secure Token Storage**| `expo-secure-store` | `57.0.4` | Hardware-backed keystore/keychain encryption for mobile credentials. |
 | **Camera Barcode Scan**| `expo-camera` | `57.0.6` | CameraView component with high-throughput native QR code detection. |
 | **QR Code Generation** | `react-native-qrcode-svg` | `6.3.26` | Maintained pure vector SVG QR code generation without remote image dependencies. |
+| **Vector Primitives** | `react-native-svg` | `15.15.5` | Native SVG rendering engine backing the QR component. |
+| **Concurrency Verification** | `php scripts/verify_pgsql_concurrency.php` | — | Two-process barrier harness proving final-seat and same-ticket races on real PostgreSQL. |
 
 ---
 
@@ -80,7 +82,7 @@ Dashboard updates in real-time
 
 ```
 ingress/
-├── api/                  # Laravel 12 Monolith & REST API
+├── api/                  # Laravel 13 Monolith & REST API
 │   ├── app/
 │   │   ├── Actions/      # RegisterForEvent, AdmitTicket
 │   │   ├── Http/
@@ -99,7 +101,7 @@ ingress/
 │   ├── app/              # Expo Router file-based pages
 │   │   ├── (attendee)/   # Discover catalog, Event detail, Ticket wallet, QR view, Profile
 │   │   ├── (staff)/      # Assigned events, Multi-gate viewfinder, Scanner feedback
-│   │   ├── login.tsx     # MSEUF branded login with demo switcher
+│   │   ├── login.tsx     # MSEUF-inspired login with demo switcher
 │   │   └── server-settings.tsx # In-app LAN server configurator & connection tester
 │   └── src/
 │       ├── context/      # AuthContext session management
@@ -143,7 +145,7 @@ If starting a new cluster:
 "C:\Program Files\PostgreSQL\18\bin\pg_ctl.exe" -D "C:\Users\Ron\ingress_db" -l "C:\Users\Ron\ingress_db\server.log" start
 ```
 
-### 2. Backend Server (Laravel 12)
+### 2. Backend Server (Laravel 13)
 ```bash
 cd api
 composer install
@@ -190,10 +192,14 @@ violated. Override the database name with `INGRESS_CONCURRENCY_DB` if needed.
 ```bash
 cd mobile
 npm install
+cp .env.example .env      # optional: preset EXPO_PUBLIC_API_URL for this build
 npx expo start
 ```
 - On the mobile login screen, tap **Change Server IP**.
-- Enter your laptop's LAN IP address: `http://<YOUR_LAN_IP>:8000/api/v1` (e.g. `http://192.168.55.128:8000/api/v1`).
+- Enter your laptop's LAN IP address, for example `http://<LAN_IP>:8000/api/v1`.
+  The starting value can also be preset at build time with the `EXPO_PUBLIC_API_URL`
+  environment variable in `mobile/.env`, so each demo build ships with its own Event
+  Node address instead of a hardcoded developer machine.
 - Tap **Test Connection** &rarr; **Save URL**.
 
 ---

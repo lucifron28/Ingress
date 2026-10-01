@@ -17,7 +17,7 @@ This guide provides concrete instructions for reproducing and defending the Ingr
            │                         │                         │
      192.168.x.x               192.168.x.x               192.168.x.x
      [Developer Laptop]       [Staff Phone 1]           [Staff Phone 2]
-     • Laravel 12 Server      • Gate A Scanner          • Gate B Scanner
+     • Laravel 13 Server      • Gate A Scanner          • Gate B Scanner
      • PostgreSQL 18 DB
      • Blade Dashboard
 ```
@@ -33,7 +33,7 @@ Open Command Prompt or PowerShell on the host laptop:
 ```cmd
 ipconfig
 ```
-Locate the IPv4 address for your active Wi-Fi adapter (e.g., `192.168.55.128`). Note this IP address for mobile configuration.
+Locate the IPv4 address for your active Wi-Fi adapter (for example `192.168.x.y`). Note this IP address for mobile configuration.
 
 ### Step 2.2: Ensure PostgreSQL 18 is Running
 ```bash
@@ -85,10 +85,13 @@ All demo accounts use the standard password: `password`.
    npx expo start
    ```
 3. On the login screen of each phone, tap **Change Server IP**.
-4. Enter the base URL with your laptop's IP:
+4. Enter the base URL using the laptop IP found in Step 2.1:
    ```
-   http://192.168.55.128:8000/api/v1
+   http://<LAN_IP>:8000/api/v1
    ```
+   Optionally, the app-wide starting value can be preset for a demo build via the
+   `EXPO_PUBLIC_API_URL` environment variable instead of relying on a per-device
+   default.
 5. Tap **Test Connection**. The banner will display `SUCCESS: Connected to Ingress Event Server`.
 6. Tap **Save URL**.
 

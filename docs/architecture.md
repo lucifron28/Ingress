@@ -15,7 +15,7 @@ Ingress is engineered as a local-first, server-authoritative event management ar
                            |       (Laptop on Campus Wi-Fi)         |
                            |                                        |
                            |   +--------------------------------+   |
-                           |   |     Laravel 12 API & Blade     |   |
+                           |   |     Laravel 13 API & Blade     |   |
                            |   |   - Organizer Admin Console    |   |
                            |   |   - Sanctum Token Auth         |   |
                            |   |   - 11-Step Admission Engine   |   |
@@ -46,7 +46,7 @@ Ingress is engineered as a local-first, server-authoritative event management ar
 
 ### Server Role (Authoritative Node)
 - **Host**: Laptop connected to local campus router / AP (bound to `0.0.0.0:8000`).
-- **Backend**: Laravel 12 on PHP 8.4 (Laravel Herd / CLI runtime).
+- **Backend**: Laravel 13 on PHP 8.4 (Laravel Herd / CLI runtime).
 - **Database**: PostgreSQL 18 running on `127.0.0.1:5433` (isolated local cluster).
 - **Organizer Interface**: Server-rendered Laravel Blade web templates.
 - **Client Interface**: RESTful JSON API authenticated via Laravel Sanctum bearer tokens.

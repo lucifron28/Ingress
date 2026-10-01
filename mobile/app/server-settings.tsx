@@ -74,7 +74,7 @@ export default function ServerSettingsScreen() {
             onChangeText={setUrlInput}
             autoCapitalize="none"
             autoCorrect={false}
-            placeholder="http://192.168.x.x:8000/api/v1"
+            placeholder={DEFAULT_API_URL}
           />
         </View>
 

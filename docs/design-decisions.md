@@ -5,7 +5,7 @@
 
 ---
 
-## ADR 001: Monolithic Laravel 12 Backend with Blade & Sanctum REST API
+## ADR 001: Monolithic Laravel 13 Backend with Blade & Sanctum REST API
 
 ### Context
 Ingress requires an organizer web application for event management, reporting, and staff assignment, alongside an API layer serving cross-platform mobile apps for students and gate staff.
@@ -16,7 +16,7 @@ Ingress requires an organizer web application for event management, reporting, a
 3. **Monolithic Laravel with Blade Web UI + Sanctum REST API**: Single codebase, shared database transactions, native session management for organizers, and lightweight bearer token issuance for mobile clients.
 
 ### Decision
-Use **Laravel 12** as a cohesive monolith. Blade templates provide fast, robust server-rendered administration for campus organizers, while Laravel Sanctum provides token authentication for mobile clients under `/api/v1/*`.
+Use **Laravel 13** as a cohesive monolith. Blade templates provide fast, robust server-rendered administration for campus organizers, while Laravel Sanctum provides token authentication for mobile clients under `/api/v1/*`.
 
 ---
 
@@ -114,23 +114,25 @@ The mobile app must support cross-platform deployment (Android and iOS) on campu
    File-based route navigation, native hardware keystore encryption (Android Keystore / iOS Keychain), and managed `expo-camera` barcode scanning.
 
 ### Decision
-Use **Expo SDK with Expo Router v4** and **expo-secure-store**. Pinned to a minimal package footprint: `expo-router`, `expo-secure-store`, `expo-camera`, and `react-native-qrcode-svg`.
+Use **Expo SDK 57 with Expo Router 57.x** and **expo-secure-store**. Pinned to a minimal package footprint: `expo-router`, `expo-secure-store`, `expo-camera`, and `react-native-qrcode-svg`. Expo Router now follows Expo SDK version numbering rather than the earlier standalone `v4` line.
 
 ---
 
 ## ADR 007: MSEUF Visual Identity & Accessible Color Architecture
 
 ### Context
-Ingress must reflect Manuel S. Enverga University Foundation branding while maintaining high contrast and avoiding communication of status by color alone.
+Ingress must feel related to Manuel S. Enverga University Foundation while maintaining high contrast and avoiding communication of status by color alone. MSEUF's established institutional identity is maroon and white. No official digital brand specification (exact hex values, CMYK, or Pantone numbers) for those colours is published in a form this project could cite, so Ingress does not claim to reproduce official institutional colour values.
 
 ### Decision
-Establish the Ingress UI color system based on official MSEUF brand guidelines:
+Ingress uses a maroon-and-white interface **inspired by** MSEUF's established visual identity. The following are **Ingress UI design tokens**, not official MSEUF brand values:
 - **Primary Maroon**: `#800000` (10.94:1 AAA contrast on white).
-- **Secondary Maroon**: `#960000` (official vector logo maroon).
-- **Accent Gold**: `#C5A059` / `#D4AF37` (harmonious academic accent).
+- **Secondary Maroon**: `#960000` (used for vector/logo-adjacent fills).
+- **Accent Gold**: `#C5A059` / `#D4AF37` (harmonious academic accent; a supporting tone, never a primary brand colour).
 - **Surface**: `#FFFFFF` pure white cards.
 - **Neutrals**: `#0F172A` (headings), `#334155` (body), `#E2E8F0` (borders).
 - **Strict Accessibility Rule**: Scanners must never use color alone. Explicit titles (`Ticket Valid`, `Already Checked In`, `Invalid Ticket`, `Server Unavailable`), timestamps, and symbols (`[✓]`, `[!]`, `[✕]`) are mandatory.
+
+No official MSEUF logo artwork or seal is bundled with this repository. Ingress uses only the wordmark text "MSEUF" as an institutional reference, so that no third-party asset usage rights are assumed by the project.
 
 ---
 

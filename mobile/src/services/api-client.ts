@@ -1,6 +1,15 @@
 import { AuthStorage } from './auth-storage';
 
-export const DEFAULT_API_URL = 'http://192.168.55.128:8000/api/v1';
+/**
+ * Development fallback for the Ingress Event Node base URL.
+ *
+ * The runtime LAN address is configured per device through the Server Settings
+ * screen and persisted in secure storage. This constant is only the initial
+ * value used before a device has been configured, and can be overridden at
+ * build time with the EXPO_PUBLIC_API_URL environment variable.
+ */
+export const DEFAULT_API_URL =
+  process.env.EXPO_PUBLIC_API_URL?.trim().replace(/\/+$/, '') || 'http://localhost:8000/api/v1';
 
 export interface ApiError {
   message: string;
