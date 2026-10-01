@@ -1,4 +1,4 @@
-# Ingress — Host LAN IP Discovery Helper
+# Ingress - Host LAN IP Discovery Helper
 # Discovers the active Wi-Fi IPv4 address on this machine for phone connection.
 
 $ErrorActionPreference = "SilentlyContinue"

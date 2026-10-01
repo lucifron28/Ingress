@@ -1,4 +1,4 @@
-# Ingress — Run All Test Suites
+# Ingress - Run All Test Suites
 # Executes the backend suite, real PostgreSQL concurrency verifier, mobile session tests, and mobile typecheck.
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path

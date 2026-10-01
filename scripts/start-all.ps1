@@ -1,11 +1,11 @@
-# Ingress — Master Launcher (Runs Everything)
+# Ingress - Master Launcher (Runs Everything)
 # Starts PostgreSQL, launches Laravel Web Server and Expo Mobile Bundler in separate windows, and opens the organizer portal.
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $rootDir = Split-Path -Parent $scriptDir
 
 Write-Host "==========================================================" -ForegroundColor DarkRed
-Write-Host "         INGRESS — FULL SYSTEM LAUNCHER                   " -ForegroundColor White
+Write-Host "         INGRESS - FULL SYSTEM LAUNCHER                   " -ForegroundColor White
 Write-Host "   Manuel S. Enverga University Foundation (MSEUF)        " -ForegroundColor Yellow
 Write-Host "==========================================================" -ForegroundColor DarkRed
 
