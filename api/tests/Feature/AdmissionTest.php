@@ -350,6 +350,55 @@ class AdmissionTest extends TestCase
                 'status' => 'event_cancelled',
                 'message' => 'Event Cancelled',
             ]);
+
+        $this->assertEquals(0, Admission::count());
+    }
+
+    public function test_admission_is_rejected_after_the_event_ends(): void
+    {
+        // A concluded event: doors have closed. Note starts_at is also in the past,
+        // so this proves the ends_at gate rather than a start-time gate.
+        $this->event->update([
+            'starts_at' => Carbon::now()->subHours(3),
+            'ends_at' => Carbon::now()->subHour(),
+        ]);
+
+        $response = $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
+                'access_point_id' => $this->gateA->id,
+                'qr_payload' => $this->validQrPayload,
+                'client_scan_id' => (string) Str::uuid(),
+            ]);
+
+        $response->assertStatus(422)
+            ->assertJson([
+                'status' => 'event_completed',
+                'message' => 'Event Ended',
+            ]);
+
+        $this->assertEquals(0, Admission::count(), 'an ended event must not admit anybody');
+    }
+
+    public function test_admission_is_allowed_before_the_event_starts(): void
+    {
+        // Doors may open before the scheduled start; admission must not require starts_at.
+        $this->event->update([
+            'starts_at' => Carbon::now()->addHours(2),
+            'ends_at' => Carbon::now()->addHours(6),
+        ]);
+
+        $response = $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
+                'access_point_id' => $this->gateA->id,
+                'qr_payload' => $this->validQrPayload,
+                'client_scan_id' => (string) Str::uuid(),
+            ]);
+
+        $response->assertStatus(200)
+            ->assertJson([
+                'status' => 'admitted',
+                'message' => 'Ticket Valid',
+            ]);
     }
 
     public function test_staff_events_api_only_returns_assigned_gate(): void
