@@ -71,7 +71,7 @@ class OrganizerAttendanceController extends Controller
             'id' => $adm->id,
             'attendee_name' => $adm->ticket?->registration?->user?->name ?? 'Attendee',
             'student_id' => $adm->ticket?->registration?->user?->student_id ?? 'N/A',
-            'access_point' => $adm->accessPoint?->name ?? 'Gate',
+            'access_point' => $adm->accessPoint?->name ?? 'Access Point',
             'admitted_at' => $adm->admitted_at->format('g:i:s A'),
             'scanned_by' => $adm->scannedBy?->name ?? 'Staff',
         ]);

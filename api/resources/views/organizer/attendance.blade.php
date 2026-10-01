@@ -67,7 +67,7 @@
     <!-- Gate Admissions Breakdown -->
     <div class="card">
         <h2 style="font-size: 1rem; font-weight: 600; color: var(--neutral-dark); margin-bottom: 1rem; border-bottom: 1px solid var(--neutral-border); padding-bottom: 0.5rem;">
-            Throughput by Gate
+            Throughput by Access Point
         </h2>
 
         <div id="gate-container" style="display: flex; flex-direction: column; gap: 0.75rem;">
@@ -82,7 +82,7 @@
                     </div>
                 </div>
             @empty
-                <p style="color: var(--neutral-muted); font-size: 0.85rem;">No gates configured.</p>
+                <p style="color: var(--neutral-muted); font-size: 0.85rem;">No access points configured.</p>
             @endforelse
         </div>
     </div>
@@ -101,7 +101,7 @@
                         <th>Time</th>
                         <th>Attendee Name</th>
                         <th>Student ID</th>
-                        <th>Gate</th>
+                        <th>Access Point</th>
                         <th>Scanned By</th>
                     </tr>
                 </thead>
@@ -226,6 +226,7 @@
 <script>
     const feedUrl = "{{ route('organizer.attendance.feed', $event) }}";
     let lastSuccessfulUpdate = null;
+    let isFetching = false;
 
     function setConnectionLive() {
         const indicator = document.getElementById('live-indicator');
@@ -261,8 +262,15 @@
     }
 
     async function fetchLiveData() {
+        if (isFetching) return;
+        isFetching = true;
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4500);
+
         try {
             const res = await fetch(feedUrl, {
+                signal: controller.signal,
                 headers: {
                     'Accept': 'application/json',
                     'X-Requested-With': 'XMLHttpRequest'
@@ -303,7 +311,7 @@
                     const emptyP = document.createElement('p');
                     emptyP.style.color = 'var(--neutral-muted)';
                     emptyP.style.fontSize = '0.85rem';
-                    emptyP.textContent = 'No gates configured.';
+                    emptyP.textContent = 'No access points configured.';
                     gateContainer.appendChild(emptyP);
                 } else {
                     data.gate_stats.forEach(gate => {
@@ -415,6 +423,9 @@
             setConnectionLive();
         } catch (e) {
             setConnectionLost();
+        } finally {
+            clearTimeout(timeoutId);
+            isFetching = false;
         }
     }
 
