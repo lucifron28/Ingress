@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  backend-tests:
+    name: Backend Tests (PHP 8.4)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: mbstring, pdo, pdo_sqlite
+          coverage: none
+
+      - name: Install Composer Dependencies
+        working-directory: api
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Prepare Environment
+        working-directory: api
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: Run Backend Tests
+        working-directory: api
+        run: php artisan test
+
+  mobile-tests:
+    name: Mobile Tests & Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Mobile Dependencies
+        working-directory: mobile
+        run: npm ci --legacy-peer-deps
+
+      - name: Run Mobile Session & Storage Tests
+        working-directory: mobile
+        run: node tests/session.test.mjs
+
+      - name: Verify Mobile TypeScript Compilation
+        working-directory: mobile
+        run: npx tsc --noEmit

@@ -155,13 +155,24 @@ class AttendanceDashboardTest extends TestCase
         // Verify the 5-second automatic polling interval is configured
         $response->assertSee('setInterval(fetchLiveData, 5000)', false);
 
+        // Verify AbortController timeout mechanism and isFetching concurrency lock exist
+        $response->assertSee('const controller = new AbortController();', false);
+        $response->assertSee('signal: controller.signal', false);
+        $response->assertSee('clearTimeout(timeoutId);', false);
+        $response->assertSee('let isFetching = false;', false);
+        $response->assertSee('if (isFetching) return;', false);
+
+        // Verify standardized access point terminology
+        $response->assertSee('Throughput by Access Point');
+        $response->assertSee('No access points configured.');
+        $response->assertSee('<th>Access Point</th>', false);
+
         // Verify live connection indicator elements and transition handlers exist
         $response->assertSee('id="live-indicator"', false);
         $response->assertSee('id="live-indicator-dot"', false);
         $response->assertSee('id="live-indicator-text"', false);
         $response->assertSee('function setConnectionLive', false);
         $response->assertSee('function setConnectionLost', false);
-
         $html = $response->getContent();
 
         // Regression assertion: JS template literals MUST NOT be backslash-escaped
@@ -410,6 +421,86 @@ class AttendanceDashboardTest extends TestCase
         $this->assertStringStartsWith('Updated ', $step3['feedLastUpdated']);
     }
 
+    public function test_polling_timeout_and_abort_transitions_to_connection_lost_and_recovers(): void
+    {
+        $pageResponse = $this->actingAs($this->organizerA)
+            ->get("/organizer/events/{$this->event->id}/attendance");
+        preg_match('/<script>([\s\S]*?)<\/script>/', $pageResponse->getContent(), $matches);
+        $this->assertNotEmpty($matches[1]);
+
+        $feedData = [
+            'stats' => [
+                'total_capacity' => 50,
+                'registered_count' => 1,
+                'checked_in_count' => 1,
+                'not_arrived_count' => 0,
+                'attendance_percentage' => 100,
+            ],
+            'gate_stats' => [
+                ['id' => 1, 'name' => 'Entrance 1', 'code' => 'ENTRANCE-1', 'count' => 1],
+            ],
+            'recent_admissions' => [
+                [
+                    'id' => 1,
+                    'admitted_at' => '10:30:00 AM',
+                    'attendee_name' => 'Ron Vincent Cada',
+                    'student_id' => 'A23-35524',
+                    'access_point' => 'Entrance 1',
+                    'scanned_by' => 'Staff Alex Rivera',
+                ],
+            ],
+        ];
+
+        // Step 1: Successful initial poll
+        // Step 2: Hanging network poll that aborts on timeout
+        // Step 3: Network recovery
+        $results = $this->executeDashboardScript($matches[1], [
+            ['ok' => true, 'data' => $feedData],
+            ['timeout' => true],
+            ['ok' => true, 'data' => $feedData],
+        ]);
+
+        // Step 1: Healthy LAN LIVE state
+        $step1 = $results[0];
+        $this->assertEquals('LAN LIVE', $step1['liveIndicatorText']);
+        $this->assertEquals('#10b981', $step1['dotBg']);
+        $this->assertStringStartsWith('Updated ', $step1['feedLastUpdated']);
+
+        // Step 2: Timeout abort transitions to CONNECTION LOST without clearing last known state
+        $step2 = $results[1];
+        $this->assertEquals('CONNECTION LOST', $step2['liveIndicatorText']);
+        $this->assertEquals('#ef4444', $step2['dotBg']);
+        $this->assertEquals('#fef2f2', $step2['liveIndicatorBg']);
+        $this->assertStringStartsWith('Last successful update ', $step2['feedLastUpdated']);
+        $this->assertStringContainsString('Ron Vincent Cada', $step2['recentHtml']);
+        $this->assertStringContainsString('ENTRANCE-1', $step2['gateHtml']);
+
+        // Step 3: Recovery restores LAN LIVE and advances timestamp
+        $step3 = $results[2];
+        $this->assertEquals('LAN LIVE', $step3['liveIndicatorText']);
+        $this->assertEquals('#10b981', $step3['dotBg']);
+        $this->assertEquals('#ecfdf5', $step3['liveIndicatorBg']);
+        $this->assertStringStartsWith('Updated ', $step3['feedLastUpdated']);
+    }
+
+    public function test_overlapping_polls_are_prevented_by_fetching_lock(): void
+    {
+        $pageResponse = $this->actingAs($this->organizerA)
+            ->get("/organizer/events/{$this->event->id}/attendance");
+        preg_match('/<script>([\s\S]*?)<\/script>/', $pageResponse->getContent(), $matches);
+        $this->assertNotEmpty($matches[1]);
+
+        // Execute concurrency probe step: initiates delayed poll then attempts overlapping call
+        $results = $this->executeDashboardScript($matches[1], [
+            ['testConcurrent' => true],
+        ]);
+
+        $probe = $results[0];
+        $this->assertTrue($probe['inFlight'], 'isFetching must be true while a network request is pending');
+        $this->assertEquals(1, $probe['callCountDuringFlight'], 'Overlapping poll must return early and not issue a second fetch');
+        $this->assertFalse($probe['finishedFetching'], 'isFetching must reset to false after request completion');
+    }
+
     /**
      * Helper to run the attendance view's fetchLiveData() script in Node.js
      * with a lightweight DOM mock supporting createElement, textContent, appendChild, style, etc.
@@ -497,9 +588,34 @@ class AttendanceDashboardTest extends TestCase
         };
 
         let currentStepResponse = null;
-        const fetch = async () => {
-            if (currentStepResponse.throws) {
-                throw new Error('Network timeout');
+        let fetchCallCount = 0;
+        let resolveDelayedPromise = null;
+        const fetch = async (url, options) => {
+            fetchCallCount++;
+            if (currentStepResponse.timeout || currentStepResponse.throws) {
+                const err = new Error('The operation was aborted');
+                err.name = 'AbortError';
+                throw err;
+            }
+            if (currentStepResponse.delayed) {
+                return new Promise((resolve) => {
+                    resolveDelayedPromise = () => resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({})
+                    });
+                });
+            }
+            if (currentStepResponse.hang) {
+                return new Promise((resolve, reject) => {
+                    if (options?.signal) {
+                        options.signal.addEventListener('abort', () => {
+                            const err = new Error('The operation was aborted');
+                            err.name = 'AbortError';
+                            reject(err);
+                        });
+                    }
+                });
             }
             return {
                 ok: currentStepResponse.ok ?? true,
@@ -511,14 +627,35 @@ class AttendanceDashboardTest extends TestCase
 
         const fn = new Function('document', 'fetch', 'setInterval', `
             ${scriptCode}
-            return fetchLiveData;
+            return {
+                fetchLiveData,
+                getIsFetching: () => isFetching,
+                getFetchCount: () => fetchCallCount
+            };
         `);
-        const fetchLiveData = fn(document, fetch, setInterval);
+        const dashboard = fn(document, fetch, setInterval);
+        const fetchLiveData = dashboard.fetchLiveData;
 
         (async () => {
             const results = [];
             for (const step of steps) {
                 currentStepResponse = step;
+                if (step.testConcurrent) {
+                    currentStepResponse = { delayed: true };
+                    const p1 = fetchLiveData();
+                    const inFlight = dashboard.getIsFetching();
+                    const p2 = fetchLiveData();
+                    const callCountDuringFlight = dashboard.getFetchCount();
+                    if (resolveDelayedPromise) resolveDelayedPromise();
+                    await Promise.allSettled([p1, p2]);
+                    const finishedFetching = dashboard.getIsFetching();
+                    results.push({
+                        inFlight,
+                        callCountDuringFlight,
+                        finishedFetching,
+                    });
+                    continue;
+                }
                 await fetchLiveData();
                 results.push({
                     gateHtml: elements['gate-container'].innerHTML,
