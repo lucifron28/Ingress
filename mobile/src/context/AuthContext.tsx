@@ -50,13 +50,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setToken(storedToken);
           setUser(JSON.parse(storedUser) as UserProfile);
 
-          // Verify token validity with backend
+          // Confirm the stored token is still valid for this server.
           try {
             const meRes = await apiRequest<{ user: UserProfile }>('/me');
             setUser(meRes.user);
             await AuthStorage.saveUser(JSON.stringify(meRes.user));
-          } catch {
-            // If offline, keep cached user profile; if 401, clear
+          } catch (err: unknown) {
+            const status = (err as { status?: number } | null)?.status;
+
+            if (status === 401) {
+              // The server rejected the token (revoked, expired, or issued by a
+              // different Event Node). Drop the session entirely.
+              setToken(null);
+              setUser(null);
+              await AuthStorage.clearAll();
+            }
+
+            // Any other failure means the server was unreachable. Keep the cached
+            // identity so the app can still say who is signed in; every server
+            // action remains fail-closed through apiRequest.
           }
         }
       } catch {
