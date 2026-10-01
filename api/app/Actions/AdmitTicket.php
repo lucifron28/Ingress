@@ -64,6 +64,17 @@ class AdmitTicket
             ];
         }
 
+        // Admission closes when the event ends. `starts_at` is deliberately not
+        // enforced: doors may open before the scheduled start.
+        if (Carbon::now()->gt($event->ends_at)) {
+            return [
+                'http_code' => 422,
+                'status' => 'event_completed',
+                'message' => 'Event Ended',
+                'detail' => 'Admission closed at '.$event->ends_at->format('g:i A').'.',
+            ];
+        }
+
         $isSuperUser = $staff->isAdmin() || $event->organizer_id === $staff->id;
         $staffAssignment = EventStaff::where('event_id', $event->id)->where('user_id', $staff->id)->first();
 
@@ -219,6 +230,37 @@ class AdmitTicket
         // Check 11: Anti-Passback / Duplicate Admission Protection (Transactional with Ticket Row Lock)
         try {
             return DB::transaction(function () use ($staff, $ticket, $accessPoint, $event, $clientScanId, $scannedSecret) {
+                // Revalidate the authoritative event state under a FOR SHARE lock. A
+                // concurrent cancellation or completion must not be able to commit
+                // between this check and the admission insert. FOR SHARE is the
+                // least-contended correct choice: shared locks are mutually
+                // compatible, so scanners for different tickets still run in
+                // parallel, while any event writer (organizer cancel/update, which
+                // takes FOR UPDATE) is forced to wait.
+                //
+                // Lock order is events -> tickets on every path (RegisterForEvent and
+                // OrganizerEventController::update both take the events row first), so
+                // no deadlock cycle can form.
+                $lockedEvent = Event::whereKey($event->getKey())->sharedLock()->first();
+
+                if (! $lockedEvent || $lockedEvent->isCancelled()) {
+                    return [
+                        'http_code' => 422,
+                        'status' => 'event_cancelled',
+                        'message' => 'Event Cancelled',
+                        'detail' => 'This event has been cancelled and cannot admit attendees.',
+                    ];
+                }
+
+                if ($lockedEvent->status === Event::STATUS_COMPLETED || Carbon::now()->gt($lockedEvent->ends_at)) {
+                    return [
+                        'http_code' => 422,
+                        'status' => 'event_completed',
+                        'message' => 'Event Completed',
+                        'detail' => 'This event is no longer admitting attendees.',
+                    ];
+                }
+
                 // Lock authoritative ticket row to serialize concurrent gate scans
                 $lockedTicket = Ticket::where('id', $ticket->id)->lockForUpdate()->first();
 
