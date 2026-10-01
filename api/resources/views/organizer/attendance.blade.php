@@ -7,8 +7,8 @@
             <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.25rem;">
                 <h1 style="font-size: 1.75rem; font-weight: 700; color: var(--neutral-dark);">Event Attendance: {{ $event->title }}</h1>
                 <span id="live-indicator" style="display: inline-flex; align-items: center; gap: 0.4rem; background: #ecfdf5; color: #065f46; font-size: 0.75rem; font-weight: 700; padding: 0.25rem 0.6rem; border-radius: 9999px; border: 1px solid #a7f3d0;">
-                    <span style="width: 8px; height: 8px; border-radius: 50%; background: #10b981; display: inline-block;"></span>
-                    LAN LIVE
+                    <span id="live-indicator-dot" style="width: 8px; height: 8px; border-radius: 50%; background: #10b981; display: inline-block;"></span>
+                    <span id="live-indicator-text">LAN LIVE</span>
                 </span>
             </div>
             <p style="color: var(--neutral-muted); font-size: 0.875rem;">
@@ -225,6 +225,40 @@
 
 <script>
     const feedUrl = "{{ route('organizer.attendance.feed', $event) }}";
+    let lastSuccessfulUpdate = null;
+
+    function setConnectionLive() {
+        const indicator = document.getElementById('live-indicator');
+        if (indicator) {
+            indicator.style.background = '#ecfdf5';
+            indicator.style.color = '#065f46';
+            indicator.style.borderColor = '#a7f3d0';
+        }
+        const dot = document.getElementById('live-indicator-dot');
+        if (dot) dot.style.background = '#10b981';
+        const text = document.getElementById('live-indicator-text');
+        if (text) text.textContent = 'LAN LIVE';
+    }
+
+    function setConnectionLost() {
+        const indicator = document.getElementById('live-indicator');
+        if (indicator) {
+            indicator.style.background = '#fef2f2';
+            indicator.style.color = '#991b1b';
+            indicator.style.borderColor = '#fecaca';
+        }
+        const dot = document.getElementById('live-indicator-dot');
+        if (dot) dot.style.background = '#ef4444';
+        const text = document.getElementById('live-indicator-text');
+        if (text) text.textContent = 'CONNECTION LOST';
+
+        const lastUpdatedEl = document.getElementById('feed-last-updated');
+        if (lastUpdatedEl) {
+            lastUpdatedEl.textContent = lastSuccessfulUpdate
+                ? 'Last successful update ' + lastSuccessfulUpdate
+                : 'Connection lost';
+        }
+    }
 
     async function fetchLiveData() {
         try {
@@ -235,52 +269,152 @@
                 }
             });
 
-            if (!res.ok) return;
+            if (!res.ok) {
+                setConnectionLost();
+                return;
+            }
+
             const data = await res.json();
 
             // Update KPIs
-            document.getElementById('stat-capacity').innerText = data.stats.total_capacity;
-            document.getElementById('stat-registered').innerText = data.stats.registered_count;
-            document.getElementById('stat-checked-in').innerText = data.stats.checked_in_count;
-            document.getElementById('stat-not-arrived').innerText = data.stats.not_arrived_count;
-            document.getElementById('stat-percentage').innerText = data.stats.attendance_percentage + '%';
-            document.getElementById('progress-bar').style.width = data.stats.attendance_percentage + '%';
+            const statCapacity = document.getElementById('stat-capacity');
+            if (statCapacity) statCapacity.textContent = data.stats.total_capacity;
 
-            // Update Gate Breakdown
+            const statRegistered = document.getElementById('stat-registered');
+            if (statRegistered) statRegistered.textContent = data.stats.registered_count;
+
+            const statCheckedIn = document.getElementById('stat-checked-in');
+            if (statCheckedIn) statCheckedIn.textContent = data.stats.checked_in_count;
+
+            const statNotArrived = document.getElementById('stat-not-arrived');
+            if (statNotArrived) statNotArrived.textContent = data.stats.not_arrived_count;
+
+            const statPercentage = document.getElementById('stat-percentage');
+            if (statPercentage) statPercentage.textContent = data.stats.attendance_percentage + '%';
+
+            const progressBar = document.getElementById('progress-bar');
+            if (progressBar) progressBar.style.width = data.stats.attendance_percentage + '%';
+
+            // Update Gate Breakdown safely using DOM APIs
             const gateContainer = document.getElementById('gate-container');
-            if (data.gate_stats && data.gate_stats.length > 0) {
-                gateContainer.innerHTML = data.gate_stats.map(gate => `
-                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; background: #f8fafc; border: 1px solid var(--neutral-border); border-radius: 4px;">
-                        <div>
-                            <span class="mono" style="font-size: 0.75rem; font-weight: 700; background: #e2e8f0; padding: 0.15rem 0.4rem; border-radius: 3px; margin-right: 0.5rem;">${gate.code}</span>
-                            <strong style="font-size: 0.875rem;">${gate.name}</strong>
-                        </div>
-                        <div class="mono" style="font-size: 1.1rem; font-weight: 700; color: var(--mseuf-maroon);">
-                            ${gate.count}
-                        </div>
-                    </div>
-                `).join('');
+            if (gateContainer && data.gate_stats) {
+                gateContainer.textContent = '';
+                if (data.gate_stats.length === 0) {
+                    const emptyP = document.createElement('p');
+                    emptyP.style.color = 'var(--neutral-muted)';
+                    emptyP.style.fontSize = '0.85rem';
+                    emptyP.textContent = 'No gates configured.';
+                    gateContainer.appendChild(emptyP);
+                } else {
+                    data.gate_stats.forEach(gate => {
+                        const item = document.createElement('div');
+                        item.style.display = 'flex';
+                        item.style.justifyContent = 'space-between';
+                        item.style.alignItems = 'center';
+                        item.style.padding = '0.75rem';
+                        item.style.background = '#f8fafc';
+                        item.style.border = '1px solid var(--neutral-border)';
+                        item.style.borderRadius = '4px';
+
+                        const left = document.createElement('div');
+
+                        const codeSpan = document.createElement('span');
+                        codeSpan.className = 'mono';
+                        codeSpan.style.fontSize = '0.75rem';
+                        codeSpan.style.fontWeight = '700';
+                        codeSpan.style.background = '#e2e8f0';
+                        codeSpan.style.padding = '0.15rem 0.4rem';
+                        codeSpan.style.borderRadius = '3px';
+                        codeSpan.style.marginRight = '0.5rem';
+                        codeSpan.textContent = gate.code;
+
+                        const nameStrong = document.createElement('strong');
+                        nameStrong.style.fontSize = '0.875rem';
+                        nameStrong.textContent = gate.name;
+
+                        left.appendChild(codeSpan);
+                        left.appendChild(nameStrong);
+
+                        const countDiv = document.createElement('div');
+                        countDiv.className = 'mono';
+                        countDiv.style.fontSize = '1.1rem';
+                        countDiv.style.fontWeight = '700';
+                        countDiv.style.color = 'var(--mseuf-maroon)';
+                        countDiv.textContent = gate.count;
+
+                        item.appendChild(left);
+                        item.appendChild(countDiv);
+                        gateContainer.appendChild(item);
+                    });
+                }
             }
 
-            // Update Recent Admissions Feed
+            // Update Recent Admissions Feed safely using DOM APIs
             const tbody = document.getElementById('recent-admissions-tbody');
-            if (data.recent_admissions && data.recent_admissions.length > 0) {
-                tbody.innerHTML = data.recent_admissions.map(adm => `
-                    <tr>
-                        <td class="mono" style="font-size: 0.8rem; font-weight: 600; color: var(--mseuf-maroon);">
-                            ${adm.admitted_at}
-                        </td>
-                        <td><strong>${adm.attendee_name}</strong></td>
-                        <td class="mono" style="font-size: 0.8rem;">${adm.student_id}</td>
-                        <td><span class="badge badge-info">${adm.access_point}</span></td>
-                        <td style="font-size: 0.8rem; color: var(--neutral-muted);">${adm.scanned_by}</td>
-                    </tr>
-                `).join('');
+            if (tbody && data.recent_admissions) {
+                tbody.textContent = '';
+                if (data.recent_admissions.length === 0) {
+                    const emptyTr = document.createElement('tr');
+                    emptyTr.id = 'no-scans-row';
+                    const emptyTd = document.createElement('td');
+                    emptyTd.colSpan = 5;
+                    emptyTd.style.textAlign = 'center';
+                    emptyTd.style.padding = '2rem';
+                    emptyTd.style.color = 'var(--neutral-muted)';
+                    emptyTd.textContent = 'No admissions recorded yet. Turnstile scanners are ready.';
+                    emptyTr.appendChild(emptyTd);
+                    tbody.appendChild(emptyTr);
+                } else {
+                    data.recent_admissions.forEach(adm => {
+                        const tr = document.createElement('tr');
+
+                        const tdTime = document.createElement('td');
+                        tdTime.className = 'mono';
+                        tdTime.style.fontSize = '0.8rem';
+                        tdTime.style.fontWeight = '600';
+                        tdTime.style.color = 'var(--mseuf-maroon)';
+                        tdTime.textContent = adm.admitted_at;
+
+                        const tdName = document.createElement('td');
+                        const strongName = document.createElement('strong');
+                        strongName.textContent = adm.attendee_name;
+                        tdName.appendChild(strongName);
+
+                        const tdId = document.createElement('td');
+                        tdId.className = 'mono';
+                        tdId.style.fontSize = '0.8rem';
+                        tdId.textContent = adm.student_id;
+
+                        const tdGate = document.createElement('td');
+                        const gateBadge = document.createElement('span');
+                        gateBadge.className = 'badge badge-info';
+                        gateBadge.textContent = adm.access_point;
+                        tdGate.appendChild(gateBadge);
+
+                        const tdStaff = document.createElement('td');
+                        tdStaff.style.fontSize = '0.8rem';
+                        tdStaff.style.color = 'var(--neutral-muted)';
+                        tdStaff.textContent = adm.scanned_by;
+
+                        tr.appendChild(tdTime);
+                        tr.appendChild(tdName);
+                        tr.appendChild(tdId);
+                        tr.appendChild(tdGate);
+                        tr.appendChild(tdStaff);
+
+                        tbody.appendChild(tr);
+                    });
+                }
             }
 
-            document.getElementById('feed-last-updated').innerText = 'Updated ' + new Date().toLocaleTimeString();
+            lastSuccessfulUpdate = new Date().toLocaleTimeString();
+            const lastUpdatedEl = document.getElementById('feed-last-updated');
+            if (lastUpdatedEl) {
+                lastUpdatedEl.textContent = 'Updated ' + lastSuccessfulUpdate;
+            }
+            setConnectionLive();
         } catch (e) {
-            // Fail silent on packet drop
+            setConnectionLost();
         }
     }
 
