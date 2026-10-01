@@ -167,6 +167,26 @@ DB::transaction(function () use ($user, $eventId) {
 
 Under high concurrent load (e.g. 50 students competing for the final seat), database transactions queue cleanly behind the row lock. Exactly one transaction succeeds; all subsequent transactions see `confirmed == capacity` and fail safely without overbooking.
 
+### Re-registration after cancellation
+
+`registrations` carries `UNIQUE(event_id, user_id)`, so a cancelled registration cannot simply be replaced by a new row. When a previously cancelled attendee registers again, the existing row is reactivated (`status = confirmed`, `cancelled_at = null`) and the ticket credential is rotated — a new `public_id`, a new 256-bit secret, a new `qr_hash`, and `revoked_at = null`. The previously revoked QR therefore fails constant-time verification while the newly issued QR validates normally.
+
+### Verifying concurrency on real PostgreSQL
+
+SQLite serializes writers and cannot demonstrate real lock contention, so the behavioural suite (which runs on in-memory SQLite) proves logic but not races. Two invariants are verified separately against real PostgreSQL:
+
+| Invariant | Contested resource | Expected outcome |
+| :--- | :--- | :--- |
+| Final-seat registration | `events` row (capacity 1) | exactly one confirmed registration |
+| Same-ticket admission | `tickets` row | exactly one admission row; loser receives `already_admitted` |
+
+```bash
+cd api
+php scripts/verify_pgsql_concurrency.php
+```
+
+The verifier provisions a dedicated `ingress_concurrency` database, spawns two Laravel child processes per case, synchronises them through a two-way barrier (`READY` on stdout, `GO` on stdin) so their transactions genuinely overlap, then asserts the outcomes above. It exits non-zero on failure and never touches demonstration data.
+
 ---
 
 ## 4. Opaque QR Credential Design
@@ -192,18 +212,21 @@ ingress:v1:<ticket_public_id>:<random_secret>
 When a staff member scans a ticket, the mobile app posts `{ access_point_id, qr_payload, client_scan_id }` to `/api/v1/staff/events/{event}/admissions`. The backend executes 11 sequential validation steps:
 
 1. **Authenticated User**: Confirms caller has a valid Sanctum bearer token.
-2. **Staff Assignment**: Confirms caller is explicitly assigned to this event in `event_staff` (or is event organizer/admin).
-3. **Access Point**: Confirms selected gate exists, belongs to this event, and is active.
+2. **Event State & Staff Assignment**: Rejects `cancelled` and `completed` events; then confirms the caller is the event organizer, an admin, or explicitly assigned in `event_staff`.
+3. **Access Point**: Confirms the selected gate exists, belongs to this event, is active, and — for staff bound to a specific gate — matches their `event_staff.access_point_id`. Staff assigned to Gate A cannot operate Gate B; staff assigned with a null access point operate any gate.
 4. **QR Format**: Verifies regex `^ingress:v1:([A-Za-z0-9\-]+):([A-Fa-f0-9]{64})$`.
 5. **Ticket Existence**: Looks up ticket by `public_id`.
 6. **Secret Verification**: Verifies `hash_equals(ticket.qr_hash, sha256(secret))`.
 7. **Registration Status**: Verifies attendee registration is `confirmed`.
 8. **Ticket Revocation**: Verifies ticket status is `active` (not revoked or cancelled).
 9. **Event Match**: Confirms ticket belongs to the currently selected event.
-10. **Idempotency Check**: If an admission already exists with the same `client_scan_id`, returns the original admission response (HTTP 200) without duplicating records.
-11. **Anti-Passback Check**: In an atomic transaction, checks if an admission already exists for `ticket_id`.
-    - If found: returns **`Already Checked In`** (HTTP 409 Conflict) with the previous gate name and timestamp.
-    - If not found: creates `Admission` row and returns **`Ticket Valid`** (HTTP 200).
+10. **Idempotency Check**: If an admission already exists with the same `client_scan_id`, the request is only treated as a retry when it also matches the same `ticket_id`, `access_point_id`, and event. A mismatch returns HTTP 409 `idempotency_conflict`; a match returns the original admission response (HTTP 200).
+11. **Anti-Passback Check (row-locked)**: Inside `DB::transaction()`, the authoritative `tickets` row is locked with `lockForUpdate()` before admission state is read or written. Idempotency is re-checked under the lock.
+    - Concurrent scans of the same ticket are therefore serialised by PostgreSQL: the first commits, and every later scanner observes the committed admission.
+    - If an admission exists: returns **`Already Checked In`** (HTTP 409 Conflict) with the previous gate name and timestamp.
+    - If none exists: creates the `Admission` row and returns **`Ticket Valid`** (HTTP 200).
+
+> No `UNIQUE(ticket_id)` constraint is used for anti-passback. Admission state is serialised in application transactional logic so that later milestones can record multiple admission events per ticket (ENTRY, EXIT, RE-ENTRY).
 
 ---
 
