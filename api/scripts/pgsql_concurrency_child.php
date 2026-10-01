@@ -36,6 +36,22 @@ DB::purge('pgsql');
 // silently degrading the race into a sequential run that still passes.
 DB::select('select 1');
 
+// Observe whether this worker reached the admission insert at all. A losing race
+// can be decided either by the pre-check (the winner's row was already committed)
+// or by the unique index on admissions.client_scan_id; reporting the branch keeps
+// the harness honest about which path it exercised.
+//
+// beforeExecuting is used rather than listen() because listen() only fires after a
+// statement returns: an insert that blocks and then fails the unique index would
+// never be observed.
+$attemptedAdmissionInsert = false;
+
+DB::beforeExecuting(function (string $query) use (&$attemptedAdmissionInsert): void {
+    if (str_contains(strtolower($query), 'insert into "admissions"')) {
+        $attemptedAdmissionInsert = true;
+    }
+});
+
 $emit = function (array $result): void {
     fwrite(STDOUT, 'RESULT:'.json_encode($result).PHP_EOL);
     fflush(STDOUT);
@@ -77,6 +93,7 @@ try {
             'ok' => $result['http_code'] === 200,
             'http_code' => $result['http_code'],
             'status' => $result['status'],
+            'attempted_admission_insert' => $attemptedAdmissionInsert,
         ]);
     } else {
         $emit(['ok' => false, 'reason' => 'unknown_mode']);

@@ -375,11 +375,152 @@ $duplicateKeySuccesses = count(array_filter($duplicateKeyResults, fn ($r) => ($r
 $duplicateKeyConflicts = count(array_filter($duplicateKeyResults, fn ($r) => ($r['status'] ?? null) === 'idempotency_conflict'));
 $duplicateKeyErrors = count(array_filter($duplicateKeyResults, fn ($r) => in_array($r['reason'] ?? null, ['exception', 'no_result'], true)));
 
+// Whichever ordering occurred, an attempted admission insert must resolve to a
+// definite outcome (admitted or idempotency conflict) — never an unhandled failure.
+$stalledInsertExplained = collect($duplicateKeyResults)->every(
+    fn ($r) => ! ($r['attempted_admission_insert'] ?? false)
+        || in_array($r['status'] ?? null, ['admitted', 'idempotency_conflict'], true)
+);
+$mappedPathObserved = collect($duplicateKeyResults)->contains(
+    fn ($r) => ($r['attempted_admission_insert'] ?? false) === true && ($r['status'] ?? null) === 'idempotency_conflict'
+);
+
 echo "  admission rows for the shared scan id: {$sharedKeyAdmissions}\n";
+echo '  unique-violation mapping exercised on this run: '.($mappedPathObserved ? 'yes' : 'no (pre-check path)').PHP_EOL;
 $assert($duplicateKeySuccesses === 1, 'exactly one request was admitted');
 $assert($duplicateKeyConflicts === 1, 'the replayed scan id was rejected with an idempotency conflict');
 $assert($duplicateKeyErrors === 0, 'no worker surfaced an unhandled exception (no HTTP 500)');
+$assert($stalledInsertExplained, 'every attempted admission insert resolved to a definite outcome');
 $assert($sharedKeyAdmissions === 1, 'exactly one admission row carries the shared scan id');
+echo "\n";
+
+// =============================================================================
+// CASE D — The unique-violation mapping is reached deterministically
+// =============================================================================
+// CASE C's outcome depends on OS scheduling: the loser is usually decided by the
+// pre-check. To prove the mapping itself, the orchestrator holds an *uncommitted*
+// conflicting insert for the scan id. The worker's pre-check cannot see it, so the
+// worker must reach the admission insert and block on the unique index until the
+// orchestrator commits — at which point PostgreSQL raises the unique violation the
+// action maps to an idempotency conflict.
+echo "CASE D: unique-violation mapping under a held conflicting transaction\n";
+
+$caseDStudents = collect([1, 2])->map(fn (int $n) => User::create([
+    'name' => "Mapping Probe Attendee {$n}",
+    'email' => "race.map.{$n}.{$suffix}@mseuf.edu.ph",
+    'student_id' => "MAP{$n}-{$suffix}",
+    'role' => User::ROLE_STUDENT,
+    'password' => Hash::make('password'),
+]));
+
+$caseDTickets = $caseDStudents->map(
+    fn (User $student) => (new RegisterForEvent)->execute($student, $scanEvent->id)
+);
+
+$heldScanId = (string) Str::uuid();
+
+$heldConnection = new PDO(
+    sprintf(
+        'pgsql:host=%s;port=%s;dbname=%s',
+        $baseConnection['host'],
+        $baseConnection['port'],
+        $testDatabase
+    ),
+    $baseConnection['username'],
+    $baseConnection['password'],
+    [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+);
+
+$heldConnection->beginTransaction();
+$insertHeld = $heldConnection->prepare(
+    'insert into admissions
+        (ticket_id, access_point_id, scanned_by_user_id, client_scan_id, credential_version, admitted_at)
+     values (:ticket_id, :access_point_id, :scanned_by, :scan_id, :credential_version, now())'
+);
+$insertHeld->execute([
+    'ticket_id' => $caseDTickets[0]['ticket']->id,
+    'access_point_id' => $gateA->id,
+    'scanned_by' => $scanStaff['A'],
+    'scan_id' => $heldScanId,
+    'credential_version' => $caseDTickets[0]['ticket']->credential_version,
+]);
+
+// Release the worker while the conflicting row is still uncommitted, then commit
+// shortly after so the worker's insert unblocks into the unique violation.
+$mappingProcess = proc_open(
+    [PHP_BINARY, $childScript, 'scan', base64_encode(json_encode([
+        'db' => $testDatabase,
+        'staff_user_id' => $scanStaff['A'],
+        'event_id' => $scanEvent->id,
+        'access_point_id' => $gateA->id,
+        'qr_payload' => $caseDTickets[1]['qr_payload'],
+        'client_scan_id' => $heldScanId,
+    ]))],
+    [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+    $mappingPipes,
+    dirname($childScript, 2),
+    null,
+    ['bypass_shell' => true]
+);
+
+$t0 = microtime(true);
+$workerReady = trim((string) fgets($mappingPipes[1])) === 'READY';
+stream_set_write_buffer($mappingPipes[0], 0);
+fwrite($mappingPipes[0], 'GO'.PHP_EOL);
+fflush($mappingPipes[0]);
+
+// Wait until the worker is provably blocked on the unique index rather than
+// guessing a delay. pg_stat_activity reports backends waiting on a lock, so once
+// another backend is blocked, the worker has passed its pre-check and is inside
+// the admission insert.
+$waitForBlockedInsert = $heldConnection->prepare(
+    'select count(*) from pg_stat_activity
+     where datname = :db
+       and wait_event_type = :wait_type
+       and pid <> pg_backend_pid()'
+);
+
+$blockedDeadline = microtime(true) + 20.0;
+$blockedBackends = 0;
+
+while (microtime(true) < $blockedDeadline) {
+    $waitForBlockedInsert->execute(['db' => $testDatabase, 'wait_type' => 'Lock']);
+    $blockedBackends = (int) $waitForBlockedInsert->fetchColumn();
+
+    if ($blockedBackends > 0) {
+        break;
+    }
+
+    usleep(50_000);
+}
+
+echo '  worker blocked on the unique index after '.round((microtime(true) - $t0) * 1000, 1)."ms (blocked backends: {$blockedBackends})\n";
+
+// Release the held row so the worker's insert resolves into the unique violation.
+$heldConnection->commit();
+
+$mappingStdout = stream_get_contents($mappingPipes[1]);
+$mappingStderr = stream_get_contents($mappingPipes[2]);
+fclose($mappingPipes[0]);
+fclose($mappingPipes[1]);
+fclose($mappingPipes[2]);
+proc_close($mappingProcess);
+
+$mappingResult = ['ok' => false, 'reason' => 'no_result', 'detail' => trim($mappingStdout.' '.$mappingStderr)];
+foreach (explode(PHP_EOL, (string) $mappingStdout) as $line) {
+    if (str_starts_with($line, 'RESULT:')) {
+        $mappingResult = json_decode(substr($line, 7), true) ?? $mappingResult;
+    }
+}
+
+echo '  worker: '.json_encode($mappingResult).PHP_EOL;
+echo '  admission rows for the held scan id: '.Admission::where('client_scan_id', $heldScanId)->count()."\n";
+
+$assert($workerReady, 'the mapping-probe worker reached the barrier');
+$assert(($mappingResult['attempted_admission_insert'] ?? false) === true, 'the worker reached the admission insert');
+$assert(($mappingResult['status'] ?? null) === 'idempotency_conflict', 'the unique violation was mapped to an idempotency conflict');
+$assert(($mappingResult['http_code'] ?? null) === 409, 'the mapped response used HTTP 409');
+$assert(Admission::where('client_scan_id', $heldScanId)->count() === 1, 'no duplicate admission row was created');
 echo "\n";
 
 // =============================================================================
