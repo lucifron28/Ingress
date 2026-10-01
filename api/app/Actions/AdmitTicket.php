@@ -35,7 +35,6 @@ class AdmitTicket
         string $qrPayload,
         string $clientScanId
     ): array {
-        // Check 1 & 2: Event existence and Staff authorization
         $event = Event::find($eventId);
         if (! $event) {
             return [
@@ -64,8 +63,7 @@ class AdmitTicket
             ];
         }
 
-        // Admission closes when the event ends. `starts_at` is deliberately not
-        // enforced: doors may open before the scheduled start.
+        // `starts_at` is not an admission boundary; doors may open early.
         if (Carbon::now()->gt($event->ends_at)) {
             return [
                 'http_code' => 422,
@@ -87,7 +85,6 @@ class AdmitTicket
             ];
         }
 
-        // Check 3: Access Point validation
         $accessPoint = AccessPoint::where('event_id', $event->id)
             ->where('id', $accessPointId)
             ->where('is_active', true)
@@ -102,7 +99,7 @@ class AdmitTicket
             ];
         }
 
-        // Gate Assignment Enforcement: Staff bound to a specific gate cannot operate a different gate
+        // Fixed-gate staff may only scan at their assigned access point.
         if (! $isSuperUser && $staffAssignment && $staffAssignment->access_point_id !== null) {
             if ((int) $staffAssignment->access_point_id !== (int) $accessPoint->id) {
                 $assignedGate = AccessPoint::find($staffAssignment->access_point_id);
@@ -117,7 +114,6 @@ class AdmitTicket
             }
         }
 
-        // Check 4: QR Payload format verification
         $cleanedPayload = trim($qrPayload);
         if (! preg_match('/^ingress:v1:([A-Za-z0-9\-]+):([A-Fa-f0-9]{64})$/', $cleanedPayload, $matches)) {
             return [
@@ -131,7 +127,6 @@ class AdmitTicket
         $publicId = $matches[1];
         $scannedSecret = $matches[2];
 
-        // Check 5: Ticket existence
         $ticket = Ticket::with(['registration.user', 'registration.event.venue'])
             ->where('public_id', $publicId)
             ->first();
@@ -145,7 +140,6 @@ class AdmitTicket
             ];
         }
 
-        // Check 6: Cryptographic secret verification (constant-time)
         if (! $ticket->verifySecret($scannedSecret)) {
             return [
                 'http_code' => 422,
@@ -155,7 +149,6 @@ class AdmitTicket
             ];
         }
 
-        // Check 7: Registration status
         if (! $ticket->registration || $ticket->registration->status !== Registration::STATUS_CONFIRMED) {
             return [
                 'http_code' => 422,
@@ -165,7 +158,6 @@ class AdmitTicket
             ];
         }
 
-        // Check 8: Ticket revocation state
         if (! $ticket->isActive()) {
             return [
                 'http_code' => 422,
@@ -175,7 +167,6 @@ class AdmitTicket
             ];
         }
 
-        // Check 9: Event ownership match
         if ($ticket->registration->event_id !== $event->id) {
             $ticketEventTitle = $ticket->registration->event->title ?? 'Another Event';
 
@@ -187,7 +178,6 @@ class AdmitTicket
             ];
         }
 
-        // Check 10: Client scan idempotency (handling duplicate network submissions)
         $existingById = Admission::with(['accessPoint', 'scannedBy'])
             ->where('client_scan_id', $clientScanId)
             ->first();
@@ -196,8 +186,7 @@ class AdmitTicket
             $isMatchingTicket = (int) $existingById->ticket_id === (int) $ticket->id;
             $isMatchingGate = (int) $existingById->access_point_id === (int) $accessPoint->id;
             $isMatchingEvent = (int) $existingById->accessPoint?->event_id === (int) $event->id;
-            // A scan id minted against a retired credential issuance must not be
-            // accepted as a retry for the credential issued after a re-registration.
+            // Retries must belong to the same credential issuance.
             $isMatchingCredential = (int) $existingById->credential_version === (int) $ticket->credential_version;
 
             if (! $isMatchingTicket || ! $isMatchingGate || ! $isMatchingEvent || ! $isMatchingCredential) {
@@ -230,20 +219,10 @@ class AdmitTicket
             ];
         }
 
-        // Check 11: Anti-Passback / Duplicate Admission Protection (Transactional with Ticket Row Lock)
         try {
             return DB::transaction(function () use ($staff, $ticket, $accessPoint, $event, $clientScanId, $scannedSecret) {
-                // Revalidate the authoritative event state under a FOR SHARE lock. A
-                // concurrent cancellation or completion must not be able to commit
-                // between this check and the admission insert. FOR SHARE is the
-                // least-contended correct choice: shared locks are mutually
-                // compatible, so scanners for different tickets still run in
-                // parallel, while any event writer (organizer cancel/update, which
-                // takes FOR UPDATE) is forced to wait.
-                //
-                // Lock order is events -> tickets on every path (RegisterForEvent and
-                // OrganizerEventController::update both take the events row first), so
-                // no deadlock cycle can form.
+                // Lock event before ticket. Shared event locks keep different-ticket scans
+                // concurrent while forcing cancellation and event updates to wait.
                 $lockedEvent = Event::whereKey($event->getKey())->sharedLock()->first();
 
                 if (! $lockedEvent || $lockedEvent->isCancelled()) {
@@ -264,11 +243,10 @@ class AdmitTicket
                     ];
                 }
 
-                // Lock authoritative ticket row to serialize concurrent gate scans
+                // Serialize scans that target the same ticket.
                 $lockedTicket = Ticket::where('id', $ticket->id)->lockForUpdate()->first();
 
-                // Re-validate credential state under the lock. A concurrent cancellation or
-                // credential rotation must not slip through between the pre-checks and the insert.
+                // Recheck mutable credential state after acquiring the ticket lock.
                 if (! $lockedTicket
                     || ! $lockedTicket->verifySecret($scannedSecret)
                     || ! $lockedTicket->isActive()
@@ -283,7 +261,7 @@ class AdmitTicket
                     ];
                 }
 
-                // Re-verify idempotency under lock in case of concurrent identical submissions
+                // Recheck idempotency after locking to cover concurrent retries.
                 $existingUnderLock = Admission::with(['accessPoint', 'scannedBy'])
                     ->where('client_scan_id', $clientScanId)
                     ->first();
@@ -324,9 +302,7 @@ class AdmitTicket
                     ];
                 }
 
-                // Anti-passback is scoped to the credential issuance that produced the
-                // admission: history from a retired credential is retained but does not
-                // block the credential issued after a cancellation/re-registration.
+                // Retired credential admissions stay in history but do not block a reissued ticket.
                 $previousAdmission = Admission::with(['accessPoint', 'scannedBy'])
                     ->where('ticket_id', $lockedTicket->id)
                     ->where('credential_version', $lockedTicket->credential_version)
@@ -354,7 +330,6 @@ class AdmitTicket
                     ];
                 }
 
-                // Create authoritative admission record
                 $admission = Admission::create([
                     'ticket_id' => $lockedTicket->id,
                     'access_point_id' => $accessPoint->id,
@@ -385,10 +360,8 @@ class AdmitTicket
                 ];
             });
         } catch (UniqueConstraintViolationException) {
-            // Two requests carried the same client_scan_id for different tickets and
-            // were therefore not serialized by the ticket row lock. Only
-            // admissions.client_scan_id is written inside this transaction, so the
-            // violation identifies a replayed idempotency key.
+            // Different tickets are not serialized by the ticket lock; the unique
+            // client_scan_id constraint resolves that cross-ticket race.
             return [
                 'http_code' => 409,
                 'status' => 'idempotency_conflict',

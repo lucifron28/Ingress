@@ -104,7 +104,6 @@ class OrganizerEventController extends Controller
             'status' => Event::STATUS_DRAFT,
         ]);
 
-        // Automatically provision default access points for campus events
         AccessPoint::create([
             'event_id' => $event->id,
             'name' => 'Main Entrance',
@@ -171,8 +170,7 @@ class OrganizerEventController extends Controller
             'ends_at' => ['required', 'date', 'after:starts_at'],
         ]);
 
-        // Serialize with RegisterForEvent by locking the same events row it locks,
-        // so the confirmed count cannot change between the check and the write.
+        // Use the registration lock boundary so capacity cannot drop below a concurrent signup.
         DB::transaction(function () use ($event, $validated) {
             $lockedEvent = Event::whereKey($event->getKey())->lockForUpdate()->firstOrFail();
 
