@@ -7,7 +7,8 @@ Route::get('/', function () {
 });
 
 Route::get('/login', [\App\Http\Controllers\Web\AuthController::class, 'showLoginForm'])->name('login');
-Route::post('/login', [\App\Http\Controllers\Web\AuthController::class, 'login']);
+Route::post('/login', [\App\Http\Controllers\Web\AuthController::class, 'login'])
+    ->middleware('throttle:login');
 Route::post('/logout', [\App\Http\Controllers\Web\AuthController::class, 'logout'])->name('logout');
 
 Route::middleware(['auth', 'organizer'])->prefix('organizer')->name('organizer.')->group(function () {
