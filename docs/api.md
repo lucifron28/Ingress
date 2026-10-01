@@ -52,6 +52,16 @@ Issues a personal access token for mobile attendees and event staff.
 }
 ```
 
+#### Error Response: throttled (`429 Too Many Requests`)
+
+Login accepts 5 attempts per minute per email + client IP. Every attempt counts, including successful ones.
+
+```json
+{
+  "message": "Too Many Attempts."
+}
+```
+
 ---
 
 ### 1.2 Current User Profile
@@ -468,11 +478,21 @@ Returned when a `client_scan_id` is replayed for a **different** ticket, event, 
 ```
 
 #### Response 9: Event Completed (`422 Unprocessable Content`)
+Returned when the event status is `completed`, **and also** once `now() > ends_at` (in which case the message is `Event Ended` and the detail names the closing time). `starts_at` is deliberately not enforced — doors may open before the scheduled start.
+
 ```json
 {
   "status": "event_completed",
   "message": "Event Completed",
   "detail": "This event has already concluded."
+}
+```
+
+```json
+{
+  "status": "event_completed",
+  "message": "Event Ended",
+  "detail": "Admission closed at 5:00 PM."
 }
 ```
 
@@ -510,7 +530,7 @@ Returned when the access point does not belong to the event or is inactive.
 The server evaluates these conditions in order and stops at the first failure:
 
 1. event exists
-2. event is neither `cancelled` nor `completed`
+2. event is neither `cancelled` nor `completed`, and `now()` is not past `ends_at`
 3. caller is the organizer, an admin, or assigned in `event_staff`
 4. access point exists, belongs to the event, and is active
 5. staff bound to a specific gate is scanning that gate
@@ -520,7 +540,9 @@ The server evaluates these conditions in order and stops at the first failure:
 9. registration is `confirmed`
 10. ticket is `active`
 11. ticket belongs to the selected event
-12. `client_scan_id` is a replay only for the same ticket/event/gate
+12. `client_scan_id` is a replay only for the same ticket, credential version, event, and gate
 13. no admission exists for this ticket's **current credential issuance**
 
-Steps 12 and 13 run inside a transaction that holds a `SELECT … FOR UPDATE` lock on the ticket row, so concurrent scans of the same ticket are serialised by PostgreSQL. Step 13 uses `admissions.credential_version` matched against `tickets.credential_version`, so admission history recorded under a credential retired by a cancellation/re-registration is retained for audit but does not block the newly issued credential.
+Steps 2, 12, and 13 are re-evaluated authoritatively **inside** the admission transaction: step 2 under a `FOR SHARE` lock on the event row (so a concurrent cancellation or completion cannot commit mid-admission), and 12–13 under a `FOR UPDATE` lock on the ticket row. Steps 1–11 outside the transaction are a fast pre-check only.
+
+Step 13 compares `admissions.credential_version` with `tickets.credential_version`, so admission history recorded under a credential retired by a cancellation/re-registration is retained for audit but does not block the newly issued credential.

@@ -61,9 +61,29 @@ QR tickets are displayed on attendee mobile screens and scanned at physical gate
 ### Decision
 Adopt the **Opaque Token** pattern:
 - The QR payload contains `ingress:v1:<ticket_public_id>:<secret>`.
-- The database stores `qr_hash = hash('sha256', $secret)` (one-way cryptographic hash).
+- The database stores two views of the secret: `qr_hash = hash('sha256', $secret)`, which is one-way and used for verification, and `encrypted_secret = Crypt::encryptString($secret)`, which the application can decrypt with `APP_KEY` so the owning attendee can redisplay their QR.
 - Zero student PII is exposed in the QR code.
 - Verification uses constant-time string comparison (`hash_equals`) to prevent timing side-channel attacks.
+
+### Consequences
+Storage is therefore **not** purely one-way. A database dump alone does not reveal plaintext QR secrets, but a dump combined with `APP_KEY` does — so `APP_KEY` must be treated as a production secret that never shares a backup with the database. The `encrypted_secret` column exists because a one-way hash alone would make a ticket unrecoverable for an attendee who reinstalled the app.
+
+---
+
+## ADR 003a: QR Secret Threat Model
+
+### Context
+Storing a recoverable copy of the QR secret alongside a one-way hash needs an explicit threat model. The tempting description "the secret is only stored hashed" is not true and must not appear in this documentation.
+
+### Decision
+State the real model rather than a flattering one:
+
+| Compromise | Consequence |
+| :--- | :--- |
+| Database only | `qr_hash` is one-way and `encrypted_secret` is unreadable without `APP_KEY`, so plaintext QR secrets are **not** directly revealed. |
+| Database **and** `APP_KEY` | `encrypted_secret` decrypts, so a working QR can be reconstructed. |
+
+Operational rules that follow: `APP_KEY` lives only in the server environment; it is never committed, never shipped to the mobile app, and never stored in the same backup as a database dump. Rotating it invalidates every existing `encrypted_secret`, so it is a long-lived production secret.
 
 ---
 
@@ -97,6 +117,10 @@ In wireless LAN environments with packet loss or retries, a scanner might send a
 
 ### Decision
 Enforce a `UNIQUE(client_scan_id)` constraint on the `admissions` table. If a network retry occurs with the same scan ID, the server recognizes the idempotent replay and returns the original `Ticket Valid` response without creating duplicate records or falsely triggering anti-passback.
+
+A replay is only honoured when it matches the original request on **all** of `ticket_id`, `credential_version`, `access_point_id`, and event. Anything else returns HTTP 409 `idempotency_conflict`. The `credential_version` term matters because a cancelled registration is reactivated on the same ticket row with a rotated credential (ADR 003); without it, a scan id minted against the retired issuance would be accepted as a retry for the freshly issued credential.
+
+A concurrent insert that loses the race on the unique index is caught and mapped to the same 409 rather than surfacing as an unhandled database error.
 
 ---
 
@@ -177,3 +201,48 @@ Explicitly out of scope for the 50% milestone:
 - No cloud-to-edge synchronization frameworks.
 - No Kafka or complex message brokers.
 - The 50% milestone focuses exclusively on rock-solid, concurrency-safe, anti-passback event execution on a single local authoritative source of truth.
+
+---
+
+## ADR 009: Transport Security — LAN HTTP vs Production HTTPS
+
+### Context
+The prototype runs the Event Node on a laptop and phones connect over a local Wi-Fi network or hotspot. Configuring TLS for that setup would add certificate distribution to every device and slow down the one thing the milestone needs to demonstrate.
+
+### Decision
+
+**Prototype / demo (this milestone).** Plain HTTP over a controlled local LAN or hotspot is accepted so that a classroom demonstration needs no PKI. The mobile build makes this possible through Android `usesCleartextTraffic` and iOS `NSAllowsArbitraryLoads` + `NSAllowsLocalNetworking` in `mobile/app.json`. Those flags are a **demo affordance**, not a deployment posture.
+
+**Production.** Event Node traffic must use HTTPS/TLS. Passwords, Sanctum bearer tokens, QR credentials, and attendee identity data all cross this link, and over plaintext HTTP on an untrusted network they are readable and modifiable in transit. A production deployment must:
+
+- terminate TLS in front of Laravel (reverse proxy or the platform's load balancer) and never expose the cleartext listener;
+- remove the cleartext allowances from `mobile/app.json` and pin the Event Node to an `https://` origin;
+- set `SESSION_SECURE_COOKIE=true` and `APP_URL=https://…`.
+
+### Consequences
+The cleartext allowances and the HTTP LAN procedure in `docs/lan-demo.md` are scoped to demonstration use and are called out as such. No certificate authority, pinning, or client-certificate distribution is implemented in this milestone; a production rollout would also have to decide how an Event Node obtains a certificate on a network with no outbound internet.
+
+---
+
+## ADR 010: Explicit Demo Mode Instead of Always-On Demo Credentials
+
+### Context
+The seeder created a fixed set of accounts — student, staff, organizer, admin — all sharing the password `password`, and the mobile login screen advertised them and pre-filled that password. That makes a fresh clone immediately demonstrable, but it also means that deploying the application without changes publishes a set of accounts anyone can sign into.
+
+### Alternatives Considered
+1. **Keep demo accounts unconditional.** Simplest, and unacceptable: the default deployment ships predictable credentials.
+2. **Delete the demo accounts entirely.** Safe, but makes both the classroom demonstration and the student's own setup markedly harder.
+3. **Gate them behind one explicit flag.** Demo remains one environment variable away, while the default posture creates no predictable credential.
+
+### Decision
+Introduce `INGRESS_DEMO_MODE`, read once into `config('app.demo_mode')` with a **default of `false`**:
+
+- `DatabaseSeeder` seeds the demonstration users and events only when demo mode is on. Venues (pure reference data with nothing predictable) are always seeded.
+- The organizer login page advertises the demo credentials only when demo mode is on.
+- The mobile app gates its quick-select chips and pre-filled password behind its own build-time flag, `EXPO_PUBLIC_INGRESS_DEMO_MODE`, which also defaults to off.
+- Booting with demo mode enabled while `APP_ENV=production` is a **hard error**: the application refuses to start rather than serve predictable credentials.
+
+`.env.example` ships `INGRESS_DEMO_MODE=true` so copying the example file keeps the documented quickstart working, while an environment that does not opt in gets nothing predictable.
+
+### Consequences
+Outside demo mode there are no accounts at all, so an operator must provision the first organizer deliberately; the README documents that one-liner. The mobile flag is client-side UX only and cannot make the server safer or less safe — whether the demo accounts exist is decided solely by the server flag.
