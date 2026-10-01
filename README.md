@@ -151,6 +151,23 @@ All demo accounts use the standard password: `password`. The mobile demo quick-s
 
 ---
 
+## Automation Scripts (`scripts/`)
+
+PowerShell automation scripts are provided in the `scripts/` directory for convenient one-step execution:
+
+| Script | Purpose | Execution Command |
+| :--- | :--- | :--- |
+| **`start-all.ps1`** | **Master Launcher**: Starts PostgreSQL, launches Laravel Web API and Expo Mobile Bundler in separate console windows, and opens the organizer portal | `powershell -ExecutionPolicy Bypass -File scripts\start-all.ps1` |
+| **`start-web.ps1`** | Starts PostgreSQL and launches Laravel Web/API on `0.0.0.0:8000` | `powershell -ExecutionPolicy Bypass -File scripts\start-web.ps1` |
+| **`start-mobile.ps1`** | Starts the Expo React Native mobile bundler | `powershell -ExecutionPolicy Bypass -File scripts\start-mobile.ps1` |
+| **`test-all.ps1`** | Runs all 4 test suites (Backend, Concurrency, Mobile Session, TypeScript) | `powershell -ExecutionPolicy Bypass -File scripts\test-all.ps1` |
+| **`setup.ps1`** | One-time environment setup wizard (Composer, npm, .env, migrations) | `powershell -ExecutionPolicy Bypass -File scripts\setup.ps1` |
+| **`start-db.ps1`** | Starts the local PostgreSQL 18 database cluster on port `5433` | `powershell -ExecutionPolicy Bypass -File scripts\start-db.ps1` |
+| **`stop-db.ps1`** | Gracefully stops the PostgreSQL 18 database | `powershell -ExecutionPolicy Bypass -File scripts\stop-db.ps1` |
+| **`find-ip.ps1`** | Detects active Wi-Fi IPv4 address and displays mobile base URL | `powershell -ExecutionPolicy Bypass -File scripts\find-ip.ps1` |
+
+---
+
 ## Quick Start & Verification Instructions
 
 ### 1. Database Setup (PostgreSQL 18)

@@ -31,22 +31,21 @@ This guide provides concrete instructions for reproducing and defending the Ingr
 ## 2. Pre-Demonstration Server Setup
 
 ### Step 2.1: Discover the Laptop's LAN IP Address
-Open Command Prompt or PowerShell on the host laptop:
-```cmd
-ipconfig
+Run the provided discovery script or use `ipconfig`:
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\find-ip.ps1
 ```
-Locate the IPv4 address for your active Wi-Fi adapter (for example `192.168.x.y`). Note this IP address for mobile configuration.
+This displays your active Wi-Fi IPv4 address (e.g., `192.168.55.128`) and the exact base URL to enter on the phones.
 
 ### Step 2.2: Ensure PostgreSQL 18 is Running
-```bash
-# Verify PostgreSQL on port 5433
-"C:\Program Files\PostgreSQL\18\bin\psql.exe" -h 127.0.0.1 -p 5433 -U postgres -d ingress -c "SELECT 1;"
+Run the database launcher:
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\start-db.ps1
 ```
-If the database service is not started:
+Or start manually via `pg_ctl`:
 ```cmd
 "C:\Program Files\PostgreSQL\18\bin\pg_ctl.exe" -D "C:\Users\Ron\ingress_db" -l "C:\Users\Ron\ingress_db\server.log" start
 ```
-
 ### Step 2.3: Allow Ingress Port 8000 in Windows Firewall
 Ensure inbound traffic on port 8000 is allowed so mobile phones on the Wi-Fi subnet can reach Laravel:
 ```powershell
