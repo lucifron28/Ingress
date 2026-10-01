@@ -1,4 +1,4 @@
-# Ingress — Start PostgreSQL Database
+# Ingress - Start PostgreSQL Database
 # Starts the local PostgreSQL 18 cluster on port 5433.
 
 $ErrorActionPreference = "Stop"

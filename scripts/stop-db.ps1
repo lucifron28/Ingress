@@ -1,4 +1,4 @@
-# Ingress — Stop PostgreSQL Database
+# Ingress - Stop PostgreSQL Database
 # Gracefully stops the local PostgreSQL 18 cluster on port 5433.
 
 $ErrorActionPreference = "SilentlyContinue"

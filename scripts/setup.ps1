@@ -1,4 +1,4 @@
-# Ingress — One-Time Project Setup
+# Ingress - One-Time Project Setup
 # Prepares PostgreSQL, Laravel API dependencies, database migrations/seeders, and Expo mobile dependencies.
 
 $ErrorActionPreference = "Stop"

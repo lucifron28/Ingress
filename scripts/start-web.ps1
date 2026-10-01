@@ -1,4 +1,4 @@
-# Ingress — Start Laravel Web & REST API Server
+# Ingress - Start Laravel Web & REST API Server
 # Binds to 0.0.0.0:8000 so both local browser and physical mobile phones on LAN can connect.
 
 $ErrorActionPreference = "Stop"

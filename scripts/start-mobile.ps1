@@ -1,4 +1,4 @@
-# Ingress — Start Expo Mobile Application Server
+# Ingress - Start Expo Mobile Application Server
 # Launches the React Native development bundler.
 
 $ErrorActionPreference = "Stop"
