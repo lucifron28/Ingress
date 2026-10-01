@@ -13,9 +13,7 @@ class UserSeeder extends Seeder
      */
     public function run(): void
     {
-        // Guarded here as well as in DatabaseSeeder: `db:seed --class=UserSeeder`
-        // is a standard invocation and must not be able to create the predictable
-        // demonstration credentials in an environment that did not opt in.
+        // Keep direct UserSeeder runs behind the same demo-mode guard.
         if (! config('app.demo_mode')) {
             return;
         }
