@@ -92,12 +92,14 @@
         </div>
         <div style="margin-bottom: 1rem;">
             <div style="font-size: 0.8rem; color: var(--neutral-muted);">Registered Attendees</div>
-            <div style="font-size: 1.75rem; font-weight: 700; color: var(--mseuf-maroon);" class="mono">{{ $event->registrations()->count() }}</div>
+            <div style="font-size: 1.75rem; font-weight: 700; color: var(--mseuf-maroon);" class="mono">
+                {{ $event->registrations()->where('status', \App\Models\Registration::STATUS_CONFIRMED)->count() }}
+            </div>
         </div>
         <div>
             <div style="font-size: 0.8rem; color: var(--neutral-muted);">Admitted / Checked In</div>
             <div style="font-size: 1.75rem; font-weight: 700; color: var(--state-success);" class="mono">
-                {{ \App\Models\Admission::whereHas('ticket.registration', fn($q) => $q->where('event_id', $event->id))->count() }}
+                {{ \App\Models\Admission::forCurrentCredential()->whereHas('ticket.registration', fn($q) => $q->where('event_id', $event->id))->count() }}
             </div>
         </div>
     </div>
