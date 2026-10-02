@@ -279,6 +279,7 @@ eas build -p android --profile preview
 - **LAN Communication**: The installed app communicates directly with the Laravel REST API over the local Wi-Fi or mobile hotspot.
 - **Network Requirement**: Both the Android phone and the laptop hosting Laravel must be connected to the same local network. Start the backend bound to all interfaces (`0.0.0.0:8000`), for example with `powershell -File scripts\start-web.ps1`.
 - **Server URL Configuration**: On the login screen of the installed app, tap **Change Server IP**, enter `http://<LAPTOP_LAN_IP>:8000/api/v1` (using the laptop's real Wi-Fi IPv4 address from `find-ip.ps1`, **not** `localhost`), tap **Test Connection**, and tap **Save URL**.
+- **Native Cleartext HTTP Support**: Standalone Android releases disable unencrypted HTTP by default. Ingress configures native `android.usesCleartextTraffic: true` via the `expo-build-properties` plugin in `mobile/app.json` so the APK can connect to the local event server over plain HTTP.
 
 ---
 ## Detailed Documentation Links

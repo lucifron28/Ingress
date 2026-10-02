@@ -15,7 +15,15 @@
           "cameraPermission": "Ingress requires camera access to scan student tickets at entrance gates."
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
     ],
     "ios": {
       "supportsTablet": true,
@@ -40,7 +48,6 @@
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO"
       ],
-      "usesCleartextTraffic": true,
       "predictiveBackGestureEnabled": false
     },
     "web": {

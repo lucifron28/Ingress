@@ -211,7 +211,7 @@ The prototype runs the Event Node on a laptop and phones connect over a local Wi
 
 ### Decision
 
-**Prototype / demo (this milestone).** Plain HTTP over a controlled local LAN or hotspot is accepted so that a classroom demonstration needs no PKI. The mobile build makes this possible through Android `usesCleartextTraffic` and iOS `NSAllowsArbitraryLoads` + `NSAllowsLocalNetworking` in `mobile/app.json`. Those flags are a **demo affordance**, not a deployment posture.
+**Prototype / demo (this milestone).** Plain HTTP over a controlled local LAN or hotspot is accepted so that a classroom demonstration needs no PKI. The mobile build makes this possible through Android `usesCleartextTraffic` (configured via the `expo-build-properties` plugin) and iOS `NSAllowsArbitraryLoads` + `NSAllowsLocalNetworking` in `mobile/app.json`. Those flags are a **demo affordance**, not a deployment posture.
 
 **Production.** Event Node traffic must use HTTPS/TLS. Passwords, Sanctum bearer tokens, QR credentials, and attendee identity data all cross this link, and over plaintext HTTP on an untrusted network they are readable and modifiable in transit. A production deployment must:
 

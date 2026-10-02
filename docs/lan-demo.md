@@ -24,7 +24,7 @@ This guide provides concrete instructions for reproducing and defending the Ingr
 
 > **Important Defense Note**: The developer's laptop simulates the central **Ingress Event Node** for this 50% prototype milestone. Do not present the laptop itself as the proposed production cloud architecture. In production, this role is fulfilled by an on-premises local Event Node server.
 
-> **Transport security (demo scope)**: the entire procedure below uses plain **HTTP over a controlled local LAN or hotspot**. That is an accepted simplification for demonstrations, and it is also why the mobile build enables Android `usesCleartextTraffic` and iOS `NSAllowsArbitraryLoads`. It is **not** a production posture: passwords, Sanctum bearer tokens, QR credentials, and attendee identity data must all travel over **HTTPS/TLS** in production. See ADR 009 in `docs/design-decisions.md` for the requirements and the production checklist.
+> **Transport security (demo scope)**: the entire procedure below uses plain **HTTP over a controlled local LAN or hotspot**. That is an accepted simplification for demonstrations, and it is also why the mobile build enables Android `usesCleartextTraffic` (configured via the `expo-build-properties` plugin) and iOS `NSAllowsArbitraryLoads`. It is **not** a production posture: passwords, Sanctum bearer tokens, QR credentials, and attendee identity data must all travel over **HTTPS/TLS** in production. See ADR 009 in `docs/design-decisions.md` for the requirements and the production checklist.
 
 ---
 
