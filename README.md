@@ -262,6 +262,25 @@ npx expo start
 
 ---
 
+### 5. Standalone Android APK Build (EAS)
+
+To produce an installable standalone APK for physical Android devices that runs independently without Expo Go or the Metro development server:
+
+```bash
+cd mobile
+npm install
+eas login
+eas build -p android --profile preview
+```
+
+**Important Operational Notes:**
+- **Build Creation**: EAS Build compiles the native Android package in the cloud, so an internet connection is required while generating and downloading the APK.
+- **No Expo Go or Metro Dependency**: The resulting `.apk` embeds the JavaScript bundle. Once installed, it launches directly on Android without requiring Expo Go or a running Metro bundler.
+- **LAN Communication**: The installed app communicates directly with the Laravel REST API over the local Wi-Fi or mobile hotspot.
+- **Network Requirement**: Both the Android phone and the laptop hosting Laravel must be connected to the same local network. Start the backend bound to all interfaces (`0.0.0.0:8000`), for example with `powershell -File scripts\start-web.ps1`.
+- **Server URL Configuration**: On the login screen of the installed app, tap **Change Server IP**, enter `http://<LAPTOP_LAN_IP>:8000/api/v1` (using the laptop's real Wi-Fi IPv4 address from `find-ip.ps1`, **not** `localhost`), tap **Test Connection**, and tap **Save URL**.
+
+---
 ## Detailed Documentation Links
 
 - [System Architecture Specification](docs/architecture.md)

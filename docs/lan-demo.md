@@ -93,11 +93,9 @@ The mobile quick-select chips and the pre-filled password appear only when the a
 > Changing the Event Node here signs you out on purpose. A Sanctum token is only meaningful to the server that issued it, so the app clears the stored token and cached identity before saving the new address and returns you to the login screen.
 
 1. Ensure all testing phones are connected to the **same Wi-Fi network** as the laptop.
-2. Launch the mobile app in Expo:
-   ```bash
-   cd mobile
-   npx expo start
-   ```
+2. Launch the mobile app:
+   - **Standalone APK (Recommended)**: Open the installed **Ingress** app directly on the phone (does not require Expo Go or Metro).
+   - **Development Mode**: Run `cd mobile && npx expo start` and open via Expo Go or development client.
 3. On the login screen of each phone, tap **Change Server IP**.
 4. Enter the base URL using the laptop IP found in Step 2.1:
    ```

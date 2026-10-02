@@ -28,6 +28,7 @@
       }
     },
     "android": {
+      "package": "com.lucifron28.ingress",
       "adaptiveIcon": {
         "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/android-icon-foreground.png",
