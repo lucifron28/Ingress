@@ -225,9 +225,9 @@
 
 <script>
     const feedUrl = "{{ route('organizer.attendance.feed', $event) }}";
+    const requestTimeoutMs = typeof INGRESS_POLL_TIMEOUT_MS !== 'undefined' ? INGRESS_POLL_TIMEOUT_MS : 4500;
     let lastSuccessfulUpdate = null;
     let isFetching = false;
-
     function setConnectionLive() {
         const indicator = document.getElementById('live-indicator');
         if (indicator) {
@@ -266,8 +266,7 @@
         isFetching = true;
 
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 4500);
-
+        const timeoutId = setTimeout(() => controller.abort(), requestTimeoutMs);
         try {
             const res = await fetch(feedUrl, {
                 signal: controller.signal,

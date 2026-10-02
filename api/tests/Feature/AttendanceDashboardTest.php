@@ -156,7 +156,9 @@ class AttendanceDashboardTest extends TestCase
         $response->assertSee('setInterval(fetchLiveData, 5000)', false);
 
         // Verify AbortController timeout mechanism and isFetching concurrency lock exist
+        $response->assertSee('const requestTimeoutMs = typeof INGRESS_POLL_TIMEOUT_MS !== \'undefined\' ? INGRESS_POLL_TIMEOUT_MS : 4500;', false);
         $response->assertSee('const controller = new AbortController();', false);
+        $response->assertSee('const timeoutId = setTimeout(() => controller.abort(), requestTimeoutMs);', false);
         $response->assertSee('signal: controller.signal', false);
         $response->assertSee('clearTimeout(timeoutId);', false);
         $response->assertSee('let isFetching = false;', false);
@@ -452,13 +454,13 @@ class AttendanceDashboardTest extends TestCase
         ];
 
         // Step 1: Successful initial poll
-        // Step 2: Hanging network poll that aborts on timeout
+        // Step 2: Genuinely hanging network poll that waits for AbortController timer (30ms) to call controller.abort()
         // Step 3: Network recovery
         $results = $this->executeDashboardScript($matches[1], [
             ['ok' => true, 'data' => $feedData],
-            ['timeout' => true],
+            ['hang' => true],
             ['ok' => true, 'data' => $feedData],
-        ]);
+        ], pollTimeoutMs: 30);
 
         // Step 1: Healthy LAN LIVE state
         $step1 = $results[0];
@@ -466,15 +468,15 @@ class AttendanceDashboardTest extends TestCase
         $this->assertEquals('#10b981', $step1['dotBg']);
         $this->assertStringStartsWith('Updated ', $step1['feedLastUpdated']);
 
-        // Step 2: Timeout abort transitions to CONNECTION LOST without clearing last known state
+        // Step 2: Real AbortController timer fired -> signal aborted -> CONNECTION LOST
         $step2 = $results[1];
+        $this->assertTrue($step2['signalAborted'], 'AbortSignal must be genuinely aborted by controller.abort()');
         $this->assertEquals('CONNECTION LOST', $step2['liveIndicatorText']);
         $this->assertEquals('#ef4444', $step2['dotBg']);
         $this->assertEquals('#fef2f2', $step2['liveIndicatorBg']);
         $this->assertStringStartsWith('Last successful update ', $step2['feedLastUpdated']);
         $this->assertStringContainsString('Ron Vincent Cada', $step2['recentHtml']);
         $this->assertStringContainsString('ENTRANCE-1', $step2['gateHtml']);
-
         // Step 3: Recovery restores LAN LIVE and advances timestamp
         $step3 = $results[2];
         $this->assertEquals('LAN LIVE', $step3['liveIndicatorText']);
@@ -509,13 +511,14 @@ class AttendanceDashboardTest extends TestCase
      * @param array<int, array{ok?: bool, status?: int, data?: mixed, throws?: bool}> $steps
      * @return array<int, array<string, mixed>>
      */
-    private function executeDashboardScript(string $scriptCode, array $steps): array
+    private function executeDashboardScript(string $scriptCode, array $steps, int $pollTimeoutMs = 30): array
     {
         $nodeRunner = <<<'JS'
         const fs = require('fs');
         const payload = JSON.parse(fs.readFileSync(0, 'utf-8'));
         const scriptCode = payload.script;
         const steps = payload.steps;
+        const pollTimeoutMs = payload.pollTimeoutMs || 30;
 
         function createElement(tag) {
             return {
@@ -590,12 +593,11 @@ class AttendanceDashboardTest extends TestCase
         let currentStepResponse = null;
         let fetchCallCount = 0;
         let resolveDelayedPromise = null;
+        let lastObservedSignalAborted = false;
         const fetch = async (url, options) => {
             fetchCallCount++;
-            if (currentStepResponse.timeout || currentStepResponse.throws) {
-                const err = new Error('The operation was aborted');
-                err.name = 'AbortError';
-                throw err;
+            if (currentStepResponse.throws) {
+                throw new Error('Network failure');
             }
             if (currentStepResponse.delayed) {
                 return new Promise((resolve) => {
@@ -609,7 +611,14 @@ class AttendanceDashboardTest extends TestCase
             if (currentStepResponse.hang) {
                 return new Promise((resolve, reject) => {
                     if (options?.signal) {
+                        if (options.signal.aborted) {
+                            lastObservedSignalAborted = true;
+                            const err = new Error('The operation was aborted');
+                            err.name = 'AbortError';
+                            return reject(err);
+                        }
                         options.signal.addEventListener('abort', () => {
+                            lastObservedSignalAborted = options.signal.aborted;
                             const err = new Error('The operation was aborted');
                             err.name = 'AbortError';
                             reject(err);
@@ -625,7 +634,7 @@ class AttendanceDashboardTest extends TestCase
         };
         const setInterval = () => {};
 
-        const fn = new Function('document', 'fetch', 'setInterval', `
+        const fn = new Function('document', 'fetch', 'setInterval', 'INGRESS_POLL_TIMEOUT_MS', `
             ${scriptCode}
             return {
                 fetchLiveData,
@@ -633,9 +642,8 @@ class AttendanceDashboardTest extends TestCase
                 getFetchCount: () => fetchCallCount
             };
         `);
-        const dashboard = fn(document, fetch, setInterval);
+        const dashboard = fn(document, fetch, setInterval, pollTimeoutMs);
         const fetchLiveData = dashboard.fetchLiveData;
-
         (async () => {
             const results = [];
             for (const step of steps) {
@@ -675,7 +683,8 @@ class AttendanceDashboardTest extends TestCase
                     liveIndicatorColor: elements['live-indicator'].style.color || '',
                     liveIndicatorBg: elements['live-indicator'].style.background || '',
                     dotBg: elements['live-indicator-dot'].style.background || '',
-                    feedLastUpdated: elements['feed-last-updated'].textContent
+                    feedLastUpdated: elements['feed-last-updated'].textContent,
+                    signalAborted: lastObservedSignalAborted
                 });
             }
             console.log(JSON.stringify(results));
@@ -689,6 +698,7 @@ class AttendanceDashboardTest extends TestCase
         $process->setInput(json_encode([
             'script' => $scriptCode,
             'steps' => $steps,
+            'pollTimeoutMs' => $pollTimeoutMs,
         ]));
         $process->run();
 
