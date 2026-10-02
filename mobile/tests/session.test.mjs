@@ -134,6 +134,31 @@ check(
   (await AuthStorage.getServerUrl()) === 'http://10.0.0.9:8000/api/v1' &&
     (await AuthStorage.getToken()) === 'token-from-server-b',
 );
+import fs from 'node:fs';
+import path from 'node:path';
+
+const ticketsIndexSource = fs.readFileSync(path.resolve('app/(attendee)/tickets/index.tsx'), 'utf-8');
+check(
+  'tickets index has no web DOM span tags',
+  !ticketsIndexSource.includes('<span') && !ticketsIndexSource.includes('</span>'),
+);
+
+const layoutSource = fs.readFileSync(path.resolve('app/(attendee)/_layout.tsx'), 'utf-8');
+check(
+  'attendee layout tab bar uses Ionicons instead of text placeholders',
+  layoutSource.includes('Ionicons') &&
+    !layoutSource.includes('[E]') &&
+    !layoutSource.includes('[T]') &&
+    !layoutSource.includes('[P]'),
+);
+
+const ticketDetailSource = fs.readFileSync(path.resolve('app/(attendee)/tickets/[id].tsx'), 'utf-8');
+check(
+  'ticket detail uses generic admission notice instead of hardcoded gates',
+  ticketDetailSource.includes('Admission Notice') &&
+    !ticketDetailSource.includes('Gate Admission Notice') &&
+    !ticketDetailSource.includes('Gate A, Gate B'),
+);
 
 console.log(`\n${passed} checks passed, ${failures.length} failed`);
 process.exit(failures.length === 0 ? 0 : 1);

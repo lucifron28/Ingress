@@ -1,7 +1,6 @@
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Tabs } from 'expo-router';
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
-
 export default function AttendeeLayout() {
   return (
     <Tabs
@@ -34,8 +33,12 @@ export default function AttendeeLayout() {
         options={{
           title: 'Discover Events',
           tabBarLabel: 'Discover',
-          tabBarIcon: ({ color }) => (
-            <Text style={{ color, fontSize: 16, fontWeight: '700' }}>[E]</Text>
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons
+              name={focused ? 'calendar' : 'calendar-outline'}
+              size={24}
+              color={color}
+            />
           ),
         }}
       />
@@ -51,8 +54,12 @@ export default function AttendeeLayout() {
         options={{
           title: 'My Tickets',
           tabBarLabel: 'My Tickets',
-          tabBarIcon: ({ color }) => (
-            <Text style={{ color, fontSize: 16, fontWeight: '700' }}>[T]</Text>
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons
+              name={focused ? 'ticket' : 'ticket-outline'}
+              size={24}
+              color={color}
+            />
           ),
         }}
       />
@@ -68,8 +75,12 @@ export default function AttendeeLayout() {
         options={{
           title: 'Student Profile',
           tabBarLabel: 'Profile',
-          tabBarIcon: ({ color }) => (
-            <Text style={{ color, fontSize: 16, fontWeight: '700' }}>[P]</Text>
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons
+              name={focused ? 'person' : 'person-outline'}
+              size={24}
+              color={color}
+            />
           ),
         }}
       />

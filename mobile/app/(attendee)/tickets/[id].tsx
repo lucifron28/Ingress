@@ -161,10 +161,9 @@ export default function TicketDetailScreen() {
 
         {/* Turnstile Instructions */}
         <View style={styles.footerNote}>
-          <Text style={styles.instructionTitle}>Gate Admission Notice</Text>
+          <Text style={styles.instructionTitle}>Admission Notice</Text>
           <Text style={styles.instructionText}>
-            Present this QR code to the entrance staff scanner at Gate A, Gate B, or the Main Entrance.
-            Each ticket is valid for one admission only. Duplicate scans are instantly flagged.
+            Present this QR code to authorized entrance staff. Each ticket is valid for one admission only. Duplicate scans are immediately flagged.
           </Text>
         </View>
       </View>

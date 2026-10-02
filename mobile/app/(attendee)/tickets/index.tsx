@@ -74,7 +74,6 @@ export default function MyTicketsScreen() {
     >
       <View style={styles.cardHeader}>
         <Text style={styles.venueText}>{item.event.venue?.name || 'MSEUF Campus'}</Text>
-        <span />
         <View style={item.status === 'active' ? styles.activeBadge : styles.revokedBadge}>
           <Text style={item.status === 'active' ? styles.activeBadgeText : styles.revokedBadgeText}>
             {item.status.toUpperCase()}
