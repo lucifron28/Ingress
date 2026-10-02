@@ -32,6 +32,9 @@ node_modules/
 *.key
 *.mobileprovision
 *.orig.*
+*.keystore
+*.apk
+*.aab
 
 # Operating System & IDE
 .DS_Store
