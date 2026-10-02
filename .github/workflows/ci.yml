@@ -35,6 +35,57 @@ jobs:
         working-directory: api
         run: php artisan test
 
+  postgres-concurrency:
+    name: PostgreSQL Concurrency Verification
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: mbstring, pdo, pdo_pgsql, pgsql
+          coverage: none
+
+      - name: Install Composer Dependencies
+        working-directory: api
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Prepare Environment
+        working-directory: api
+        run: |
+          cp .env.example .env
+          sed -i 's/DB_PORT=5433/DB_PORT=5432/' .env
+          sed -i 's/DB_PASSWORD=/DB_PASSWORD=password/' .env
+          php artisan key:generate
+
+      - name: Run PostgreSQL Concurrency Verifier
+        working-directory: api
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_DATABASE: postgres
+          DB_USERNAME: postgres
+          DB_PASSWORD: password
+        run: php scripts/verify_pgsql_concurrency.php
+
   mobile-tests:
     name: Mobile Tests & Typecheck
     runs-on: ubuntu-latest
