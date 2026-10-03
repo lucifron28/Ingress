@@ -5,9 +5,11 @@
 
 ---
 
-## 1. System Overview & Deployment Topology
+## 1. Current 50% deployment topology
 
-Ingress is engineered as a local-first, server-authoritative event management architecture. For campus-scale physical events, multiple scanner devices and attendee phones must operate with high throughput and low latency, independent of public internet availability.
+The current 50% milestone is a local-first, server-authoritative prototype. One Laravel/PostgreSQL Event Node currently serves organizer, student, and scanner traffic so the implemented vertical slice can be demonstrated on a single LAN.
+
+This is **not** the final full-system topology. The agreed second-half target separates cloud student ticketing from local event-day admission. See [Second-half target architecture](second-half-architecture.md) for the canonical plan.
 
 ```
                            +----------------------------------------+
@@ -54,6 +56,45 @@ Ingress is engineered as a local-first, server-authoritative event management ar
 ### Peripheral Role (Zero-Trust Scanners & Attendees)
 - **Framework**: Expo SDK 57 (React Native 0.86).
 - **Scanner Philosophy**: Scanners are **untrusted capture peripherals**. A scanner never determines ticket validity autonomously. It captures the optical payload, generates a unique UUID `client_scan_id`, and dispatches it to the server. If the server is unreachable, the scanner **fails closed** (`SERVER UNAVAILABLE`).
+
+---
+
+### Target full-system direction (planned)
+
+The remaining 50% will move to a hybrid model:
+
+```text
+Student app --Internet--> Ingress cloud
+                         - student authentication
+                         - event discovery
+                         - registration/cancellation
+                         - ticket issuance/transfer
+                                  |
+                                  | finalized ticket snapshot
+                                  v
+Staff scanners --LAN------> Event Node
+Student cached QR --------> Event Node
+                                  |
+                                  v
+                             PostgreSQL
+
+After the event: Event Node --> cloud reconciliation
+```
+
+Key decisions:
+
+- Students will not configure or connect to the Event Node. Student authentication and ticketing are cloud based.
+- A previously authenticated student can restore a cached, read-only session and display a cached ticket without internet.
+- Staff scanners remain server-authoritative over the venue LAN and fail closed when the Event Node is unreachable.
+- Scanner setup will use Event Node QR pairing. Manual IP entry remains a staff/admin fallback, not a student-facing setting.
+- Online registration closes before admission finalization. A final cloud snapshot is synchronized to the Event Node.
+- Attendees arriving after finalization use a walk-in flow on the Event Node.
+- Walk-ins receive locally issued printed passes with an opaque QR plus a human-readable fallback code.
+- Both online and walk-in tickets use static opaque random credentials. TOTP is not part of the target architecture.
+- Tickets are linked to attendee identity. Events may require school-ID checks or optional photo verification.
+- Ticket transfer is planned before finalization. Accepted transfers change ownership and rotate the credential so the old QR stops working.
+
+The existing sections below document the implemented 50% admission engine unless a section explicitly says it is planned.
 
 ---
 
