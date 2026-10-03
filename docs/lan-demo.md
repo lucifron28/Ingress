@@ -3,7 +3,9 @@
 **Manuel S. Enverga University Foundation (MSEUF)**  
 *Event Ticketing, Admission, and Attendance Management System*
 
-This guide provides concrete instructions for reproducing and defending the Ingress LAN-enabled event ticketing architecture during the capstone defense.
+This guide provides concrete instructions for reproducing and defending the **current 50% prototype** during the capstone defense.
+
+> **Milestone scope:** this guide intentionally documents the implementation that exists today, where both student and staff phones can be pointed at the local Event Node manually. The planned second-half architecture changes that split: students use the cloud and cached offline tickets, while only staff scanners connect to the Event Node, normally through QR pairing. See [Second-half target architecture](second-half-architecture.md).
 
 ---
 
