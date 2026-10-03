@@ -254,13 +254,52 @@ This is a deliberate trade-off for the 50% milestone: one-way-only storage would
 
 ---
 
-## 5. 11-Step Server-Authoritative Admission Pipeline
+## 5. Two-Phase Server-Authoritative Admission Workflow
 
-When a staff member scans a ticket, the mobile app posts `{ access_point_id, qr_payload, client_scan_id }` to `/api/v1/staff/events/{event}/admissions`. The backend executes 11 sequential validation steps:
+To prevent consuming tickets before verifying the attendee's physical identity (e.g. school ID card check), Ingress separates scanning into two distinct phases:
+
+> **Fundamental Invariant**: Ticket validation does not create an admission. Admission occurs only after authorized entrance staff confirms the attendee.
+
+```
+[Staff Phone]                     [Ingress Event Node (Laravel)]
+      │                                         │
+      │ 1. Scan QR                              │
+      ├────────────────────────────────────────>│ POST /admissions/preview
+      │                                         │ (Read-only validation)
+      │                                         │
+      │ 2. Return Attendee Identity             │
+      │<────────────────────────────────────────┤ 200 OK { ticket: { attendee_name, student_id } }
+      │                                         │ (0 Admissions created)
+      │                                         │
+      │ 3. Staff Verifies University ID         │
+      │    [ NOT THIS PERSON ] -> Cancel        │
+      │    [ CONFIRM ADMISSION ]                │
+      │                                         │
+      │ 4. Confirm Admission                    │
+      ├────────────────────────────────────────>│ POST /admissions
+      │                                         │ (Atomic transaction under lock)
+      │                                         │
+      │ 5. Admission Recorded                   │
+      │<────────────────────────────────────────┤ 200 OK { status: 'admitted' }
+```
+
+### Phase 1: Read-Only Ticket Preview (`POST .../admissions/preview`)
+When a staff member scans a ticket, the mobile client posts `{ access_point_id, qr_payload }` to the preview endpoint. The server executes non-mutating validation checks:
+1. **Authenticated Staff**: Confirms caller has a valid Sanctum bearer token and event assignment.
+2. **Event & Gate State**: Rejects cancelled/ended events and inactive or unassigned gates.
+3. **Cryptographic Integrity**: Constant-time verification of `hash_equals(ticket.qr_hash, sha256(secret))`.
+4. **Registration Status**: Verifies attendee registration is confirmed and ticket is active (not revoked).
+5. **Anti-Passback Pre-Check**: Checks if the current credential version was already admitted. If so, returns HTTP 409 `already_admitted`.
+6. **Attendee Identity**: If valid, returns HTTP 200 with `attendee_name`, `student_id`, and `profile_photo_url` (optional / nullable, never encoded in the QR code).
+
+**Preview creates ZERO database records, acquires zero locks, and leaves the ticket unconsumed.** If staff selects `NOT THIS PERSON` or the attendee walks away, no state changes occur.
+
+### Phase 2: Authoritative Admission Transaction (`POST .../admissions`)
+When staff taps `CONFIRM ADMISSION`, the client posts `{ access_point_id, qr_payload, client_scan_id }` (using a newly generated cryptographic UUID). The server executes the 11-step transactional admission pipeline:
 
 1. **Authenticated User**: Confirms caller has a valid Sanctum bearer token.
-2. **Event State & Staff Assignment**: Rejects `cancelled` and `completed` events, and events whose `ends_at` has passed; then confirms the caller is the event organizer, an admin, or explicitly assigned in `event_staff`. This is a fast pre-check — the authoritative revalidation happens in step 11. `starts_at` is deliberately **not** enforced, because doors may open before the scheduled start.
-3. **Access Point**: Confirms the selected gate exists, belongs to this event, is active, and — for staff bound to a specific gate — matches their `event_staff.access_point_id`. Staff assigned to Gate A cannot operate Gate B; staff assigned with a null access point operate any gate.
+2. **Event State & Staff Assignment**: Re-checks event state and staff assignment.
+3. **Access Point**: Confirms the selected gate exists and matches staff assignment.
 4. **QR Format**: Verifies regex `^ingress:v1:([A-Za-z0-9\-]+):([A-Fa-f0-9]{64})$`.
 5. **Ticket Existence**: Looks up ticket by `public_id`.
 6. **Secret Verification**: Verifies `hash_equals(ticket.qr_hash, sha256(secret))`.
@@ -276,7 +315,6 @@ When a staff member scans a ticket, the mobile app posts `{ access_point_id, qr_
     - If none exists: creates the `Admission` row and returns **`Ticket Valid`** (HTTP 200).
 
 > No `UNIQUE(ticket_id)` constraint is used for anti-passback. Admission state is serialised in application transactional logic so that later milestones can record multiple admission events per ticket (ENTRY, EXIT, RE-ENTRY).
-
 ---
 
 ## 6. Anti-Passback & Multi-Gate Shared Source of Truth
