@@ -66,6 +66,7 @@ class AdmissionTest extends TestCase
         $this->student = User::factory()->create([
             'name' => 'Ron Vincent Cada',
             'email' => 'a23-35524@student.mseuf.edu.ph',
+            'student_id' => 'A23-35524',
             'role' => User::ROLE_STUDENT,
         ]);
 
@@ -543,5 +544,283 @@ class AdmissionTest extends TestCase
                 'status' => 'invalid_ticket',
                 'message' => 'Invalid Ticket',
             ]);
+    }
+
+    public function test_valid_preview_returns_attendee_identity_without_admitting_ticket(): void
+    {
+        $response = $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions/preview", [
+                'access_point_id' => $this->gateA->id,
+                'qr_payload' => $this->validQrPayload,
+            ]);
+        $response->assertStatus(200)
+            ->assertJson([
+                'status' => 'valid',
+                'message' => 'Valid Ticket',
+                'detail' => 'Verify the attendee identity before confirming admission.',
+                'ticket' => [
+                    'public_id' => $this->ticket->public_id,
+                    'attendee_name' => 'Ron Vincent Cada',
+                    'student_id' => 'A23-35524',
+                    'profile_photo_url' => null,
+                ],
+            ]);
+
+        // Invariant: Preview is strictly read-only and MUST NOT create an Admission record
+        $this->assertEquals(0, Admission::count(), 'Preview must never create an admission record.');
+        $this->assertTrue($this->ticket->fresh()->isActive(), 'Ticket must remain active and unconsumed after preview.');
+    }
+
+    public function test_invalid_credential_preview_is_rejected(): void
+    {
+        $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions/preview", [
+                'access_point_id' => $this->gateA->id,
+                'qr_payload' => 'invalid_junk_format',
+            ])
+            ->assertStatus(422)
+            ->assertJson([
+                'status' => 'invalid_ticket',
+            ]);
+
+        $fakeSecretPayload = "ingress:v1:{$this->ticket->public_id}:".str_repeat('f', 64);
+        $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions/preview", [
+                'access_point_id' => $this->gateA->id,
+                'qr_payload' => $fakeSecretPayload,
+            ])
+            ->assertStatus(422)
+            ->assertJson([
+                'status' => 'invalid_ticket',
+                'detail' => 'Cryptographic credential mismatch.',
+            ]);
+
+        $this->assertEquals(0, Admission::count());
+    }
+
+    public function test_revoked_ticket_preview_is_rejected(): void
+    {
+        $this->ticket->update([
+            'status' => Ticket::STATUS_REVOKED,
+            'revoked_at' => Carbon::now(),
+        ]);
+
+        $response = $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions/preview", [
+                'access_point_id' => $this->gateA->id,
+                'qr_payload' => $this->validQrPayload,
+            ]);
+
+        $response->assertStatus(422)
+            ->assertJson([
+                'status' => 'revoked_ticket',
+                'message' => 'Revoked Ticket',
+            ]);
+
+        $this->assertEquals(0, Admission::count());
+    }
+
+    public function test_wrong_event_preview_is_rejected(): void
+    {
+        $gateOther = AccessPoint::create([
+            'event_id' => $this->otherEvent->id,
+            'name' => 'Other Gate',
+            'code' => 'OTHER-GATE',
+            'is_active' => true,
+        ]);
+        EventStaff::create([
+            'event_id' => $this->otherEvent->id,
+            'user_id' => $this->staffGateA->id,
+            'access_point_id' => $gateOther->id,
+        ]);
+
+        $response = $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->otherEvent->id}/admissions/preview", [
+                'access_point_id' => $gateOther->id,
+                'qr_payload' => $this->validQrPayload,
+            ]);
+
+        $response->assertStatus(422)
+            ->assertJson([
+                'status' => 'wrong_event',
+                'message' => 'Wrong Event',
+            ]);
+
+        $this->assertEquals(0, Admission::count());
+    }
+
+    public function test_unauthorized_staff_or_gate_mismatch_preview_is_rejected(): void
+        {
+        // Unauthorized staff preview
+        $this->actingAs($this->unauthorizedStaff)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions/preview", [
+                'access_point_id' => $this->gateA->id,
+                'qr_payload' => $this->validQrPayload,
+            ])
+            ->assertStatus(403)
+            ->assertJson([
+                'status' => 'unauthorized_staff',
+            ]);
+
+        // Gate mismatch: Staff A assigned to Gate A attempts preview at Gate B
+        $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions/preview", [
+                'access_point_id' => $this->gateB->id,
+                'qr_payload' => $this->validQrPayload,
+            ])
+            ->assertStatus(403)
+            ->assertJson([
+                'status' => 'gate_mismatch',
+            ]);
+
+        $this->assertEquals(0, Admission::count());
+    }
+
+    public function test_already_admitted_ticket_preview_returns_duplicate_information(): void
+    {
+        // 1. Admit ticket at Gate A first
+        $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
+                'access_point_id' => $this->gateA->id,
+                'qr_payload' => $this->validQrPayload,
+                'client_scan_id' => (string) Str::uuid(),
+            ])
+            ->assertStatus(200);
+
+        $this->assertEquals(1, Admission::count());
+
+        // 2. Previewing the same ticket at Gate B returns duplicate admission feedback
+        $response = $this->actingAs($this->staffGateB)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions/preview", [
+                'access_point_id' => $this->gateB->id,
+                'qr_payload' => $this->validQrPayload,
+            ]);
+
+        $response->assertStatus(409)
+            ->assertJson([
+                'status' => 'already_admitted',
+                'message' => 'Already Checked In',
+                'previous_admission' => [
+                    'access_point' => 'Gate A - West Wing',
+                    'scanned_by' => 'Staff Alex Rivera',
+                ],
+                'ticket' => [
+                    'public_id' => $this->ticket->public_id,
+                    'attendee_name' => 'Ron Vincent Cada',
+                    'student_id' => 'A23-35524',
+                ],
+            ]);
+
+        $this->assertEquals(1, Admission::count(), 'Preview must not create another admission record.');
+    }
+
+    public function test_confirm_after_valid_preview_creates_admission_normally(): void
+    {
+        // 1. Staff previews ticket
+        $previewRes = $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions/preview", [
+                'access_point_id' => $this->gateA->id,
+                'qr_payload' => $this->validQrPayload,
+            ]);
+
+        $previewRes->assertStatus(200)
+            ->assertJson(['status' => 'valid']);
+        $this->assertEquals(0, Admission::count());
+
+        // 2. Staff confirms admission with newly generated client_scan_id
+        $scanId = (string) Str::uuid();
+        $confirmRes = $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
+                'access_point_id' => $this->gateA->id,
+                'qr_payload' => $this->validQrPayload,
+                'client_scan_id' => $scanId,
+            ]);
+
+        $confirmRes->assertStatus(200)
+            ->assertJson([
+                'status' => 'admitted',
+                'message' => 'Ticket Valid',
+            ]);
+
+        $this->assertEquals(1, Admission::count());
+        $this->assertDatabaseHas('admissions', [
+            'ticket_id' => $this->ticket->id,
+            'client_scan_id' => $scanId,
+        ]);
+    }
+
+    public function test_preview_without_confirmation_causes_no_state_change(): void
+    {
+        // Multiple previews (e.g. staff previews, attendee walks away or identity mismatch)
+        for ($i = 0; $i < 3; $i++) {
+            $this->actingAs($this->staffGateA)
+                ->postJson("/api/v1/staff/events/{$this->event->id}/admissions/preview", [
+                    'access_point_id' => $this->gateA->id,
+                    'qr_payload' => $this->validQrPayload,
+                ])
+                ->assertStatus(200)
+                ->assertJson(['status' => 'valid']);
+        }
+
+        $this->assertEquals(0, Admission::count(), 'Zero admission rows must exist when confirmation is not sent.');
+        $this->assertTrue($this->ticket->fresh()->isActive(), 'Ticket remains active.');
+
+        // Can still be confirmed later
+        $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
+                'access_point_id' => $this->gateA->id,
+                'qr_payload' => $this->validQrPayload,
+                'client_scan_id' => (string) Str::uuid(),
+            ])
+            ->assertStatus(200);
+
+        $this->assertEquals(1, Admission::count());
+    }
+
+    public function test_dual_scanners_can_preview_same_ticket_but_only_first_confirmation_admits(): void
+    {
+        // Gate A and Gate B both preview Ron's ticket concurrently
+        $previewA = $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions/preview", [
+                'access_point_id' => $this->gateA->id,
+                'qr_payload' => $this->validQrPayload,
+            ]);
+        $previewA->assertStatus(200)->assertJson(['status' => 'valid']);
+
+        $previewB = $this->actingAs($this->staffGateB)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions/preview", [
+                'access_point_id' => $this->gateB->id,
+                'qr_payload' => $this->validQrPayload,
+            ]);
+        $previewB->assertStatus(200)->assertJson(['status' => 'valid']);
+
+        $this->assertEquals(0, Admission::count());
+
+        // Gate A confirms first
+        $confirmA = $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
+                'access_point_id' => $this->gateA->id,
+                'qr_payload' => $this->validQrPayload,
+                'client_scan_id' => (string) Str::uuid(),
+            ]);
+        $confirmA->assertStatus(200)->assertJson(['status' => 'admitted']);
+        $this->assertEquals(1, Admission::count());
+
+        // Gate B then attempts to confirm
+        $confirmB = $this->actingAs($this->staffGateB)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
+                'access_point_id' => $this->gateB->id,
+                'qr_payload' => $this->validQrPayload,
+                'client_scan_id' => (string) Str::uuid(),
+            ]);
+        $confirmB->assertStatus(409)->assertJson([
+            'status' => 'already_admitted',
+            'message' => 'Already Checked In',
+            'previous_admission' => [
+                'access_point' => 'Gate A - West Wing',
+            ],
+        ]);
+
+        $this->assertEquals(1, Admission::count());
     }
 }
