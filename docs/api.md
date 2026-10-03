@@ -364,8 +364,62 @@ Lists events where the authenticated staff member is assigned to scan tickets.
 
 ---
 
-### 4.2 Validate & Record Ticket Admission
-Server-authoritative ticket scan validation with anti-passback and idempotency checks.
+### 4.2 Preview & Validate Ticket (Read-Only)
+Read-only validation of an attendee ticket before staff confirmation. Validates ticket authenticity, registration, and anti-passback rules without consuming the ticket or creating an admission record.
+
+> **Important**: Ticket validation does not create an admission. Admission occurs only after authorized entrance staff confirms the attendee identity against their university ID. Profile photos are optional (nullable) and are never encoded in the QR code.
+
+- **Method**: `POST`
+- **Endpoint**: `/staff/events/{event_id}/admissions/preview`
+- **Access**: Authenticated Assigned Event Staff (`auth:sanctum`)
+
+#### Request Body
+```json
+{
+  "access_point_id": 1,
+  "qr_payload": "ingress:v1:ING-A92B48EF12:6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b"
+}
+```
+*(Note: `client_scan_id` is NOT sent during preview because preview does not perform an admission attempt).*
+
+#### Response 1: Valid Ticket (`200 OK`)
+```json
+{
+  "status": "valid",
+  "message": "Valid Ticket",
+  "detail": "Verify the attendee identity before confirming admission.",
+  "ticket": {
+    "public_id": "ING-A92B48EF12",
+    "attendee_name": "Ron Vincent Cada",
+    "student_id": "A23-35524",
+    "profile_photo_url": null
+  }
+}
+```
+
+#### Response 2: Duplicate Admission / Anti-Passback (`409 Conflict`)
+```json
+{
+  "status": "already_admitted",
+  "message": "Already Checked In",
+  "detail": "Previously admitted at Entrance 1, 1:42 PM",
+  "previous_admission": {
+    "admitted_at": "2026-10-01T01:42:00.000000Z",
+    "access_point": "Entrance 1",
+    "scanned_by": "Staff Alex Rivera"
+  },
+  "ticket": {
+    "public_id": "ING-A92B48EF12",
+    "attendee_name": "Ron Vincent Cada",
+    "student_id": "A23-35524"
+  }
+}
+```
+
+---
+
+### 4.3 Confirm & Record Ticket Admission
+Authoritative admission transaction executed upon staff confirmation (`CONFIRM ADMISSION`). Revalidates mutable state under lock, enforces anti-passback, creates the `Admission` record, and returns the admitted response.
 
 - **Method**: `POST`
 - **Endpoint**: `/staff/events/{event_id}/admissions`
@@ -374,12 +428,11 @@ Server-authoritative ticket scan validation with anti-passback and idempotency c
 #### Request Body
 ```json
 {
-  "access_point_id": 2,
+  "access_point_id": 1,
   "qr_payload": "ingress:v1:ING-A92B48EF12:6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
   "client_scan_id": "c1f38e3a-4e2a-4a6c-9a1b-1234567890ab"
 }
 ```
-
 #### Response 1: Ticket Valid (`200 OK`)
 ```json
 {

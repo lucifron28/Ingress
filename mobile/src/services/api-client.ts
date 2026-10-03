@@ -22,10 +22,46 @@ export const DEFAULT_API_URL =
  */
 export const DEMO_MODE = process.env.EXPO_PUBLIC_INGRESS_DEMO_MODE === 'true';
 
-export interface ApiError {
-  message: string;
+export interface ApiErrorData {
+  status?: string;
+  message?: string;
+  detail?: string;
   errors?: Record<string, string[]>;
-  status: number;
+  previous_admission?: {
+    admitted_at: string;
+    access_point: string;
+    scanned_by?: string;
+  };
+  ticket?: {
+    public_id: string;
+    attendee_name: string;
+    student_id?: string | null;
+  };
+  [key: string]: unknown;
+}
+
+export class ApiError extends Error {
+  readonly status: number;
+  readonly domainStatus?: string;
+  readonly detail?: string;
+  readonly errors?: Record<string, string[]>;
+  readonly data?: ApiErrorData;
+
+  constructor(
+    message: string,
+    status: number,
+    data?: ApiErrorData,
+    errors?: Record<string, string[]>
+  ) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.data = data;
+    this.domainStatus = data?.status;
+    this.detail = data?.detail;
+    this.errors = errors || data?.errors;
+    Object.setPrototypeOf(this, ApiError.prototype);
+  }
 }
 
 export async function getActiveApiUrl(): Promise<string> {
@@ -66,24 +102,24 @@ export async function apiRequest<T = unknown>(
     const data: unknown = await response.json().catch(() => null);
 
     if (!response.ok) {
-      const errorPayload = data as { message?: string; errors?: Record<string, string[]> } | null;
-      const error: ApiError = {
-        message: errorPayload?.message || `Request failed with status ${response.status}`,
-        errors: errorPayload?.errors,
-        status: response.status,
-      };
-      throw error;
+      const errorPayload = (data && typeof data === 'object') ? (data as ApiErrorData) : undefined;
+      const message = errorPayload?.message || `Request failed with status ${response.status}`;
+      throw new ApiError(message, response.status, errorPayload, errorPayload?.errors);
     }
 
     return data as T;
   } catch (err: unknown) {
-    if (err && typeof err === 'object' && 'status' in err) {
-      throw err as ApiError;
+    if (err instanceof ApiError) {
+      throw err;
     }
-    const networkError: ApiError = {
-      message: 'SERVER UNAVAILABLE. Reconnect to the event network before scanning.',
-      status: 0,
-    };
+    if (err && typeof err === 'object' && 'status' in err) {
+      throw err;
+    }
+    const networkError = new ApiError(
+      'SERVER UNAVAILABLE. Reconnect to the event network before scanning.',
+      0,
+      { status: 'unavailable', message: 'SERVER UNAVAILABLE. Reconnect to the event network before scanning.' }
+    );
     throw networkError;
   }
 }

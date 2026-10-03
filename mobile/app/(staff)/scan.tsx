@@ -1,3 +1,4 @@
+import * as Crypto from 'expo-crypto';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useRef, useState } from 'react';
@@ -11,10 +12,10 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { apiRequest } from '../../src/services/api-client';
+import { ApiError, apiRequest } from '../../src/services/api-client';
 
 interface ScanFeedback {
-  type: 'valid' | 'duplicate' | 'invalid' | 'unavailable';
+  type: 'valid' | 'duplicate' | 'conflict' | 'invalid' | 'unavailable';
   title: string;
   detail: string;
   attendeeName?: string;
@@ -23,14 +24,13 @@ interface ScanFeedback {
   previousAdmittedAt?: string;
 }
 
-function generateUuid(): string {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
+interface PendingPreview {
+  qrPayload: string;
+  publicId: string;
+  attendeeName: string;
+  studentId?: string | null;
+  profilePhotoUrl?: string | null;
 }
-
 export default function ScannerScreen() {
   const { eventId, eventTitle, accessPointId, accessPointName } = useLocalSearchParams<{
     eventId: string;
@@ -41,93 +41,214 @@ export default function ScannerScreen() {
 
   const [permission, requestPermission] = useCameraPermissions();
   const [torchEnabled, setTorchEnabled] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [isValidating, setIsValidating] = useState(false);
+  const [isConfirming, setIsConfirming] = useState(false);
+  const [pendingPreview, setPendingPreview] = useState<PendingPreview | null>(null);
   const [feedback, setFeedback] = useState<ScanFeedback | null>(null);
   const [isManualModalVisible, setIsManualModalVisible] = useState(false);
   const [manualCode, setManualCode] = useState('');
   const isCooldownRef = useRef(false);
 
+  const handleApiError = (err: unknown) => {
+    if (err instanceof ApiError) {
+      const status = err.status;
+      const domainStatus = err.domainStatus;
+      const detail = err.detail;
+      const prevAdmission = err.data?.previous_admission;
+      const ticket = err.data?.ticket;
+
+      if (domainStatus === 'already_admitted' || (status === 409 && domainStatus !== 'idempotency_conflict')) {
+        setFeedback({
+          type: 'duplicate',
+          title: 'Already Checked In',
+          detail: detail || 'Previously admitted at another gate.',
+          attendeeName: ticket?.attendee_name,
+          studentId: ticket?.student_id || undefined,
+          accessPoint: prevAdmission?.access_point,
+          previousAdmittedAt: prevAdmission?.admitted_at,
+        });
+        return;
+      }
+
+      if (domainStatus === 'idempotency_conflict') {
+        setFeedback({
+          type: 'conflict',
+          title: 'Admission Request Conflict',
+          detail: detail || 'The scan attempt ID conflicted with another request. Please scan again.',
+        });
+        return;
+      }
+
+      if (domainStatus === 'revoked_ticket') {
+        setFeedback({
+          type: 'invalid',
+          title: 'Revoked Ticket',
+          detail: detail || 'Attendee registration or ticket was cancelled or revoked.',
+        });
+        return;
+      }
+
+      if (domainStatus === 'wrong_event') {
+        setFeedback({
+          type: 'invalid',
+          title: 'Wrong Event',
+          detail: detail || 'This ticket was issued for a different event.',
+        });
+        return;
+      }
+
+      if (domainStatus === 'event_cancelled') {
+        setFeedback({
+          type: 'invalid',
+          title: 'Event Cancelled',
+          detail: detail || 'This event has been cancelled and cannot admit attendees.',
+        });
+        return;
+      }
+
+      if (domainStatus === 'event_completed') {
+        setFeedback({
+          type: 'invalid',
+          title: 'Admission Closed',
+          detail: detail || 'This event has already concluded.',
+        });
+        return;
+      }
+
+      if (domainStatus === 'unauthorized_staff' || domainStatus === 'gate_mismatch' || status === 403) {
+        setFeedback({
+          type: 'invalid',
+          title: 'Unauthorized Access Point',
+          detail: detail || 'You are not assigned to operate entrance scanners for this gate.',
+        });
+        return;
+      }
+
+      if (status === 0 || domainStatus === 'unavailable') {
+        setFeedback({
+          type: 'unavailable',
+          title: 'Server Unavailable',
+          detail: 'Reconnect to the event network before scanning.',
+        });
+        return;
+      }
+
+      setFeedback({
+        type: 'invalid',
+        title: 'Invalid Ticket',
+        detail: detail || err.message || 'This ticket could not be verified.',
+      });
+      return;
+    }
+
+    setFeedback({
+      type: 'invalid',
+      title: 'Invalid Ticket',
+      detail: err instanceof Error ? err.message : 'This ticket could not be verified.',
+    });
+  };
+
   const processScanPayload = async (rawPayload: string) => {
-    if (isCooldownRef.current || isProcessing) return;
+    if (isCooldownRef.current || isValidating || isConfirming || pendingPreview || feedback) return;
 
     isCooldownRef.current = true;
-    setIsProcessing(true);
+    setIsValidating(true);
     setFeedback(null);
-
-    const clientScanId = generateUuid();
+    setPendingPreview(null);
 
     try {
+      // Step 1: Read-only preview validation. Does NOT consume the ticket or create an Admission.
+      const res = await apiRequest<{
+        status: string;
+        message: string;
+        detail: string;
+        ticket: {
+          public_id: string;
+          attendee_name: string;
+          student_id?: string | null;
+          profile_photo_url?: string | null;
+        };
+      }>(`/staff/events/${eventId}/admissions/preview`, {
+        method: 'POST',
+        body: JSON.stringify({
+          access_point_id: parseInt(accessPointId || '0', 10),
+          qr_payload: rawPayload.trim(),
+        }),
+      });
+
+      if (res.status === 'valid') {
+        setPendingPreview({
+          qrPayload: rawPayload.trim(),
+          publicId: res.ticket.public_id,
+          attendeeName: res.ticket.attendee_name,
+          studentId: res.ticket.student_id,
+          profilePhotoUrl: res.ticket.profile_photo_url,
+        });
+      }
+    } catch (err: unknown) {
+      handleApiError(err);
+    } finally {
+      setIsValidating(false);
+      setTimeout(() => {
+        isCooldownRef.current = false;
+      }, 1000);
+    }
+  };
+
+  const handleCancelVerification = () => {
+    // Operator chose "NOT THIS PERSON": clear pending preview without mutating backend.
+    setPendingPreview(null);
+  };
+
+  const handleConfirmAdmission = async () => {
+    if (!pendingPreview || isConfirming) return;
+
+    setIsConfirming(true);
+    const clientScanId = Crypto.randomUUID();
+    const payloadToAdmit = pendingPreview.qrPayload;
+
+    try {
+      // Step 2: Confirmed admission transaction. Atomically validates under lock and creates Admission.
       const res = await apiRequest<{
         status: string;
         message: string;
         detail: string;
         admission?: { access_point: string; admitted_at: string; scanned_by: string };
-        previous_admission?: { access_point: string; admitted_at: string; scanned_by: string };
         ticket?: { public_id: string; attendee_name: string; student_id: string };
       }>(`/staff/events/${eventId}/admissions`, {
         method: 'POST',
         body: JSON.stringify({
           access_point_id: parseInt(accessPointId || '0', 10),
-          qr_payload: rawPayload.trim(),
+          qr_payload: payloadToAdmit,
           client_scan_id: clientScanId,
         }),
       });
+
+      setPendingPreview(null);
 
       if (res.status === 'admitted') {
         setFeedback({
           type: 'valid',
           title: 'Ticket Valid',
-          detail: res.detail,
+          detail: res.detail || 'Admission recorded successfully.',
           attendeeName: res.ticket?.attendee_name,
           studentId: res.ticket?.student_id,
           accessPoint: res.admission?.access_point || accessPointName,
         });
       }
     } catch (err: unknown) {
-      const errorObj = err as {
-        status?: number;
-        message?: string;
-        detail?: string;
-        previous_admission?: { access_point: string; admitted_at: string };
-        ticket?: { attendee_name: string };
-      };
-
-      if (errorObj?.status === 409) {
-        // Anti-passback duplicate detection
-        setFeedback({
-          type: 'duplicate',
-          title: 'Already Checked In',
-          detail: errorObj.detail || 'Previously admitted at another gate.',
-          attendeeName: errorObj.ticket?.attendee_name,
-          accessPoint: errorObj.previous_admission?.access_point,
-          previousAdmittedAt: errorObj.previous_admission?.admitted_at,
-        });
-      } else if (errorObj?.status === 0) {
-        // Network disconnected / fail closed
-        setFeedback({
-          type: 'unavailable',
-          title: 'Server Unavailable',
-          detail: 'Reconnect to the event network before scanning.',
-        });
-      } else {
-        // Invalid or revoked
-        setFeedback({
-          type: 'invalid',
-          title: 'Invalid Ticket',
-          detail: errorObj?.detail || errorObj?.message || 'This ticket could not be verified.',
-        });
-      }
+      setPendingPreview(null);
+      handleApiError(err);
     } finally {
-      setIsProcessing(false);
-      // Debounce window to prevent double triggers
-      setTimeout(() => {
-        isCooldownRef.current = false;
-      }, 2500);
+      setIsConfirming(false);
     }
   };
 
+  const isScannerActive =
+    !isValidating && !isConfirming && !pendingPreview && !feedback && !isManualModalVisible;
+
   const handleBarcodeScanned = ({ data }: { data: string }) => {
-    if (data) {
+    if (data && isScannerActive) {
       processScanPayload(data);
     }
   };
@@ -180,7 +301,7 @@ export default function ScannerScreen() {
             barcodeScannerSettings={{
               barcodeTypes: ['qr'],
             }}
-            onBarcodeScanned={isProcessing ? undefined : handleBarcodeScanned}
+            onBarcodeScanned={isScannerActive ? handleBarcodeScanned : undefined}
           />
         ) : (
           <View style={[StyleSheet.absoluteFill, styles.webPlaceholder]}>
@@ -200,22 +321,94 @@ export default function ScannerScreen() {
             <View style={[styles.corner, styles.cornerTR]} />
             <View style={[styles.corner, styles.cornerBL]} />
             <View style={[styles.corner, styles.cornerBR]} />
-            {isProcessing && (
+            {(isValidating || isConfirming) && (
               <ActivityIndicator size="large" color="#ffffff" style={styles.loadingSpinner} />
             )}
           </View>
-          <Text style={styles.aimGuideText}>Align QR code within frame</Text>
+          <Text style={styles.aimGuideText}>
+            {isValidating
+              ? 'Validating ticket with event server...'
+              : isConfirming
+              ? 'Recording admission...'
+              : pendingPreview
+              ? 'Ticket verified - Confirm identity below'
+              : feedback
+              ? 'Scan paused'
+              : 'Align QR code within frame'}
+          </Text>
         </View>
       </View>
 
       {/* Prominent Multi-Sensory Feedback Card (Never relies on color alone) */}
       <View style={styles.feedbackContainer}>
-        {feedback ? (
+        {pendingPreview ? (
+          <View style={styles.verifyCard}>
+            <View style={styles.verifyHeaderRow}>
+              <View style={styles.verifyBadge}>
+                <Text style={styles.verifyBadgeText}>VERIFY ATTENDEE</Text>
+              </View>
+              <View style={styles.validPill}>
+                <Text style={styles.validPillText}>Valid Ticket</Text>
+              </View>
+            </View>
+
+            <View style={styles.identitySection}>
+              <View style={styles.avatarCircle}>
+                <Text style={styles.avatarInitials}>
+                  {pendingPreview.attendeeName
+                    .split(' ')
+                    .map((n) => n[0])
+                    .filter(Boolean)
+                    .slice(0, 2)
+                    .join('')
+                    .toUpperCase() || 'ST'}
+                </Text>
+              </View>
+              <View style={styles.identityMeta}>
+                <Text style={styles.attendeeNameDisplay} numberOfLines={2}>
+                  {pendingPreview.attendeeName}
+                </Text>
+                <Text style={styles.studentIdDisplay}>
+                  ID: {pendingPreview.studentId || 'N/A'}
+                </Text>
+                <Text style={styles.ticketRefDisplay}>
+                  Ref: {pendingPreview.publicId}
+                </Text>
+              </View>
+            </View>
+
+            <Text style={styles.verifyInstruction}>
+              Compare the attendee with their university ID before admission.
+            </Text>
+
+            <View style={styles.verifyButtonRow}>
+              <Pressable
+                style={[styles.verifyButton, styles.rejectButton]}
+                onPress={handleCancelVerification}
+                disabled={isConfirming}
+              >
+                <Text style={styles.rejectButtonText}>NOT THIS PERSON</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.verifyButton, styles.confirmButton, isConfirming && styles.buttonDisabled]}
+                onPress={handleConfirmAdmission}
+                disabled={isConfirming}
+              >
+                {isConfirming ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <Text style={styles.confirmButtonText}>CONFIRM ADMISSION</Text>
+                )}
+              </Pressable>
+            </View>
+          </View>
+        ) : feedback ? (
           <View
             style={[
               styles.feedbackCard,
               feedback.type === 'valid' && styles.feedbackValid,
               feedback.type === 'duplicate' && styles.feedbackDuplicate,
+              feedback.type === 'conflict' && styles.feedbackConflict,
               feedback.type === 'invalid' && styles.feedbackInvalid,
               feedback.type === 'unavailable' && styles.feedbackUnavailable,
             ]}
@@ -225,6 +418,7 @@ export default function ScannerScreen() {
                 <Text style={styles.feedbackIconText}>
                   {feedback.type === 'valid' && '[✓]'}
                   {feedback.type === 'duplicate' && '[!]'}
+                  {feedback.type === 'conflict' && '[!]'}
                   {feedback.type === 'invalid' && '[✕]'}
                   {feedback.type === 'unavailable' && '[⚡]'}
                 </Text>
@@ -243,6 +437,13 @@ export default function ScannerScreen() {
               </View>
             )}
 
+            {feedback.accessPoint && (
+              <View style={styles.attendeeRow}>
+                <Text style={styles.attendeeLabel}>Access Point:</Text>
+                <Text style={styles.attendeeNameText}>{feedback.accessPoint}</Text>
+              </View>
+            )}
+
             <Pressable
               style={styles.dismissButton}
               onPress={() => setFeedback(null)}
@@ -252,8 +453,14 @@ export default function ScannerScreen() {
           </View>
         ) : (
           <View style={styles.readyCard}>
-            <Text style={styles.readyText}>Ready for Scan</Text>
-            <Text style={styles.readySubtext}>Holding camera steady at attendee ticket</Text>
+            <Text style={styles.readyText}>
+              {isValidating ? 'Validating Ticket...' : 'Ready for Scan'}
+            </Text>
+            <Text style={styles.readySubtext}>
+              {isValidating
+                ? 'Contacting local Ingress Event Node'
+                : 'Hold camera steady at attendee ticket QR'}
+            </Text>
           </View>
         )}
       </View>
@@ -293,7 +500,7 @@ export default function ScannerScreen() {
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Manual Ticket Verification</Text>
             <Text style={styles.modalSubtitle}>
-              Paste or type the QR payload or public ticket reference code.
+              Enter or paste the complete QR payload (e.g. ingress:v1:ING-XXXX:secret). Full payload required for cryptographic verification.
             </Text>
 
             <TextInput
@@ -497,6 +704,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#78350f',
     borderColor: '#f59e0b',
   },
+  feedbackConflict: {
+    backgroundColor: '#78350f',
+    borderColor: '#d97706',
+  },
   feedbackInvalid: {
     backgroundColor: '#7f1d1d',
     borderColor: '#ef4444',
@@ -673,5 +884,131 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontWeight: '700',
     fontSize: 13,
+  },
+  verifyCard: {
+    backgroundColor: '#1e293b',
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#c5a059',
+    borderTopWidth: 4,
+    borderTopColor: '#800000',
+    padding: 16,
+  },
+  verifyHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  verifyBadge: {
+    backgroundColor: '#800000',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 4,
+  },
+  verifyBadgeText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  validPill: {
+    backgroundColor: '#dcfce7',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 9999,
+  },
+  validPillText: {
+    color: '#166534',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  identitySection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: 'rgba(0, 0, 0, 0.25)',
+    padding: 12,
+    borderRadius: 6,
+    marginBottom: 10,
+  },
+  avatarCircle: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#800000',
+    borderWidth: 2,
+    borderColor: '#c5a059',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarInitials: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  identityMeta: {
+    flex: 1,
+  },
+  attendeeNameDisplay: {
+    color: '#ffffff',
+    fontSize: 17,
+    fontWeight: '800',
+    marginBottom: 2,
+  },
+  studentIdDisplay: {
+    color: '#94a3b8',
+    fontSize: 13,
+    fontWeight: '700',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    marginBottom: 2,
+  },
+  ticketRefDisplay: {
+    color: '#64748b',
+    fontSize: 11,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  verifyInstruction: {
+    color: '#cbd5e1',
+    fontSize: 12,
+    marginBottom: 12,
+    lineHeight: 16,
+    fontStyle: 'italic',
+  },
+  verifyButtonRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  verifyButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rejectButton: {
+    backgroundColor: '#334155',
+    borderWidth: 1,
+    borderColor: '#475569',
+  },
+  rejectButtonText: {
+    color: '#f1f5f9',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  confirmButton: {
+    backgroundColor: '#15803d',
+    borderWidth: 1,
+    borderColor: '#22c55e',
+  },
+  confirmButtonText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  buttonDisabled: {
+    opacity: 0.6,
   },
 });

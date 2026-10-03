@@ -58,7 +58,7 @@ export async function resolve(specifier, context, nextResolve) {
 register(LOADER, import.meta.url);
 
 const { AuthStorage } = await import('../src/services/auth-storage.ts');
-const { apiRequest, DEMO_MODE } = await import('../src/services/api-client.ts');
+const { apiRequest, DEMO_MODE, ApiError } = await import('../src/services/api-client.ts');
 
 let passed = 0;
 const failures = [];
@@ -122,6 +122,49 @@ try {
 }
 check('a transport failure is reported as status 0, so the cached identity is kept', offlineStatus === 0, `got ${offlineStatus}`);
 check('a transport failure remains fail-closed for server actions', offlineMessage.includes('SERVER UNAVAILABLE'), offlineMessage);
+globalThis.fetch = async () =>
+  new Response(
+    JSON.stringify({
+      status: 'already_admitted',
+      message: 'Already Checked In',
+      detail: 'Previously admitted at Gate A, 1:42 PM',
+      previous_admission: {
+        access_point: 'Gate A',
+        admitted_at: '2026-10-02T01:42:00.000Z',
+      },
+      ticket: {
+        public_id: 'ING-TEST-1234',
+        attendee_name: 'Ron Vincent Cada',
+        student_id: 'A23-35524',
+      },
+    }),
+    {
+      status: 409,
+      headers: { 'Content-Type': 'application/json' },
+    },
+  );
+
+let capturedError = null;
+try {
+  await apiRequest('/staff/events/1/admissions');
+} catch (error) {
+  capturedError = error;
+}
+
+check('ApiError preserves server domain status', capturedError?.domainStatus === 'already_admitted');
+check('ApiError preserves detail string', capturedError?.detail === 'Previously admitted at Gate A, 1:42 PM');
+check(
+  'ApiError preserves previous_admission data',
+  capturedError?.data?.previous_admission?.access_point === 'Gate A',
+);
+check(
+  'ApiError preserves ticket data',
+  capturedError?.data?.ticket?.attendee_name === 'Ron Vincent Cada',
+);
+check(
+  'ApiError is an instance of ApiError and Error',
+  capturedError instanceof ApiError && capturedError instanceof Error,
+);
 
 globalThis.fetch = realFetch;
 
@@ -158,6 +201,28 @@ check(
   ticketDetailSource.includes('Admission Notice') &&
     !ticketDetailSource.includes('Gate Admission Notice') &&
     !ticketDetailSource.includes('Gate A, Gate B'),
+);
+
+const scanScreenSource = fs.readFileSync(path.resolve('app/(staff)/scan.tsx'), 'utf-8');
+check(
+  'scanner calls read-only preview endpoint before admission confirmation',
+  scanScreenSource.includes('/admissions/preview'),
+);
+check(
+  'scanner uses Crypto.randomUUID for client scan ID',
+  scanScreenSource.includes('Crypto.randomUUID()') && !scanScreenSource.includes('Math.random()'),
+);
+check(
+  'scanner provides explicit Verify Attendee confirmation UI',
+  scanScreenSource.includes('VERIFY ATTENDEE') &&
+    scanScreenSource.includes('NOT THIS PERSON') &&
+    scanScreenSource.includes('CONFIRM ADMISSION'),
+);
+
+check(
+  'ticket detail conditionally hides QR canvas on revoked or cancelled status',
+  ticketDetailSource.includes("ticket.status === 'active'") &&
+    ticketDetailSource.includes('This ticket is no longer valid.'),
 );
 
 console.log(`\n${passed} checks passed, ${failures.length} failed`);

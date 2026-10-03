@@ -90,6 +90,29 @@ class StaffAdmissionController extends Controller
     }
 
     /**
+     * Read-only preview of an entrance ticket scan before admission confirmation.
+     */
+    public function preview(Request $request, Event $event, AdmitTicket $admitTicket): JsonResponse
+    {
+        $validated = $request->validate([
+            'access_point_id' => ['required', 'integer'],
+            'qr_payload' => ['required', 'string'],
+        ]);
+
+        $result = $admitTicket->preview(
+            staff: $request->user(),
+            eventId: $event->id,
+            accessPointId: $validated['access_point_id'],
+            qrPayload: $validated['qr_payload']
+        );
+
+        $httpCode = $result['http_code'] ?? 200;
+        unset($result['http_code']);
+
+        return response()->json($result, $httpCode);
+    }
+
+    /**
      * Process entrance ticket scan.
      */
     public function scan(Request $request, Event $event, AdmitTicket $admitTicket): JsonResponse
