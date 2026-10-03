@@ -115,22 +115,35 @@ export default function TicketDetailScreen() {
           <Text style={styles.venueText}>{ticket.event.venue?.name || 'MSEUF Campus'}</Text>
         </View>
 
-        {/* High-Contrast Opaque QR Canvas */}
-        <View style={styles.qrSection}>
-          <View style={styles.qrContainer}>
-            <QRCode
-              value={ticket.qr_payload || `ingress:v1:${ticket.public_id}`}
-              size={220}
-              color="#000000"
-              backgroundColor="#ffffff"
-            />
-          </View>
+        {/* High-Contrast Opaque QR Canvas (Active Tickets Only) */}
+        {ticket.status === 'active' ? (
+          <View style={styles.qrSection}>
+            <View style={styles.qrContainer}>
+              <QRCode
+                value={ticket.qr_payload || `ingress:v1:${ticket.public_id}`}
+                size={220}
+                color="#000000"
+                backgroundColor="#ffffff"
+              />
+            </View>
 
-          <Text style={styles.refCode}>Ticket Ref: {ticket.public_id}</Text>
-          <Text style={styles.securityNotice}>
-            Opaque Cryptographic Credential &bull; Zero Student PII Encoded
-          </Text>
-        </View>
+            <Text style={styles.refCode}>Ticket Ref: {ticket.public_id}</Text>
+            <Text style={styles.securityNotice}>
+              Opaque Cryptographic Credential &bull; Zero Student PII Encoded
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.revokedSection}>
+            <View style={styles.revokedIconBadge}>
+              <Text style={styles.revokedIconText}>[✕]</Text>
+            </View>
+            <Text style={styles.revokedTitle}>This ticket is no longer valid.</Text>
+            <Text style={styles.revokedSubtitle}>
+              The registration for this ticket has been cancelled or revoked. It cannot be presented for admission.
+            </Text>
+            <Text style={styles.refCode}>Ticket Ref: {ticket.public_id}</Text>
+          </View>
+        )}
 
         {/* Attendee & Schedule Meta */}
         <View style={styles.metaSection}>
@@ -351,5 +364,43 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#94a3b8',
     lineHeight: 16,
+  },
+  revokedSection: {
+    alignItems: 'center',
+    paddingVertical: 24,
+    paddingHorizontal: 16,
+    backgroundColor: '#fff1f2',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#fecaca',
+    marginVertical: 12,
+  },
+  revokedIconBadge: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#fee2e2',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  revokedIconText: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#991b1b',
+  },
+  revokedTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#991b1b',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  revokedSubtitle: {
+    fontSize: 13,
+    color: '#7f1d1d',
+    textAlign: 'center',
+    lineHeight: 18,
+    marginBottom: 12,
   },
 });
