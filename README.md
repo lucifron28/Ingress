@@ -62,6 +62,39 @@ Dashboard updates in real-time
 
 ---
 
+## Target Full-System Architecture (Planned Second Half)
+
+The current 50% milestone above is intentionally a single local vertical slice. The agreed full-system direction separates cloud student ticketing from LAN-based event admission:
+
+```text
+Student App --Internet--> Ingress Cloud
+  auth / discover / register / tickets / transfer
+                           |
+                           | final snapshot after registration closes
+                           v
+Staff Scanners --LAN----> Event Node <---- Offline cached student QR
+                           |
+                           v
+                       PostgreSQL
+
+After event: Event Node --> Cloud reconciliation
+```
+
+Key planned rules:
+
+- students never configure Event Node IP addresses;
+- previously authenticated students can open cached tickets offline;
+- scanners pair to the Event Node by QR, with manual address entry only as a staff fallback;
+- registration closes before admission finalization;
+- late attendees become Event Node walk-ins and can receive printed QR/code passes;
+- online and walk-in tickets share the same static opaque credential model; TOTP is not planned;
+- tickets remain linked to the current attendee identity, with optional stronger ID/photo verification per event;
+- ticket transfer changes ownership and rotates the credential before finalization.
+
+This section describes the target design, not features already implemented in the 50% milestone. See [Second-half target architecture](docs/second-half-architecture.md) and ADRs 011-017 in [Architecture Decision Records](docs/design-decisions.md).
+
+---
+
 ## Technology Stack & Exact Versions
 
 | Component | Technology | Exact Version | Selection Justification |
@@ -247,6 +280,9 @@ node tests/session.test.mjs
 ```
 
 ### 4. Mobile Client (Expo React Native)
+
+> **Current 50% prototype:** the steps below still point both student and staff roles at the same local Event Node. The planned second-half architecture removes Event Node configuration from the student UI and keeps local pairing/configuration on the staff scanner side only.
+
 ```bash
 cd mobile
 npm install
@@ -285,6 +321,7 @@ eas build -p android --profile preview
 ## Detailed Documentation Links
 
 - [System Architecture Specification](docs/architecture.md)
+- [Second-Half Target Architecture](docs/second-half-architecture.md)
 - [REST API Reference](docs/api.md)
 - [Classroom LAN Defense Guide](docs/lan-demo.md)
 - [Architecture Decision Records (ADRs)](docs/design-decisions.md)
