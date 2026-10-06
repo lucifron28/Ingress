@@ -18,7 +18,7 @@ Ingress is engineered as a local-first, server-authoritative event management ar
                            |   |     Laravel 13 API & Blade     |   |
                            |   |   - Organizer Admin Console    |   |
                            |   |   - Sanctum Token Auth         |   |
-                           |   |   - 11-Step Admission Engine   |   |
+                           |   |   - Two-Stage Admission Engine |   |
                            |   +---------------+----------------+   |
                            |                   |                    |
                            |   +---------------v----------------+   |
@@ -209,10 +209,9 @@ Ticket issued (active, credential_version = 1)
 
 Attendees cannot self-cancel an issued ticket. Once registered, the ticket remains active and tied to the attendee. Repeated registration attempts for the same event by the same user are rejected (`You are already registered for this event.`) and cannot rotate credentials, wipe capacity, or reset admission history.
 
-The `credential_version` column provides cryptographic issuance versioning:
-- Every admission records the `credential_version` under which the ticket was admitted.
-- Anti-passback evaluates admissions matching the ticket's active `credential_version`.
-- This ensures that future controlled rotations (such as administrative reissuance or ticket transfer) preserve historical audit trails without allowing retired QR credentials or scan IDs to be replayed.
+- Every admission records the `credential_version` under which the ticket was admitted for audit and idempotency scoping.
+- Anti-passback operates at the ticket level: once a ticket has been admitted, rotating its credential never resets physical admission state.
+- Future controlled rotations (such as administrative reissuance or ticket transfer) preserve historical audit trails without allowing retired QR credentials or scan IDs to be replayed.
 ### Verifying concurrency on real PostgreSQL
 
 SQLite serializes writers and cannot demonstrate real lock contention, so the behavioural suite (which runs on in-memory SQLite) proves logic but not races. Six invariants are verified separately against real PostgreSQL:
@@ -303,13 +302,13 @@ When a staff member scans a ticket, the mobile client posts `{ access_point_id, 
 2. **Event & Gate State**: Rejects cancelled/ended events and inactive or unassigned gates.
 3. **Cryptographic Integrity**: Constant-time verification of `hash_equals(ticket.qr_hash, sha256(secret))`.
 4. **Registration Status**: Verifies attendee registration is confirmed and ticket is active (not revoked).
-5. **Anti-Passback Pre-Check**: Checks if the current credential version was already admitted. If so, returns HTTP 409 `already_admitted`.
+5. **Anti-Passback Pre-Check**: Checks if the ticket was already admitted under any credential version. If so, returns HTTP 409 `already_admitted`.
 6. **Attendee Identity**: If valid, returns HTTP 200 with `attendee_name`, `student_id`, and `profile_photo_url` (optional / nullable, never encoded in the QR code).
 
 **Preview creates ZERO database records, acquires zero locks, and leaves the ticket unconsumed.** If staff selects `NOT THIS PERSON` or the attendee walks away, no state changes occur.
 
 ### Phase 2: Authoritative Admission Transaction (`POST .../admissions`)
-When staff taps `CONFIRM ADMISSION`, the client posts `{ access_point_id, qr_payload, client_scan_id }` (using a newly generated cryptographic UUID). The server executes the 11-step transactional admission pipeline:
+When staff taps `CONFIRM ADMISSION`, the client posts `{ access_point_id, qr_payload, client_scan_id }` (using a newly generated cryptographic UUID). The server executes the transactional admission pipeline:
 
 1. **Authenticated User**: Confirms caller has a valid Sanctum bearer token.
 2. **Event State & Staff Assignment**: Re-checks event state and staff assignment.
@@ -324,7 +323,7 @@ When staff taps `CONFIRM ADMISSION`, the client posts `{ access_point_id, qr_pay
 11. **Anti-Passback Check (row-locked)**: Inside `DB::transaction()`, the **`events` row is locked `FOR SHARE`** and the event state (`cancelled` / `completed` / past `ends_at`) is revalidated, then the authoritative `tickets` row is locked with `lockForUpdate()` and the credential state (secret, ticket status, registration status, event) is re-validated under that lock. Idempotency is re-checked under the lock.
     - The shared event lock is what stops a concurrent event cancellation or completion from committing between the state check and the insert. Because `FOR SHARE` locks are mutually compatible, scanners for different tickets are not serialised behind each other (`FOR UPDATE` would have created exactly that bottleneck).
     - Concurrent scans of the same ticket are serialised by the `tickets` row lock: the first commits, and every later scanner observes the committed admission.
-    - Passback only considers admissions whose `credential_version` matches the ticket's current one.
+    - Anti-passback is ticket-level: any prior admission for the ticket across all entrances and credential versions triggers **`Already Checked In`**.
     - If such an admission exists: returns **`Already Checked In`** (HTTP 409 Conflict) with the previous gate name and timestamp.
     - If none exists: creates the `Admission` row and returns **`Ticket Valid`** (HTTP 200).
 
@@ -338,7 +337,7 @@ In physical campus events with multiple entrance turnstiles (e.g. Gate A and Gat
 - When Gate A admits a ticket at 1:42 PM, the `admissions` table is updated atomically.
 - If an attendee immediately sends a screenshot of their QR ticket to a friend at Gate B:
   - Gate B scanner captures the QR and posts to Laravel.
-  - Laravel step 11 queries the central database and immediately detects the existing admission.
+  - Laravel queries the central database under lock and immediately detects the existing admission.
   - Gate B scanner displays:
     ```
     Already Checked In

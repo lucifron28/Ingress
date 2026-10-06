@@ -577,11 +577,11 @@ The server evaluates these conditions in order and stops at the first failure:
 10. ticket is `active`
 11. ticket belongs to the selected event
 12. `client_scan_id` is a replay only for the same ticket, credential version, event, and gate
-13. no admission exists for this ticket's **current credential issuance**
+13. no prior admission exists for this ticket (physical anti-passback)
 
 Steps 2, 8–11, 12, and 13 are re-evaluated authoritatively **inside** the admission transaction:
 - Step 2 under an `Event::sharedLock()` (`FOR SHARE`) on the event row, so a concurrent event cancellation or completion cannot commit mid-admission.
 - Steps 8–11 and 12–13 under a `Ticket::lockForUpdate()` (`FOR UPDATE`) on the ticket row, re-validating the secret, ticket status, registration status, event match, and in-lock idempotency.
 Steps 1–11 outside the transaction serve as a fast pre-check path.
 
-Step 13 compares `admissions.credential_version` with `tickets.credential_version`, so admission history recorded under a retired credential version is retained for audit while tracking only admissions under the active credential version.
+Step 13 verifies that no prior admission exists for the ticket across all entrances and credential versions, preventing duplicate admission. Credential versions are stored on admission records to preserve issuance history and scope idempotency replays.

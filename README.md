@@ -37,13 +37,15 @@ Login (a23-35524@student.mseuf.edu.ph - Ron Vincent Cada)
 
            ↓
 
-STAFF PHONE — ENTRANCE 1 (Mobile Scanner)
+STAFF PHONE — ENTRANCE 1 (Two-Stage Mobile Scanner)
 Login (staff.gate_a@mseuf.edu.ph)
   ↓ Select Assigned Event (MSEUF University Intramurals 2026)
   ↓ Select Entrance 1
   ↓ Scan Ticket
-  ↓ [✓] TICKET VALID (Admission recorded transactionally)
-
+  ↓ [✓] VALID TICKET preview (read-only validation & attendee identity check)
+  ↓ Staff verifies attendee identity (Ron Vincent Cada / A23-35524)
+  ↓ Tap CONFIRM ADMISSION
+  ↓ [✓] ADMITTED (Admission recorded transactionally)
            ↓
 
 STAFF PHONE — ENTRANCE 2 (Anti-Passback)
@@ -100,7 +102,7 @@ ingress/
 │   │   └── seeders/      # Synthetic demonstration accounts and campus events
 │   ├── resources/views/  # Organizer Blade layouts & attendance command center
 │   ├── public/images/    # Generated Ingress brand assets (lockup, mark, favicon)
-│   └── tests/Feature/    # 61 feature tests covering all guarantees
+│   └── tests/Feature/    # 83 feature tests covering all guarantees
 ├── mobile/               # Expo React Native Mobile Application
 │   ├── app/              # Expo Router file-based pages
 │   │   ├── (attendee)/   # Discover catalog, Event detail, Ticket wallet, QR view, Profile
@@ -194,7 +196,7 @@ php artisan serve --host=0.0.0.0 --port=8000
 Organizer portal available at: `http://localhost:8000/login`
 
 ### 3. Run Backend Integration Tests
-The fast feature suite runs on in-memory SQLite (61 tests, 330 assertions):
+The fast feature suite runs on in-memory SQLite (83 tests, 504 assertions):
 ```bash
 cd api
 php artisan test
