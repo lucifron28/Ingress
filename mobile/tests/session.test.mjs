@@ -225,5 +225,27 @@ check(
     ticketDetailSource.includes('This ticket is no longer valid.'),
 );
 
+const loginScreenSource = fs.readFileSync(path.resolve('app/login.tsx'), 'utf-8');
+check(
+  'login screen provides student account activation call-to-action',
+  loginScreenSource.includes('/activate') &&
+    loginScreenSource.includes('Activate Your Account'),
+);
+
+const activateScreenSource = fs.readFileSync(path.resolve('app/activate.tsx'), 'utf-8');
+check(
+  'activation screen implements challenge request and confirmation flow',
+  activateScreenSource.includes('/auth/activate/request') &&
+    activateScreenSource.includes('/auth/activate/confirm') &&
+    activateScreenSource.includes('/auth/activate/resend'),
+);
+
+const authContextSource = fs.readFileSync(path.resolve('src/context/AuthContext.tsx'), 'utf-8');
+check(
+  'auth context exposes setSession helper for direct activation session persistence',
+  authContextSource.includes('setSession:') &&
+    authContextSource.includes('await AuthStorage.saveToken(newToken)'),
+);
+
 console.log(`\n${passed} checks passed, ${failures.length} failed`);
 process.exit(failures.length === 0 ? 0 : 1);
