@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\StudentIdentity;
 use App\Models\User;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
@@ -84,10 +85,53 @@ class UserSeeder extends Seeder
             ],
         ];
 
+        $studentColleges = [
+            'A23-35524' => 'CCMS',
+            '2024-01002' => 'CCMS',
+            '2024-01003' => 'CBA',
+        ];
+
         foreach ($users as $userData) {
-            User::updateOrCreate(
+            $user = User::updateOrCreate(
                 ['email' => $userData['email']],
                 $userData
+            );
+
+            if ($user->isStudent() && $user->student_id) {
+                StudentIdentity::updateOrCreate(
+                    ['student_id' => $user->student_id],
+                    [
+                        'name' => $user->name,
+                        'institutional_email' => $user->email,
+                        'college' => $studentColleges[$user->student_id] ?? 'CCMS',
+                        'activated_user_id' => $user->id,
+                    ]
+                );
+            }
+        }
+
+        // Unclaimed student directory records for demonstration and activation testing
+        $unclaimedIdentities = [
+            [
+                'student_id' => 'A23-99001',
+                'name' => 'Clara Santos',
+                'institutional_email' => 'csantos@student.mseuf.edu.ph',
+                'college' => 'CCMS',
+                'activated_user_id' => null,
+            ],
+            [
+                'student_id' => 'A23-99002',
+                'name' => 'Jose Rizal',
+                'institutional_email' => 'jrizal@student.mseuf.edu.ph',
+                'college' => 'CAS',
+                'activated_user_id' => null,
+            ],
+        ];
+
+        foreach ($unclaimedIdentities as $unclaimed) {
+            StudentIdentity::updateOrCreate(
+                ['student_id' => $unclaimed['student_id']],
+                $unclaimed
             );
         }
     }

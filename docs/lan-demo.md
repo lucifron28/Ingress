@@ -3,7 +3,9 @@
 **Manuel S. Enverga University Foundation (MSEUF)**  
 *Event Ticketing, Admission, and Attendance Management System*
 
-This guide provides concrete instructions for reproducing and defending the Ingress LAN-enabled event ticketing architecture during the capstone defense.
+This guide provides concrete instructions for reproducing and defending the **current 50% prototype** during the capstone defense.
+
+> **Milestone scope:** this guide intentionally documents the implementation that exists today, where both student and staff phones can be pointed at the local Event Node manually. The planned second-half architecture changes that split: students use the cloud and cached offline tickets, while only staff scanners connect to the Event Node, normally through QR pairing. See [Second-half target architecture](second-half-architecture.md).
 
 ---
 
@@ -138,13 +140,13 @@ Execute this exact scenario to prove all architectural guarantees to the evaluat
 
 ### Step 5: Admit Ticket at Entrance 1
 1. Point Staff Phone 1 (Entrance 1) at Ron Vincent Cada's QR code.
-2. **Result**: Staff Phone 1 displays read-only ticket preview:
+2. **Result**: Staff Phone 1 displays a read-only ticket preview:
    ```
    [✓] VALID TICKET
    Ron Vincent Cada (A23-35524)
    ```
-3. Staff verifies attendee identity and taps **CONFIRM ADMISSION**.
-4. **Result**: Staff Phone 1 records transactional admission:
+3. Staff verifies the attendee identity and taps **CONFIRM ADMISSION**.
+4. **Result**: Staff Phone 1 records the transactional admission:
    ```
    [✓] Ticket Valid
    Admitted at 1:42 PM

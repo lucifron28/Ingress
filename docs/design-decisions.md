@@ -118,7 +118,7 @@ In wireless LAN environments with packet loss or retries, a scanner might send a
 ### Decision
 Enforce a `UNIQUE(client_scan_id)` constraint on the `admissions` table. If a network retry occurs with the same scan ID, the server recognizes the idempotent replay and returns the original `Ticket Valid` response without creating duplicate records or falsely triggering anti-passback.
 
-A replay is only honoured when it matches the original request on **all** of `ticket_id`, `credential_version`, `access_point_id`, and event. Anything else returns HTTP 409 `idempotency_conflict`. The `credential_version` term matters because tickets support cryptographic credential versioning and rotation (e.g. for future controlled reissuance or transfer); without it, a scan id minted against a retired issuance would be accepted as a retry for a rotated credential.
+A replay is only honoured when it matches the original request on **all** of `ticket_id`, `credential_version`, `access_point_id`, and event. Anything else returns HTTP 409 `idempotency_conflict`. The `credential_version` term matters because tickets support cryptographic credential versioning and controlled rotation; without it, a scan ID minted against a retired issuance could be accepted as a retry for a rotated credential.
 
 A concurrent insert that loses the race on the unique index is caught and mapped to the same 409 rather than surfacing as an unhandled database error.
 
@@ -246,3 +246,212 @@ Introduce `INGRESS_DEMO_MODE`, read once into `config('app.demo_mode')` with a *
 
 ### Consequences
 Outside demo mode there are no accounts at all, so an operator must provision the first organizer deliberately; the README documents that one-liner. The mobile flag is client-side UX only and cannot make the server safer or less safe — whether the demo accounts exist is decided solely by the server flag.
+
+
+---
+
+## ADR 011: Hybrid Cloud Ticketing and Local Event-Day Admission
+
+### Status
+Planned for the second half. The 50% milestone still runs student and scanner traffic against one local server.
+
+### Context
+Students need normal internet-based event discovery, registration, account access, and ticket recovery, while event-day scanning must continue when public internet is weak or unavailable. Letting both the cloud and a disconnected Event Node independently mutate ticket validity would create split-brain admission state.
+
+### Decision
+Use two operational authorities separated by event phase:
+
+- before finalization, the cloud is authoritative for student authentication, registration, cancellation, ticket issuance, and transfer;
+- at finalization, registration closes and the Event Node receives a verified final event snapshot;
+- during admission, the Event Node is authoritative for ticket validation, anti-passback, walk-ins, and local exceptional actions;
+- after the event, Event Node admissions and walk-ins reconcile back to the cloud.
+
+The public internet is not part of the critical admission path.
+
+---
+
+## ADR 012: Registration Deadline, Finalization, and Walk-Ins
+
+### Status
+Planned for the second half.
+
+### Context
+Events commonly accept walk-ins. Continuing cloud registration after an Event Node has gone offline would allow the cloud to issue tickets the Event Node has never received.
+
+### Decision
+Every event has a registration deadline followed by an explicit **Prepare for Admission / Finalize Admission** step.
+
+Finalization closes ordinary online registration, cancellation, and self-service transfer, then synchronizes a final preregistered attendee/ticket snapshot to the Event Node. The Event Node records a snapshot/version before admission begins.
+
+After finalization, a person without a preregistered ticket is handled as a walk-in even if that person still has internet access.
+
+Walk-ins are first-class registrations with `registration_source = walk_in`. The Event Node checks remaining capacity transactionally, creates the local registration/ticket, and can issue a printed pass containing an opaque QR and human-readable fallback code. Printing does not admit the attendee by itself; normal admission happens when the pass is scanned unless an authorized Register & Admit workflow is explicitly used.
+
+---
+
+## ADR 013: Keep Static Opaque Credentials, Do Not Add TOTP
+
+### Status
+Planned design decision. The current implementation already uses static opaque credentials.
+
+### Context
+A rotating TOTP QR was considered to reduce the useful lifetime of screenshots. It would require clock-window handling, ticket-secret synchronization, rotating QR state, and separate behavior for printed walk-in passes. It also would not prevent someone from forwarding a currently valid QR and having another person use it first.
+
+### Decision
+Keep one credential model for preregistered and walk-in tickets:
+
+```text
+ingress:v1:<ticket_public_id>:<random_secret>
+```
+
+The Event Node remains the security authority. It verifies the opaque credential, checks event/ticket state, and atomically consumes the ticket once across all entrances.
+
+Ingress will not claim that static QR prevents sharing. Screenshot misuse is addressed by one-time server-authoritative consumption plus identity verification when the event requires it.
+
+---
+
+## ADR 014: Identity-Linked Tickets and Configurable Verification
+
+### Status
+Planned for the second half.
+
+### Context
+Possession of a valid QR proves possession of a ticket credential, not necessarily the identity of the person presenting it.
+
+### Decision
+Every ticket is linked to a current attendee identity. After a valid scan, the scanner may show the identity fields required by the event policy.
+
+Events may choose:
+
+1. **Standard**: valid credential plus attendee name and institutional/student identifier.
+2. **Identity check**: Standard plus staff confirmation against approved identification.
+3. **Enhanced**: Identity check plus an attendee photo when the event has a justified need for it.
+
+Photo capture is optional and may also be used for walk-ins. Events collecting photos must define access, retention, and deletion rules rather than storing photos indefinitely.
+
+The QR payload itself remains free of PII.
+
+---
+
+## ADR 015: Cloud Student Auth with Offline Session Restoration
+
+### Status
+Planned for the second half.
+
+### Context
+Students may arrive without usable internet but still need to open the app and show a ticket. Verifying passwords locally would create a second authentication system and would not reflect current server account state.
+
+### Decision
+Student authentication is cloud based. A device must authenticate successfully online before it may restore that student's session offline.
+
+After a successful online session, the app securely caches the minimum identity and ticket material needed to render owned tickets. When the cloud is unreachable, a previously authenticated student may enter a read-only offline mode to view cached tickets and event information.
+
+Offline mode cannot register, cancel, transfer, change credentials, or retrieve unsynchronized tickets.
+
+A confirmed `401 Unauthorized` invalidates the local session and sensitive ticket cache. A transport failure does not automatically log out the student. Manual logout clears sensitive cached ticket credentials.
+
+Students never configure an Event Node URL.
+
+---
+
+## ADR 016: Scanner QR Pairing and Event-Local Staff Authentication
+
+### Status
+Planned for the second half.
+
+### Context
+Manual IP entry is acceptable for the prototype but is poor event-day UX. Scanner authentication also cannot depend only on public internet if the system is intended to operate during an upstream outage.
+
+### Decision
+The Event Node provides a **Pair Scanner** QR containing a short-lived setup payload such as node identity, local URL, one-time pairing token, expiration, and optionally a certificate fingerprint. It must not contain a permanent administrator credential.
+
+Manual Event Node address entry remains available only to staff/admin users as an advanced fallback.
+
+Before finalization, the Event Node receives the staff accounts, roles, gate assignments, and permissions required for the event. During event operation, staff authenticate against the Event Node or use a previously established Event Node session. Authorization remains server-side.
+
+---
+
+## ADR 017: Ticket Transfer Changes Ownership and Rotates Credentials
+
+### Status
+Planned for the second half.
+
+### Context
+Attendees commonly give away a ticket when they can no longer attend. Without an official transfer path, users are encouraged to forward QR screenshots, which preserves the wrong identity and creates avoidable admission disputes.
+
+### Decision
+Support event-configurable ticket transfer before admission finalization.
+
+A transfer:
+
+1. is requested by the current owner for a specific recipient;
+2. remains pending until the recipient accepts;
+3. changes the ticket's current owner atomically on acceptance;
+4. rotates the opaque credential so the previous owner's saved QR stops working;
+5. records transfer history for organizer audit.
+
+Until the recipient accepts, the original owner keeps the ticket. Scanner staff see the current owner, not the full transfer history.
+
+Events may disable transfer, limit the number of transfers, or require organizer approval. Self-service transfer closes when the event is finalized for admission. Walk-in passes do not require self-service transfer support.
+---
+
+## ADR 018: MSEUF-First Student Accounts with Guest and Alumni Email Tickets
+
+### Status
+Planned for the second half.
+
+### Context
+Ingress is primarily for MSEUF events. Verified students are recurring institutional users who benefit from a persistent account, ticket wallet, registration history, cancellation, transfer, and future notifications. Alumni and external guests are occasional attendees and should not be forced through the same account-activation flow.
+
+A single email-only model for everyone would make students repeatedly verify identity for every event and would weaken the link between a ticket and the university student record. A universal account requirement for outsiders would create unnecessary friction for invited guests, alumni, parents, partner-school visitors, and paid external attendees.
+
+### Decision
+Keep normal self-service accounts focused on verified MSEUF students. Student activation must match a preloaded institutional directory record and verify the institutional email before the server creates the student account.
+
+External attendees may receive tickets through either:
+
+- organizer invitation;
+- verified guest purchase/payment;
+- event-day walk-in registration.
+
+Guest and alumni tickets do not require a MSEUF account. The system creates an attendee record for the event, issues the same opaque Ingress credential used elsewhere, and may deliver the ticket by email as a QR ticket or printable attachment.
+
+Ticket source values may distinguish `student_registration`, `guest_purchase`, `organizer_invitation`, and `walk_in`. Reporting may also distinguish verified Envergans from alumni and other external guests.
+
+The ticket source changes how the ticket is issued, not how it is validated. Student-wallet tickets, emailed guest tickets, and printed walk-in passes all use the Event Node's server-authoritative validation pipeline.
+
+This decision also reinforces the choice not to use TOTP. A static opaque credential can be shown from a student app, email, or printed pass without requiring the recipient to run a synchronized dynamic-code client.
+
+---
+
+## ADR 019: Append-Only Entry, Exit, and Re-Entry Tracking
+
+### Status
+Planned for the second half.
+
+### Context
+The first-half admission model records one successful admission and rejects every later scan. That is correct for strict one-time admission, but it cannot answer whether someone left the venue and later returned, nor can it tell organizers how many people are currently inside.
+
+### Decision
+Evolve attendance into an append-only movement history with `ENTRY` and `EXIT` transitions. The current state is derived from the latest valid movement for the ticket or attendee.
+
+State rules:
+
+```text
+OUTSIDE --ENTRY--> INSIDE
+INSIDE  --EXIT----> OUTSIDE
+OUTSIDE --ENTRY--> INSIDE   # permitted re-entry
+```
+
+- `ENTRY` while already `INSIDE` is rejected as duplicate/passback.
+- `EXIT` while already `OUTSIDE` is rejected as an invalid transition.
+- A later `ENTRY` after an `EXIT` is allowed only when the event's re-entry policy permits it.
+- Re-entry does not consume another capacity slot.
+- Each movement records the ticket, access point, staff member, timestamp, direction, and idempotency identifier.
+- The server must lock the ticket or equivalent presence state during a transition so two access points cannot create contradictory movements.
+
+The existing two-stage scanner invariant remains in force: scanning performs read-only validation and identity preview; only explicit authorized staff confirmation records the entry or exit.
+
+This enables dashboards to report total attendees who ever entered, currently inside, currently outside after a prior entry, re-entry count, and current Envergan-versus-external occupancy.
+
+---

@@ -5,9 +5,11 @@
 
 ---
 
-## 1. System Overview & Deployment Topology
+## 1. Current 50% deployment topology
 
-Ingress is engineered as a local-first, server-authoritative event management architecture. For campus-scale physical events, multiple scanner devices and attendee phones must operate with high throughput and low latency, independent of public internet availability.
+The current 50% milestone is a local-first, server-authoritative prototype. One Laravel/PostgreSQL Event Node currently serves organizer, student, and scanner traffic so the implemented vertical slice can be demonstrated on a single LAN.
+
+This is **not** the final full-system topology. The agreed second-half target separates cloud student ticketing from local event-day admission. See [Second-half target architecture](second-half-architecture.md) for the canonical plan.
 
 ```
                            +----------------------------------------+
@@ -54,6 +56,45 @@ Ingress is engineered as a local-first, server-authoritative event management ar
 ### Peripheral Role (Zero-Trust Scanners & Attendees)
 - **Framework**: Expo SDK 57 (React Native 0.86).
 - **Scanner Philosophy**: Scanners are **untrusted capture peripherals**. A scanner never determines ticket validity autonomously. It captures the optical payload, generates a unique UUID `client_scan_id`, and dispatches it to the server. If the server is unreachable, the scanner **fails closed** (`SERVER UNAVAILABLE`).
+
+---
+
+### Target full-system direction (planned)
+
+The remaining 50% will move to a hybrid model:
+
+```text
+Student app --Internet--> Ingress cloud
+                         - student authentication
+                         - event discovery
+                         - registration/cancellation
+                         - ticket issuance/transfer
+                                  |
+                                  | finalized ticket snapshot
+                                  v
+Staff scanners --LAN------> Event Node
+Student cached QR --------> Event Node
+                                  |
+                                  v
+                             PostgreSQL
+
+After the event: Event Node --> cloud reconciliation
+```
+
+Key decisions:
+
+- Students will not configure or connect to the Event Node. Student authentication and ticketing are cloud based.
+- A previously authenticated student can restore a cached, read-only session and display a cached ticket without internet.
+- Staff scanners remain server-authoritative over the venue LAN and fail closed when the Event Node is unreachable.
+- Scanner setup will use Event Node QR pairing. Manual IP entry remains a staff/admin fallback, not a student-facing setting.
+- Online registration closes before admission finalization. A final cloud snapshot is synchronized to the Event Node.
+- Attendees arriving after finalization use a walk-in flow on the Event Node.
+- Walk-ins receive locally issued printed passes with an opaque QR plus a human-readable fallback code.
+- Both online and walk-in tickets use static opaque random credentials. TOTP is not part of the target architecture.
+- Tickets are linked to attendee identity. Events may require school-ID checks or optional photo verification.
+- Ticket transfer is planned before finalization. Accepted transfers change ownership and rotate the credential so the old QR stops working.
+
+The existing sections below document the implemented 50% admission engine unless a section explicitly says it is planned.
 
 ---
 
@@ -189,8 +230,7 @@ Locks are ordered to guarantee that no deadlock cycle can form:
 | Scanner admits a ticket | `events` FOR SHARE → `tickets` FOR UPDATE |
 
 No lock cycle can form because any path that locks the `events` row acquires it **before** any ticket or registration row. The scanner takes `FOR SHARE` on `events` rather than `FOR UPDATE` deliberately: shared locks are mutually compatible, so scanners for *different* tickets run in parallel without serializing each other, while event writers (event cancellation, completion, or capacity edits taking `FOR UPDATE`) must wait until in-flight admissions commit.
-
-### Ticket Lifecycle & Credential Versioning
+### Ticket lifecycle and credential versioning
 
 Ingress models an authoritative ticketing lifecycle rather than a temporary reservation system:
 
@@ -202,16 +242,17 @@ Ticket issued (active, credential_version = 1)
   │
   ├──► Admitted at venue gate (admissions row recorded)
   │
-  ├──► Transferred (planned future milestone, controlled ownership & credential rotation)
+  ├──► Transferred (planned future milestone, controlled ownership and credential rotation)
   │
   └──► Revoked (administrative invalidation by organizer/admin)
 ```
 
-Attendees cannot self-cancel an issued ticket. Once registered, the ticket remains active and tied to the attendee. Repeated registration attempts for the same event by the same user are rejected (`You are already registered for this event.`) and cannot rotate credentials, wipe capacity, or reset admission history.
+Attendees cannot self-cancel an issued ticket. Once registered, the ticket remains tied to the attendee. Repeated registration attempts for the same event are rejected and cannot rotate credentials, restore capacity, or reset admission history.
 
 - Every admission records the `credential_version` under which the ticket was admitted for audit and idempotency scoping.
 - Anti-passback operates at the ticket level: once a ticket has been admitted, rotating its credential never resets physical admission state.
-- Future controlled rotations (such as administrative reissuance or ticket transfer) preserve historical audit trails without allowing retired QR credentials or scan IDs to be replayed.
+- Future controlled rotations, such as administrative reissue or ticket transfer, preserve audit history without allowing retired credentials or scan IDs to be replayed.
+
 ### Verifying concurrency on real PostgreSQL
 
 SQLite serializes writers and cannot demonstrate real lock contention, so the behavioural suite (which runs on in-memory SQLite) proves logic but not races. Six invariants are verified separately against real PostgreSQL:
@@ -317,7 +358,7 @@ When staff taps `CONFIRM ADMISSION`, the client posts `{ access_point_id, qr_pay
 5. **Ticket Existence**: Looks up ticket by `public_id`.
 6. **Secret Verification**: Verifies `hash_equals(ticket.qr_hash, sha256(secret))`.
 7. **Registration Status**: Verifies attendee registration is `confirmed`.
-8. **Ticket Revocation**: Verifies ticket status is `active` (not revoked by administration).
+8. **Ticket Revocation**: Verifies ticket status is `active` (not administratively revoked).
 9. **Event Match**: Confirms ticket belongs to the currently selected event.
 10. **Idempotency Check**: If an admission already exists with the same `client_scan_id`, the request is only treated as a retry when it also matches the same `ticket_id`, `credential_version`, `access_point_id`, and event. A mismatch returns HTTP 409 `idempotency_conflict`; a match returns the original admission response (HTTP 200). An insert that loses the race on the `UNIQUE(client_scan_id)` index is caught and mapped to the same 409 rather than surfacing as an unhandled database error.
 11. **Anti-Passback Check (row-locked)**: Inside `DB::transaction()`, the **`events` row is locked `FOR SHARE`** and the event state (`cancelled` / `completed` / past `ends_at`) is revalidated, then the authoritative `tickets` row is locked with `lockForUpdate()` and the credential state (secret, ticket status, registration status, event) is re-validated under that lock. Idempotency is re-checked under the lock.

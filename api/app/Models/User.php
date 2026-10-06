@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 #[Fillable(['name', 'email', 'password', 'role', 'student_id'])]
 #[Hidden(['password', 'remember_token'])]
@@ -54,6 +55,14 @@ class User extends Authenticatable
     public function isStudent(): bool
     {
         return $this->role === self::ROLE_STUDENT;
+    }
+
+    /**
+     * Institutional identity linked to this user account, if student.
+     */
+    public function studentIdentity(): HasOne
+    {
+        return $this->hasOne(StudentIdentity::class, 'activated_user_id');
     }
     /**
      * Get the attributes that should be cast.
