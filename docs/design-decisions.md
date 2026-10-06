@@ -393,3 +393,65 @@ A transfer:
 Until the recipient accepts, the original owner keeps the ticket. Scanner staff see the current owner, not the full transfer history.
 
 Events may disable transfer, limit the number of transfers, or require organizer approval. Self-service transfer closes when the event is finalized for admission. Walk-in passes do not require self-service transfer support.
+---
+
+## ADR 018: MSEUF-First Student Accounts with Guest and Alumni Email Tickets
+
+### Status
+Planned for the second half.
+
+### Context
+Ingress is primarily for MSEUF events. Verified students are recurring institutional users who benefit from a persistent account, ticket wallet, registration history, cancellation, transfer, and future notifications. Alumni and external guests are occasional attendees and should not be forced through the same account-activation flow.
+
+A single email-only model for everyone would make students repeatedly verify identity for every event and would weaken the link between a ticket and the university student record. A universal account requirement for outsiders would create unnecessary friction for invited guests, alumni, parents, partner-school visitors, and paid external attendees.
+
+### Decision
+Keep normal self-service accounts focused on verified MSEUF students. Student activation must match a preloaded institutional directory record and verify the institutional email before the server creates the student account.
+
+External attendees may receive tickets through either:
+
+- organizer invitation;
+- verified guest purchase/payment;
+- event-day walk-in registration.
+
+Guest and alumni tickets do not require a MSEUF account. The system creates an attendee record for the event, issues the same opaque Ingress credential used elsewhere, and may deliver the ticket by email as a QR ticket or printable attachment.
+
+Ticket source values may distinguish `student_registration`, `guest_purchase`, `organizer_invitation`, and `walk_in`. Reporting may also distinguish verified Envergans from alumni and other external guests.
+
+The ticket source changes how the ticket is issued, not how it is validated. Student-wallet tickets, emailed guest tickets, and printed walk-in passes all use the Event Node's server-authoritative validation pipeline.
+
+This decision also reinforces the choice not to use TOTP. A static opaque credential can be shown from a student app, email, or printed pass without requiring the recipient to run a synchronized dynamic-code client.
+
+---
+
+## ADR 019: Append-Only Entry, Exit, and Re-Entry Tracking
+
+### Status
+Planned for the second half.
+
+### Context
+The first-half admission model records one successful admission and rejects every later scan. That is correct for strict one-time admission, but it cannot answer whether someone left the venue and later returned, nor can it tell organizers how many people are currently inside.
+
+### Decision
+Evolve attendance into an append-only movement history with `ENTRY` and `EXIT` transitions. The current state is derived from the latest valid movement for the ticket or attendee.
+
+State rules:
+
+```text
+OUTSIDE --ENTRY--> INSIDE
+INSIDE  --EXIT----> OUTSIDE
+OUTSIDE --ENTRY--> INSIDE   # permitted re-entry
+```
+
+- `ENTRY` while already `INSIDE` is rejected as duplicate/passback.
+- `EXIT` while already `OUTSIDE` is rejected as an invalid transition.
+- A later `ENTRY` after an `EXIT` is allowed only when the event's re-entry policy permits it.
+- Re-entry does not consume another capacity slot.
+- Each movement records the ticket, access point, staff member, timestamp, direction, and idempotency identifier.
+- The server must lock the ticket or equivalent presence state during a transition so two access points cannot create contradictory movements.
+
+The existing two-stage scanner invariant remains in force: scanning performs read-only validation and identity preview; only explicit authorized staff confirmation records the entry or exit.
+
+This enables dashboards to report total attendees who ever entered, currently inside, currently outside after a prior entry, re-entry count, and current Envergan-versus-external occupancy.
+
+---
