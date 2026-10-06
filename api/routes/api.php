@@ -4,9 +4,15 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
-    // Public Auth
+    // Public Auth & Student Account Activation
     Route::post('/auth/login', [\App\Http\Controllers\Api\V1\AuthController::class, 'login'])
         ->middleware('throttle:login');
+    Route::post('/auth/activate/request', [\App\Http\Controllers\Api\V1\StudentActivationController::class, 'requestChallenge'])
+        ->middleware('throttle:6,1');
+    Route::post('/auth/activate/confirm', [\App\Http\Controllers\Api\V1\StudentActivationController::class, 'confirmActivation'])
+        ->middleware('throttle:10,1');
+    Route::post('/auth/activate/resend', [\App\Http\Controllers\Api\V1\StudentActivationController::class, 'resendChallenge'])
+        ->middleware('throttle:6,1');
 
     // Public Event Discovery
     Route::get('/events', [\App\Http\Controllers\Api\V1\EventController::class, 'index']);

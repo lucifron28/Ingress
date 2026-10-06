@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Event;
 use App\Models\User;
+use App\Models\StudentIdentity;
 use App\Models\Venue;
 use App\Providers\AppServiceProvider;
 use Database\Seeders\DatabaseSeeder;
@@ -23,6 +24,7 @@ class DemoModeSeederTest extends TestCase
         $this->seed(DatabaseSeeder::class);
 
         $this->assertEquals(0, User::count(), 'demo mode off must not create any user');
+        $this->assertEquals(0, StudentIdentity::count(), 'demo mode off must not create any student identity');
 
         $this->assertGreaterThan(0, Venue::count());
         $this->assertEquals(0, Event::count());
@@ -44,6 +46,15 @@ class DemoModeSeederTest extends TestCase
             'role' => User::ROLE_STAFF,
         ]);
         $this->assertGreaterThan(0, Event::count());
+        $this->assertDatabaseHas('student_identities', [
+            'student_id' => 'A23-35524',
+            'name' => 'Ron Vincent Cada',
+        ]);
+        $this->assertDatabaseHas('student_identities', [
+            'student_id' => 'A23-99001',
+            'name' => 'Clara Santos',
+            'activated_user_id' => null,
+        ]);
     }
 
     public function test_demo_mode_is_rejected_in_production(): void
