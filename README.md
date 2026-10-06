@@ -42,7 +42,10 @@ Login (staff.gate_a@mseuf.edu.ph)
   ↓ Select Assigned Event (MSEUF University Intramurals 2026)
   ↓ Select Entrance 1
   ↓ Scan Ticket
-  ↓ [✓] TICKET VALID (Admission recorded transactionally)
+  ↓ [✓] VALID TICKET (read-only preview)
+  ↓ Verify attendee identity
+  ↓ CONFIRM ADMISSION
+  ↓ [✓] ADMITTED (recorded transactionally)
 
            ↓
 
@@ -82,13 +85,17 @@ After event: Event Node --> Cloud reconciliation
 
 Key planned rules:
 
+- verified MSEUF students activate institutional accounts and keep the recurring account-based ticket wallet experience;
 - students never configure Event Node IP addresses;
 - previously authenticated students can open cached tickets offline;
 - scanners pair to the Event Node by QR, with manual address entry only as a staff fallback;
 - registration closes before admission finalization;
 - late attendees become Event Node walk-ins and can receive printed QR/code passes;
-- online and walk-in tickets share the same static opaque credential model; TOTP is not planned;
+- alumni and external guests can receive organizer-issued or paid tickets by email without creating a MSEUF account;
+- student, guest-email, invitation, and walk-in tickets share the same static opaque credential model; TOTP is not planned;
 - tickets remain linked to the current attendee identity, with optional stronger ID/photo verification per event;
+- entry, exit, current-presence, and event-configurable re-entry tracking are planned so organizers can distinguish who is currently inside;
+- attendance reporting can distinguish verified Envergans from external guests;
 - ticket transfer changes ownership and rotates the credential before finalization.
 
 This section describes the target design, not features already implemented in the 50% milestone. See [Second-half target architecture](docs/second-half-architecture.md) and ADRs 011-017 in [Architecture Decision Records](docs/design-decisions.md).
@@ -133,7 +140,7 @@ ingress/
 │   │   └── seeders/      # Synthetic demonstration accounts and campus events
 │   ├── resources/views/  # Organizer Blade layouts & attendance command center
 │   ├── public/images/    # Generated Ingress brand assets (lockup, mark, favicon)
-│   └── tests/Feature/    # 61 feature tests covering all guarantees
+│   └── tests/Feature/    # 80 backend tests in the latest successful CI run
 ├── mobile/               # Expo React Native Mobile Application
 │   ├── app/              # Expo Router file-based pages
 │   │   ├── (attendee)/   # Discover catalog, Event detail, Ticket wallet, QR view, Profile
@@ -227,7 +234,7 @@ php artisan serve --host=0.0.0.0 --port=8000
 Organizer portal available at: `http://localhost:8000/login`
 
 ### 3. Run Backend Integration Tests
-The fast feature suite runs on in-memory SQLite (61 tests, 330 assertions):
+The fast backend suite runs on in-memory SQLite. The latest successful CI run recorded 80 backend tests and 502 assertions:
 ```bash
 cd api
 php artisan test
