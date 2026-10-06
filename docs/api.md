@@ -220,23 +220,7 @@ Transactionally reserves a seat with pessimistic row lock and issues a digital t
 
 ---
 
-### 3.2 Cancel Registration
-Cancels registration and revokes the active ticket.
-
-- **Method**: `DELETE`
-- **Endpoint**: `/events/{id}/registration`
-- **Access**: Authenticated (`auth:sanctum`)
-
-#### Success Response (`200 OK`)
-```json
-{
-  "message": "Registration cancelled and digital ticket revoked."
-}
-```
-
----
-
-### 3.3 My Tickets (Ticket Wallet)
+### 3.2 My Tickets (Ticket Wallet)
 Returns all tickets issued to the authenticated student. Because the response contains only the caller's own tickets, each entry includes the reusable `qr_payload`.
 
 - **Method**: `GET`
@@ -274,9 +258,8 @@ Returns all tickets issued to the authenticated student. Because the response co
 }
 ```
 
----
 
-### 3.4 Ticket Details
+### 3.3 Ticket Details
 Retrieves single ticket details. The reusable `qr_payload` is returned **only to the attendee who owns the ticket**.
 
 - **Method**: `GET`
@@ -597,8 +580,8 @@ The server evaluates these conditions in order and stops at the first failure:
 13. no admission exists for this ticket's **current credential issuance**
 
 Steps 2, 8–11, 12, and 13 are re-evaluated authoritatively **inside** the admission transaction:
-- Step 2 under an `Event::sharedLock()` (`FOR SHARE`) on the event row, so a concurrent cancellation or completion cannot commit mid-admission.
+- Step 2 under an `Event::sharedLock()` (`FOR SHARE`) on the event row, so a concurrent event cancellation or completion cannot commit mid-admission.
 - Steps 8–11 and 12–13 under a `Ticket::lockForUpdate()` (`FOR UPDATE`) on the ticket row, re-validating the secret, ticket status, registration status, event match, and in-lock idempotency.
 Steps 1–11 outside the transaction serve as a fast pre-check path.
 
-Step 13 compares `admissions.credential_version` with `tickets.credential_version`, so admission history recorded under a credential retired by a cancellation/re-registration is retained for audit but does not block the newly issued credential.
+Step 13 compares `admissions.credential_version` with `tickets.credential_version`, so admission history recorded under a retired credential version is retained for audit while tracking only admissions under the active credential version.

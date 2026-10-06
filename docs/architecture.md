@@ -187,18 +187,32 @@ Locks are ordered to guarantee that no deadlock cycle can form:
 | Organizer creates a registration | `events` FOR UPDATE → `registrations`/`tickets` |
 | Organizer edits an event | `events` FOR UPDATE → `registrations` (count) |
 | Scanner admits a ticket | `events` FOR SHARE → `tickets` FOR UPDATE |
-| Attendee cancels registration | `tickets` FOR UPDATE → `registrations` |
 
-No lock cycle can form because any path that locks the `events` row acquires it **before** any ticket or registration row, while `RegistrationController::destroy()` locks only `tickets` and never requests an `events` lock while holding the ticket lock. The scanner takes `FOR SHARE` on `events` rather than `FOR UPDATE` deliberately: shared locks are mutually compatible, so scanners for *different* tickets run in parallel without serializing each other, while event writers (cancel, complete, or capacity edits taking `FOR UPDATE`) must wait until the in-flight admission commits.
-### Re-registration after cancellation
+No lock cycle can form because any path that locks the `events` row acquires it **before** any ticket or registration row. The scanner takes `FOR SHARE` on `events` rather than `FOR UPDATE` deliberately: shared locks are mutually compatible, so scanners for *different* tickets run in parallel without serializing each other, while event writers (event cancellation, completion, or capacity edits taking `FOR UPDATE`) must wait until in-flight admissions commit.
 
-`registrations` carries `UNIQUE(event_id, user_id)`, so a cancelled registration cannot simply be replaced by a new row. When a previously cancelled attendee registers again, the existing row is reactivated (`status = confirmed`, `cancelled_at = null`) and the ticket credential is rotated — a new `public_id`, a new 256-bit secret, a new `qr_hash`, `revoked_at = null`, and `credential_version` incremented.
+### Ticket Lifecycle & Credential Versioning
 
-Two consequences follow:
+Ingress models an authoritative ticketing lifecycle rather than a temporary reservation system:
 
-- The previously revoked QR fails constant-time verification, while the newly issued QR validates normally.
-- Because the rotated credential reuses the same `tickets` row, the admission history recorded under the retired credential would otherwise still satisfy the anti-passback check. Each admission therefore snapshots the `credential_version` that admitted it, and anti-passback only considers admissions matching the ticket's **current** `credential_version`. Audit history is preserved in the `admissions` table, but a credential issued after a cancellation is immediately admittable.
+```text
+Attendee registers
+  │
+  ▼
+Ticket issued (active, credential_version = 1)
+  │
+  ├──► Admitted at venue gate (admissions row recorded)
+  │
+  ├──► Transferred (planned future milestone, controlled ownership & credential rotation)
+  │
+  └──► Revoked (administrative invalidation by organizer/admin)
+```
 
+Attendees cannot self-cancel an issued ticket. Once registered, the ticket remains active and tied to the attendee. Repeated registration attempts for the same event by the same user are rejected (`You are already registered for this event.`) and cannot rotate credentials, wipe capacity, or reset admission history.
+
+The `credential_version` column provides cryptographic issuance versioning:
+- Every admission records the `credential_version` under which the ticket was admitted.
+- Anti-passback evaluates admissions matching the ticket's active `credential_version`.
+- This ensures that future controlled rotations (such as administrative reissuance or ticket transfer) preserve historical audit trails without allowing retired QR credentials or scan IDs to be replayed.
 ### Verifying concurrency on real PostgreSQL
 
 SQLite serializes writers and cannot demonstrate real lock contention, so the behavioural suite (which runs on in-memory SQLite) proves logic but not races. Six invariants are verified separately against real PostgreSQL:
@@ -209,7 +223,7 @@ SQLite serializes writers and cannot demonstrate real lock contention, so the be
 | Same-ticket admission | `tickets` row | exactly one admission row; loser receives `already_admitted` |
 | Replayed `client_scan_id` across two tickets | `admissions.client_scan_id` unique index | exactly one admission row; loser receives `idempotency_conflict`, never an unhandled 500 |
 | Unique-violation mapping | `admissions.client_scan_id` unique index, deterministically | a worker held behind an uncommitted conflicting insert is mapped to `idempotency_conflict` |
-| Cancellation during an in-flight admission | `events` row, `FOR SHARE` vs `FOR UPDATE` | the scan blocks, then is rejected as `event_cancelled`; no admission recorded |
+| Event cancellation during an in-flight admission | `events` row, `FOR SHARE` vs `FOR UPDATE` | the scan blocks, then is rejected as `event_cancelled`; no admission recorded |
 | Different tickets scanned concurrently | `events` row, `FOR SHARE` held by another session | both scans are admitted while the shared lock is held — scanners are not serialised |
 
 ```bash
@@ -248,7 +262,7 @@ ingress:v1:<ticket_public_id>:<random_secret>
 | Database dump only (`qr_hash`, `encrypted_secret` leaked) | The plaintext secret is **not** directly readable. `qr_hash` is one-way, and `encrypted_secret` is unreadable without `APP_KEY`. |
 | Database dump **and** `APP_KEY` | `encrypted_secret` can be decrypted, so the plaintext QR secret is recoverable and a working QR can be reconstructed. |
 
-So the security of a stolen database rests on `APP_KEY` staying secret. It must live only in the server environment (`api/.env`), never in the repository, a backup that also contains the dump, or client code. Rotating `APP_KEY` invalidates every `encrypted_secret` (attendees would have to re-register), so treat it as a long-lived production secret.
+So the security of a stolen database rests on `APP_KEY` staying secret. It must live only in the server environment (`api/.env`), never in the repository, a backup that also contains the dump, or client code. Rotating `APP_KEY` invalidates every `encrypted_secret`, so treat it as a long-lived production secret.
 
 This is a deliberate trade-off for the 50% milestone: one-way-only storage would be marginally safer against a combined leak, but would make the ticket unrecoverable for the attendee. A later milestone may move to per-ticket key derivation if the stronger property is required.
 
@@ -304,11 +318,11 @@ When staff taps `CONFIRM ADMISSION`, the client posts `{ access_point_id, qr_pay
 5. **Ticket Existence**: Looks up ticket by `public_id`.
 6. **Secret Verification**: Verifies `hash_equals(ticket.qr_hash, sha256(secret))`.
 7. **Registration Status**: Verifies attendee registration is `confirmed`.
-8. **Ticket Revocation**: Verifies ticket status is `active` (not revoked or cancelled).
+8. **Ticket Revocation**: Verifies ticket status is `active` (not revoked by administration).
 9. **Event Match**: Confirms ticket belongs to the currently selected event.
 10. **Idempotency Check**: If an admission already exists with the same `client_scan_id`, the request is only treated as a retry when it also matches the same `ticket_id`, `credential_version`, `access_point_id`, and event. A mismatch returns HTTP 409 `idempotency_conflict`; a match returns the original admission response (HTTP 200). An insert that loses the race on the `UNIQUE(client_scan_id)` index is caught and mapped to the same 409 rather than surfacing as an unhandled database error.
 11. **Anti-Passback Check (row-locked)**: Inside `DB::transaction()`, the **`events` row is locked `FOR SHARE`** and the event state (`cancelled` / `completed` / past `ends_at`) is revalidated, then the authoritative `tickets` row is locked with `lockForUpdate()` and the credential state (secret, ticket status, registration status, event) is re-validated under that lock. Idempotency is re-checked under the lock.
-    - The shared event lock is what stops a concurrent cancellation or completion from committing between the state check and the insert. Because `FOR SHARE` locks are mutually compatible, scanners for different tickets are not serialised behind each other (`FOR UPDATE` would have created exactly that bottleneck).
+    - The shared event lock is what stops a concurrent event cancellation or completion from committing between the state check and the insert. Because `FOR SHARE` locks are mutually compatible, scanners for different tickets are not serialised behind each other (`FOR UPDATE` would have created exactly that bottleneck).
     - Concurrent scans of the same ticket are serialised by the `tickets` row lock: the first commits, and every later scanner observes the committed admission.
     - Passback only considers admissions whose `credential_version` matches the ticket's current one.
     - If such an admission exists: returns **`Already Checked In`** (HTTP 409 Conflict) with the previous gate name and timestamp.

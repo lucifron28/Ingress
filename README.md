@@ -219,8 +219,8 @@ transactions released through a two-process barrier:
 4. a worker forced to reach the admission insert and collide on the
    `admissions.client_scan_id` unique index (proves the conflict mapping, not just
    whichever branch the scheduler happened to pick)
-5. a cancellation held open while a scan is in flight — the scan blocks and is then
-   rejected, proving cancellation cannot race through admission
+5. an event cancellation held open while a scan is in flight — the scan blocks and is then
+   rejected, proving event cancellation cannot race through admission
 6. two different tickets scanned while a shared event lock is held — both are
    admitted, proving scanners are not serialized behind each other
 

@@ -192,7 +192,7 @@ It provisions its own `ingress_concurrency` database, releases genuinely overlap
 | B | two gates scanning the same ticket → exactly one admission; the other reports `already_admitted` |
 | C | one `client_scan_id` replayed across two tickets → exactly one admission; the other is an idempotency conflict |
 | D | a worker forced to collide on the unique index → mapped to `idempotency_conflict`, never an unhandled 500 |
-| E | a cancellation held open while a scan is in flight → the scan blocks, then is rejected; no admission recorded |
+| E | an event cancellation held open while a scan is in flight → the scan blocks, then is rejected; no admission recorded |
 | F | two different tickets scanned while a shared event lock is held → both admitted, proving scanners are not serialised |
 
 The script exits non-zero if any invariant fails.
