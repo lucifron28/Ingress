@@ -1,7 +1,7 @@
 # Ingress second-half target architecture
 
 **Status:** Planned for the remaining 50% of the project.  
-**Current implementation:** The existing 50% milestone still uses one local Laravel/PostgreSQL server for student and staff mobile traffic. This document records the agreed target architecture so later implementation does not drift.
+**Current implementation:** The 50% milestone still uses one local Laravel/PostgreSQL server for student and staff mobile traffic, but the scanner already uses two-stage ticket preview and explicit staff confirmation before admission is recorded. Student institutional account activation is being implemented separately. This document records the agreed target architecture so later implementation does not drift.
 
 ## 1. Core architecture
 
@@ -15,10 +15,10 @@ Student app
     | Internet
     v
 Ingress cloud
-- student authentication
+- verified student account activation and authentication
 - event discovery
-- registration
-- cancellation
+- student registration and cancellation
+- guest/alumni email ticket issuance
 - ticket transfer
 - ticket issuance
         |
@@ -37,7 +37,7 @@ offline ticket                     |
                                   |
                                   | PostgreSQL
                                   v
-                         admit / reject / duplicate
+                   preview / confirm / entry / exit / reject
 
 
 After the event
@@ -83,6 +83,14 @@ This rule prevents split-brain cases where the cloud says a ticket is valid but 
 ## 3. Student authentication and offline ticket access
 
 Student authentication is internet/cloud based.
+
+### Institutional student account activation
+
+Normal self-service accounts are intended for verified MSEUF students. Ingress should activate a student account only when the supplied student number and institutional email match the same preloaded institutional directory record. The verification challenge is delivered to that institutional email, and the server assigns the student role. Public users never choose a privileged role.
+
+This keeps the recurring student experience account-based while preserving the MSEUF-first scope of the system. Faculty, staff, and organizers who need privileged access are provisioned through authorized administrative workflows rather than public signup.
+
+External guests and alumni do not need a normal MSEUF account merely to attend an event. They may receive an organizer-issued or paid guest ticket by email, or be registered as a walk-in when the event permits it.
 
 A student must successfully authenticate online on a device before that device can restore the student's session offline. Ingress will not attempt to verify a password locally.
 
@@ -190,6 +198,12 @@ CCMS
 
 Possession of a QR credential does not automatically prove identity.
 
+The canonical scanner rule is:
+
+> Scanning validates the ticket. Only an explicit authorized staff confirmation records the attendance movement.
+
+The read-only preview shows the attendee identity and current ticket state. For an entry, exit, or permitted re-entry, the server revalidates the ticket transactionally when staff confirms the action. A preview by itself must never change attendance state.
+
 Events may select a verification level:
 
 ### Standard
@@ -230,9 +244,13 @@ Walk-ins are a first-class registration source, not an anonymous attendance coun
 Suggested source values:
 
 ```text
-online
+student_registration
+guest_purchase
+organizer_invitation
 walk_in
 ```
+
+The source describes how the attendee received the ticket. It does not change the credential or scanner protocol.
 
 A walk-in flow should:
 
@@ -332,8 +350,9 @@ The Event Node records the finalized snapshot/version.
 ### Event Node to cloud
 After or during connectivity restoration, synchronize:
 
-- admissions;
+- attendance movements (entry, exit, and re-entry);
 - walk-in registrations and tickets;
+- guest/alumni ticket issuance and attendee metadata;
 - walk-in identity/photo metadata where policy permits;
 - audit events;
 - attendance totals;
@@ -400,7 +419,7 @@ Use these claims:
 
 > Ingress removes public internet from the critical admission path. Student tickets can be displayed offline, while scanners validate them against one local Event Node over the venue LAN.
 
-> Ingress uses opaque, cryptographically random ticket credentials. Admission is server-authoritative, so one ticket can only be consumed once across all connected entrances.
+> Ingress uses opaque, cryptographically random ticket credentials. Attendance state is server-authoritative, so a ticket cannot be used for two simultaneous entries across connected entrances. Re-entry is allowed only after a recorded exit and only when the event policy permits it.
 
 > A ticket credential proves possession of the ticket, not identity. Events can require identity checks or photo verification when the risk justifies it.
 
@@ -416,7 +435,9 @@ Avoid these claims:
 
 Exact migrations are implementation work, but the target model will likely need:
 
-- registration source: `online` or `walk_in`;
+- registration/ticket source such as `student_registration`, `guest_purchase`, `organizer_invitation`, or `walk_in`;
+- an attendee abstraction that can represent a verified student or an external guest without requiring every attendee to own a login account;
+- attendee classification such as Envergan/student, alumni, or external guest for reporting;
 - finalization/snapshot version on the event;
 - Event Node synchronization state;
 - walk-in issuance metadata;
@@ -424,26 +445,93 @@ Exact migrations are implementation work, but the target model will likely need:
 - ticket ownership/transfer records;
 - pending transfer state;
 - credential rotation/versioning on transfer;
-- human-readable fallback code for locally printed passes.
+- human-readable fallback code for locally printed passes;
+- guest/alumni email delivery metadata and payment/reference status where applicable;
+- an append-only attendance movement model for `entry` and `exit`;
+- an event re-entry policy and a concurrency-safe way to derive current inside/outside state.
 
 Existing anti-passback and `credential_version` concepts should be reused instead of introducing a separate admission engine for walk-ins.
 
 ## 17. Suggested second-half implementation order
 
-1. Split student cloud API configuration from staff Event Node API configuration.
-2. Remove Event Node/IP settings from the student experience.
-3. Add student cached-session restoration and offline cached ticket wallet.
-4. Add event registration deadline and admission-finalization state.
-5. Add cloud-to-Event-Node finalized snapshot synchronization.
-6. Add Event Node staff authentication/assignment availability without public internet.
-7. Add scanner QR pairing with staff-only manual URL fallback.
-8. Add walk-in registration, capacity enforcement, printable pass, and fallback code.
-9. Add event-configurable identity verification and optional photo capture.
-10. Add ticket transfer with recipient acceptance, ownership change, credential rotation, and audit history.
-11. Add Event Node to cloud reconciliation for admissions and walk-ins.
-12. Add failure/retry tests for synchronization, walk-in capacity, transfer rotation, and finalized-event rules.
+1. Finish and merge verified MSEUF student account activation and institutional directory ingestion.
+2. Split student cloud API configuration from staff Event Node API configuration.
+3. Remove Event Node/IP settings from the student experience.
+4. Add student cached-session restoration and offline cached ticket wallet.
+5. Add event registration deadline and admission-finalization state.
+6. Add cloud-to-Event-Node finalized snapshot synchronization.
+7. Add Event Node staff authentication/assignment availability without public internet.
+8. Add scanner QR pairing with staff-only manual URL fallback.
+9. Add walk-in registration, capacity enforcement, printable pass, and fallback code.
+10. Add guest/alumni email tickets and the attendee abstraction needed for people without MSEUF accounts.
+11. Add event-configurable identity verification and optional photo capture.
+12. Add entry, exit, current-presence, and event-configurable re-entry tracking.
+13. Add ticket transfer with recipient acceptance, ownership change, credential rotation, and audit history.
+14. Add Event Node to cloud reconciliation for movements, admissions, walk-ins, and guest tickets.
+15. Add failure/retry tests for synchronization, walk-in capacity, guest issuance, presence transitions, transfer rotation, and finalized-event rules.
 
-## 18. Non-goals
+## 18. Guest and alumni email tickets
+
+Ingress is MSEUF-first, so verified students keep the richer account-based experience. Alumni, invited visitors, parents, partner-school attendees, and other external guests should not be forced to create a MSEUF account for occasional attendance.
+
+A guest ticket may be created by an organizer invitation or by a verified payment flow. The minimum attendee record should contain the event-specific identity needed for admission, for example:
+
+```text
+name
+email
+organization / school (optional)
+attendee classification
+payment/reference status when applicable
+```
+
+The cloud issues the same opaque Ingress ticket credential and delivers it by email as a QR ticket or printable attachment. The recipient does not need the Ingress mobile app and does not need a TOTP secret.
+
+This is one reason Ingress keeps server-authoritative static opaque credentials: a ticket can be shown from the student wallet, an email, or a printed pass while the Event Node uses the same validation pipeline.
+
+Guest and alumni tickets must be distinguishable from verified MSEUF student tickets in reporting. The classification comes from the attendee/ticket record, not by guessing from the email domain.
+
+Payment integration is cloud-side and must create or activate a guest ticket only after the payment provider reports a verified successful payment. The exact payment provider is an implementation choice and is not required for the admission protocol.
+
+## 19. Entry, exit, and re-entry tracking
+
+The first-half system records one admission and rejects every later entry scan. The full system should evolve this into an append-only attendance movement history so organizers can tell who is currently inside, who has left, and who has re-entered.
+
+Conceptual state machine:
+
+```text
+OUTSIDE --ENTRY--> INSIDE
+INSIDE  --EXIT----> OUTSIDE
+OUTSIDE --ENTRY--> INSIDE   (re-entry, only when policy allows)
+```
+
+Rules:
+
+- an `ENTRY` while already `INSIDE` is rejected as duplicate/passback;
+- an `EXIT` while already `OUTSIDE` is rejected as invalid state;
+- after a recorded exit, another entry is allowed only when the event permits re-entry;
+- entry/exit state transitions must lock the ticket or attendee presence state so two access points cannot create contradictory movements;
+- a scan preview remains read-only; only explicit staff confirmation records the movement;
+- re-entry never consumes another capacity slot because capacity counts issued/registered attendees, not movement rows.
+
+The event should expose a simple re-entry policy:
+
+```text
+re_entry_allowed = true | false
+```
+
+The dashboard can then distinguish:
+
+- total registered/issued attendees;
+- attendees who have entered at least once;
+- currently inside;
+- currently outside after a prior entry;
+- re-entry count;
+- Envergans currently inside;
+- external guests currently inside.
+
+The movement history should preserve the access point, staff member, timestamp, movement direction, and idempotency identifier for audit.
+
+## 20. Non-goals
 
 The second-half architecture does not require:
 
