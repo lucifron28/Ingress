@@ -139,7 +139,7 @@ export default function TicketDetailScreen() {
             </View>
             <Text style={styles.revokedTitle}>This ticket is no longer valid.</Text>
             <Text style={styles.revokedSubtitle}>
-              The registration for this ticket has been cancelled or revoked. It cannot be presented for admission.
+              This ticket has been revoked or invalidated by event administration. It cannot be presented for admission.
             </Text>
             <Text style={styles.refCode}>Ticket Ref: {ticket.public_id}</Text>
           </View>

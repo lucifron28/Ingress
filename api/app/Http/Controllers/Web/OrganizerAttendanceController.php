@@ -102,9 +102,8 @@ class OrganizerAttendanceController extends Controller
 
         // Only admissions taken with the ticket's current credential count as
         // checked in; history from a retired credential is retained for audit.
-        // The registration must still be confirmed, otherwise an attendee who was
-        // admitted and then cancelled would be counted as checked in while no
-        // longer being counted as registered.
+        // The registration must still be confirmed so only currently confirmed
+        // attendees are counted as checked in.
         $checkedIn = Admission::forCurrentCredential()
             ->whereHas('ticket.registration', fn ($q) => $q
                 ->where('event_id', $event->id)

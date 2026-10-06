@@ -479,7 +479,7 @@ class AdmitTicket
                     'http_code' => 422,
                     'status' => 'revoked_ticket',
                     'message' => 'Revoked Ticket',
-                    'detail' => 'Attendee registration was cancelled or revoked.',
+                    'detail' => 'Attendee registration is not confirmed or ticket is revoked.',
                 ],
             ];
         }

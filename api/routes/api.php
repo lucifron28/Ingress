@@ -19,7 +19,6 @@ Route::prefix('v1')->group(function () {
 
         // Attendee Registration & Digital Tickets
         Route::post('/events/{event}/registration', [\App\Http\Controllers\Api\V1\RegistrationController::class, 'store']);
-        Route::delete('/events/{event}/registration', [\App\Http\Controllers\Api\V1\RegistrationController::class, 'destroy']);
         Route::get('/me/tickets', [\App\Http\Controllers\Api\V1\TicketController::class, 'myTickets']);
         Route::get('/tickets/{ticket}', [\App\Http\Controllers\Api\V1\TicketController::class, 'show']);
 

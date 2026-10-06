@@ -83,7 +83,7 @@ export default function ScannerScreen() {
         setFeedback({
           type: 'invalid',
           title: 'Revoked Ticket',
-          detail: detail || 'Attendee registration or ticket was cancelled or revoked.',
+          detail: detail || 'Attendee ticket has been revoked and cannot be admitted.',
         });
         return;
       }

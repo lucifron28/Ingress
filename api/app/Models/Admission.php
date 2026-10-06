@@ -46,9 +46,9 @@ class Admission extends Model
     /**
      * Admissions produced by the ticket's current credential issuance.
      *
-     * Admission history from a retired credential (for example after an
-     * attendee cancelled and re-registered) is retained for audit but must not
-     * gate the newly issued credential.
+     * Scoped to the ticket's active credential version so admission queries
+     * track current validity while preserving historical admissions for audit
+     * across credential rotation lifecycles (such as controlled reissue).
      */
     public function scopeForCurrentCredential(Builder $query): Builder
     {
