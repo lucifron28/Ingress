@@ -37,8 +37,8 @@ class EndToEndVerticalSliceTest extends TestCase
      * Staff Phone Gate A
      *   ↓ authenticates
      *   ↓ selects Gate A
-     *   ↓ scans ticket
-     *   ↓ TICKET VALID (admission recorded)
+     *   ↓ scans ticket (read-only VALID TICKET preview)
+     *   ↓ staff confirms admission (transactional admission recorded)
      *
      * Staff Phone Gate B
      *   ↓ scans same ticket

@@ -717,7 +717,7 @@ class AttendanceDashboardTest extends TestCase
         $response->assertRedirect(route('login'));
     }
 
-    public function test_superseded_admission_is_not_reported_after_credential_rotation(): void
+    public function test_credential_rotation_does_not_reset_checked_in_state(): void
     {
         $admitAction = new AdmitTicket;
 
@@ -744,11 +744,11 @@ class AttendanceDashboardTest extends TestCase
             'encrypted_secret' => Crypt::encryptString($newSecret),
             'credential_version' => 2,
         ]);
-        // 3. The retired admission is retained for audit but is no longer current state.
-        $this->assertEquals(1, Admission::count(), 'audit history is preserved');
-        $this->assertEquals(0, Admission::forCurrentCredential()->count(), 'no current-credential admission exists');
 
-        // 4. Every organizer surface agrees on the current state.
+        // 3. Admission history is preserved and attendee remains checked in.
+        $this->assertEquals(1, Admission::count(), 'audit history is preserved');
+
+        // 4. Organizer surfaces agree: attendee remains checked in despite credential rotation.
         $feed = $this->actingAs($this->organizerA)
             ->getJson("/organizer/events/{$this->event->id}/attendance/feed");
 
@@ -756,20 +756,21 @@ class AttendanceDashboardTest extends TestCase
             ->assertJson([
                 'stats' => [
                     'registered_count' => 1,
-                    'checked_in_count' => 0,
-                    'not_arrived_count' => 1,
-                    'attendance_percentage' => 0,
+                    'checked_in_count' => 1,
+                    'not_arrived_count' => 0,
+                    'attendance_percentage' => 100.0,
                 ],
             ]);
 
-        $this->assertEmpty($feed->json('recent_admissions'));
+        $this->assertCount(1, $feed->json('recent_admissions'));
+        $this->assertEquals(1, collect($feed->json('gate_stats'))->sum('count'));
 
         $this->actingAs($this->organizerA)
             ->get("/organizer/events/{$this->event->id}")
             ->assertStatus(200);
     }
 
-    public function test_a_cancelled_registration_stops_counting_as_checked_in(): void
+    public function test_administratively_invalidated_registration_is_not_counted_as_checked_in(): void
     {
         $admitAction = new AdmitTicket();
 
