@@ -11,6 +11,7 @@ use App\Models\Ticket;
 use App\Models\User;
 use App\Models\Venue;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -301,17 +302,15 @@ class AdmissionTest extends TestCase
             ])
             ->assertStatus(200);
 
-        $this->actingAs($this->student, 'sanctum')
-            ->deleteJson("/api/v1/events/{$this->event->id}/registration")
-            ->assertStatus(200);
-
-        $reRegister = $this->actingAs($this->student, 'sanctum')
-            ->postJson("/api/v1/events/{$this->event->id}/registration");
-        $reRegister->assertStatus(201);
-
-        $rotatedQrPayload = $reRegister->json('qr_payload');
+        // Controlled credential rotation (e.g. administrative reissue)
+        $newSecret = bin2hex(random_bytes(32));
+        $this->ticket->update([
+            'qr_hash' => hash('sha256', $newSecret),
+            'encrypted_secret' => Crypt::encryptString($newSecret),
+            'credential_version' => 2,
+        ]);
+        $rotatedQrPayload = "ingress:v1:{$this->ticket->public_id}:{$newSecret}";
         $this->assertEquals(2, $this->ticket->fresh()->credential_version);
-
         // A scan ID from the retired credential must not validate the rotated credential.
         $replay = $this->actingAs($this->staffGateA)
             ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [

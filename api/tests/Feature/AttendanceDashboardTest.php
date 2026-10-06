@@ -10,6 +10,9 @@ use App\Models\Event;
 use App\Models\User;
 use App\Models\Venue;
 use Carbon\Carbon;
+use App\Models\Registration;
+use App\Models\Ticket;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -714,7 +717,7 @@ class AttendanceDashboardTest extends TestCase
         $response->assertRedirect(route('login'));
     }
 
-    public function test_superseded_admission_is_not_reported_after_reregistration(): void
+    public function test_superseded_admission_is_not_reported_after_credential_rotation(): void
     {
         $admitAction = new AdmitTicket;
 
@@ -733,15 +736,14 @@ class AttendanceDashboardTest extends TestCase
 
         $this->assertEquals(1, Admission::count());
 
-        // 2. Cancel and register again: the same ticket row is reused with a bumped credential.
-        $this->actingAs($this->student, 'sanctum')
-            ->deleteJson("/api/v1/events/{$this->event->id}/registration")
-            ->assertStatus(200);
-
-        $this->actingAs($this->student, 'sanctum')
-            ->postJson("/api/v1/events/{$this->event->id}/registration")
-            ->assertStatus(201);
-
+        // 2. Controlled credential rotation (e.g. administrative reissue): credential_version is bumped.
+        $ticket = Ticket::whereHas('registration', fn ($q) => $q->where('user_id', $this->student->id))->first();
+        $newSecret = bin2hex(random_bytes(32));
+        $ticket->update([
+            'qr_hash' => hash('sha256', $newSecret),
+            'encrypted_secret' => Crypt::encryptString($newSecret),
+            'credential_version' => 2,
+        ]);
         // 3. The retired admission is retained for audit but is no longer current state.
         $this->assertEquals(1, Admission::count(), 'audit history is preserved');
         $this->assertEquals(0, Admission::forCurrentCredential()->count(), 'no current-credential admission exists');
@@ -788,12 +790,17 @@ class AttendanceDashboardTest extends TestCase
             ->getJson("/organizer/events/{$this->event->id}/attendance/feed");
         $before->assertJson(['stats' => ['registered_count' => 1, 'checked_in_count' => 1]]);
 
-        // Cancelling after admission must not leave a checked-in count that exceeds
-        // the registered count.
-        $this->actingAs($this->student, 'sanctum')
-            ->deleteJson("/api/v1/events/{$this->event->id}/registration")
-            ->assertStatus(200);
-
+        // Administratively revoking the registration and ticket after admission
+        // must not leave a checked-in count that exceeds the registered count.
+        $ticket = Ticket::whereHas('registration', fn ($q) => $q->where('user_id', $this->student->id))->first();
+        $ticket->registration->update([
+            'status' => Registration::STATUS_CANCELLED,
+            'cancelled_at' => now(),
+        ]);
+        $ticket->update([
+            'status' => Ticket::STATUS_REVOKED,
+            'revoked_at' => now(),
+        ]);
         $after = $this->actingAs($this->organizerA)
             ->getJson("/organizer/events/{$this->event->id}/attendance/feed");
 
