@@ -37,7 +37,7 @@ Login (a23-35524@student.mseuf.edu.ph - Ron Vincent Cada)
 
            ↓
 
-STAFF PHONE — ENTRANCE 1 (Mobile Scanner)
+STAFF PHONE — ENTRANCE 1 (Two-Stage Mobile Scanner)
 Login (staff.gate_a@mseuf.edu.ph)
   ↓ Select Assigned Event (MSEUF University Intramurals 2026)
   ↓ Select Entrance 1
@@ -140,7 +140,7 @@ ingress/
 │   │   └── seeders/      # Synthetic demonstration accounts and campus events
 │   ├── resources/views/  # Organizer Blade layouts & attendance command center
 │   ├── public/images/    # Generated Ingress brand assets (lockup, mark, favicon)
-│   └── tests/Feature/    # 80 backend tests in the latest successful CI run
+│   └── tests/Feature/    # 83 feature tests covering the current backend guarantees
 ├── mobile/               # Expo React Native Mobile Application
 │   ├── app/              # Expo Router file-based pages
 │   │   ├── (attendee)/   # Discover catalog, Event detail, Ticket wallet, QR view, Profile
@@ -234,7 +234,7 @@ php artisan serve --host=0.0.0.0 --port=8000
 Organizer portal available at: `http://localhost:8000/login`
 
 ### 3. Run Backend Integration Tests
-The fast backend suite runs on in-memory SQLite. The latest successful CI run recorded 80 backend tests and 502 assertions:
+The fast backend suite runs on in-memory SQLite. The latest successful CI run recorded 83 backend tests and 504 assertions:
 ```bash
 cd api
 php artisan test
@@ -259,8 +259,8 @@ transactions released through a two-process barrier:
 4. a worker forced to reach the admission insert and collide on the
    `admissions.client_scan_id` unique index (proves the conflict mapping, not just
    whichever branch the scheduler happened to pick)
-5. a cancellation held open while a scan is in flight — the scan blocks and is then
-   rejected, proving cancellation cannot race through admission
+5. an event cancellation held open while a scan is in flight — the scan blocks and is then
+   rejected, proving event cancellation cannot race through admission
 6. two different tickets scanned while a shared event lock is held — both are
    admitted, proving scanners are not serialized behind each other
 

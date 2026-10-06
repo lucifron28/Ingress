@@ -9,11 +9,9 @@ return new class extends Migration
     /**
      * Track which credential issuance produced an admission.
      *
-     * A cancelled registration is reactivated on re-registration, so the
-     * `tickets` row (and therefore its admission history) is reused and the
-     * credential is rotated in place. `credential_version` increments on every
-     * rotation so the admission recorded under a retired credential no longer
-     * gates the freshly issued one.
+     * Adds credential_version to tickets and admissions to support cryptographic
+     * credential issuance versioning and rotation, ensuring retired credentials
+     * preserve audit history while admissions track the active credential version.
      */
     public function up(): void
     {

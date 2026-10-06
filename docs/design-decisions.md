@@ -118,7 +118,7 @@ In wireless LAN environments with packet loss or retries, a scanner might send a
 ### Decision
 Enforce a `UNIQUE(client_scan_id)` constraint on the `admissions` table. If a network retry occurs with the same scan ID, the server recognizes the idempotent replay and returns the original `Ticket Valid` response without creating duplicate records or falsely triggering anti-passback.
 
-A replay is only honoured when it matches the original request on **all** of `ticket_id`, `credential_version`, `access_point_id`, and event. Anything else returns HTTP 409 `idempotency_conflict`. The `credential_version` term matters because a cancelled registration is reactivated on the same ticket row with a rotated credential (ADR 003); without it, a scan id minted against the retired issuance would be accepted as a retry for the freshly issued credential.
+A replay is only honoured when it matches the original request on **all** of `ticket_id`, `credential_version`, `access_point_id`, and event. Anything else returns HTTP 409 `idempotency_conflict`. The `credential_version` term matters because tickets support cryptographic credential versioning and controlled rotation; without it, a scan ID minted against a retired issuance could be accepted as a retry for a rotated credential.
 
 A concurrent insert that loses the race on the unique index is caught and mapped to the same 409 rather than surfacing as an unhandled database error.
 

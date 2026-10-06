@@ -11,6 +11,7 @@ use App\Models\Ticket;
 use App\Models\User;
 use App\Models\Venue;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -301,18 +302,17 @@ class AdmissionTest extends TestCase
             ])
             ->assertStatus(200);
 
-        $this->actingAs($this->student, 'sanctum')
-            ->deleteJson("/api/v1/events/{$this->event->id}/registration")
-            ->assertStatus(200);
-
-        $reRegister = $this->actingAs($this->student, 'sanctum')
-            ->postJson("/api/v1/events/{$this->event->id}/registration");
-        $reRegister->assertStatus(201);
-
-        $rotatedQrPayload = $reRegister->json('qr_payload');
+        // Controlled credential rotation (e.g. administrative reissue)
+        $newSecret = bin2hex(random_bytes(32));
+        $this->ticket->update([
+            'qr_hash' => hash('sha256', $newSecret),
+            'encrypted_secret' => Crypt::encryptString($newSecret),
+            'credential_version' => 2,
+        ]);
+        $rotatedQrPayload = "ingress:v1:{$this->ticket->public_id}:{$newSecret}";
         $this->assertEquals(2, $this->ticket->fresh()->credential_version);
 
-        // A scan ID from the retired credential must not validate the rotated credential.
+        // A scan ID from the retired credential must not validate the rotated credential (idempotency conflict).
         $replay = $this->actingAs($this->staffGateA)
             ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
                 'access_point_id' => $this->gateA->id,
@@ -325,17 +325,88 @@ class AdmissionTest extends TestCase
                 'status' => 'idempotency_conflict',
                 'message' => 'Idempotency Key Conflict',
             ]);
+    }
 
+    public function test_credential_rotation_does_not_reset_anti_passback_state(): void
+    {
+        $scanId = (string) Str::uuid();
+
+        // 1. Initial admission under credential_version 1
         $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
+                'access_point_id' => $this->gateA->id,
+                'qr_payload' => $this->validQrPayload,
+                'client_scan_id' => $scanId,
+            ])
+            ->assertStatus(200)
+            ->assertJson(['status' => 'admitted']);
+
+        $this->assertEquals(1, Admission::where('ticket_id', $this->ticket->id)->count());
+
+        // 2. Controlled credential rotation
+        $newSecret = bin2hex(random_bytes(32));
+        $this->ticket->update([
+            'qr_hash' => hash('sha256', $newSecret),
+            'encrypted_secret' => Crypt::encryptString($newSecret),
+            'credential_version' => 2,
+        ]);
+        $rotatedQrPayload = "ingress:v1:{$this->ticket->public_id}:{$newSecret}";
+
+        // 3. Scanning rotated credential with a fresh scan ID must still be rejected as already_admitted
+        $secondScan = $this->actingAs($this->staffGateA)
             ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
                 'access_point_id' => $this->gateA->id,
                 'qr_payload' => $rotatedQrPayload,
                 'client_scan_id' => (string) Str::uuid(),
-            ])
-            ->assertStatus(200)
-            ->assertJson(['status' => 'admitted']);
+            ]);
+
+        $secondScan->assertStatus(409)
+            ->assertJson([
+                'status' => 'already_admitted',
+                'message' => 'Already Checked In',
+            ]);
+
+        // Physical admission count remains exactly 1
+        $this->assertEquals(1, Admission::where('ticket_id', $this->ticket->id)->count());
     }
 
+    public function test_preview_respects_ticket_level_anti_passback_across_credential_rotation(): void
+    {
+        $scanId = (string) Str::uuid();
+
+        // Admit ticket
+        $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
+                'access_point_id' => $this->gateA->id,
+                'qr_payload' => $this->validQrPayload,
+                'client_scan_id' => $scanId,
+            ])
+            ->assertStatus(200);
+
+        // Rotate credential
+        $newSecret = bin2hex(random_bytes(32));
+        $this->ticket->update([
+            'qr_hash' => hash('sha256', $newSecret),
+            'encrypted_secret' => Crypt::encryptString($newSecret),
+            'credential_version' => 2,
+        ]);
+        $rotatedQrPayload = "ingress:v1:{$this->ticket->public_id}:{$newSecret}";
+
+        // Preview with rotated credential must return already_admitted
+        $preview = $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions/preview", [
+                'access_point_id' => $this->gateA->id,
+                'qr_payload' => $rotatedQrPayload,
+            ]);
+
+        $preview->assertStatus(409)
+            ->assertJson([
+                'status' => 'already_admitted',
+                'message' => 'Already Checked In',
+            ]);
+
+        $this->assertEquals(1, Admission::where('ticket_id', $this->ticket->id)->count());
+    }
     public function test_staff_assigned_to_gate_a_cannot_scan_at_gate_b(): void
     {
         $response = $this->actingAs($this->staffGateA)

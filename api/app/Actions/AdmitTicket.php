@@ -44,10 +44,10 @@ class AdmitTicket
 
         $ticket = $context['ticket'];
 
-        // Check whether this ticket was already admitted under the current credential issuance.
+        // Physical anti-passback is ticket-level: any prior admission marks the ticket already admitted.
         $previousAdmission = Admission::with(['accessPoint', 'scannedBy'])
             ->where('ticket_id', $ticket->id)
-            ->where('credential_version', $ticket->credential_version)
+            ->latest('admitted_at')
             ->first();
 
         if ($previousAdmission) {
@@ -243,10 +243,10 @@ class AdmitTicket
                     ];
                 }
 
-                // Retired credential admissions stay in history but do not block a reissued ticket.
+                // Physical anti-passback is ticket-level: rotating credentials never resets admission state.
                 $previousAdmission = Admission::with(['accessPoint', 'scannedBy'])
                     ->where('ticket_id', $lockedTicket->id)
-                    ->where('credential_version', $lockedTicket->credential_version)
+                    ->latest('admitted_at')
                     ->first();
 
                 if ($previousAdmission) {
@@ -479,7 +479,7 @@ class AdmitTicket
                     'http_code' => 422,
                     'status' => 'revoked_ticket',
                     'message' => 'Revoked Ticket',
-                    'detail' => 'Attendee registration was cancelled or revoked.',
+                    'detail' => 'Attendee registration is not confirmed or ticket is revoked.',
                 ],
             ];
         }

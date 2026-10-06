@@ -39,12 +39,10 @@ class OrganizerAttendanceController extends Controller
         }
 
         if ($filter = $request->input('status')) {
-            $currentCredential = fn ($q) => $q->whereColumn('admissions.credential_version', 'tickets.credential_version');
-
             if ($filter === 'checked_in') {
-                $query->whereHas('ticket.admissions', $currentCredential);
+                $query->whereHas('ticket.admissions');
             } elseif ($filter === 'not_arrived') {
-                $query->whereDoesntHave('ticket.admissions', $currentCredential);
+                $query->whereDoesntHave('ticket.admissions');
             }
         }
 
@@ -100,17 +98,12 @@ class OrganizerAttendanceController extends Controller
             ->where('status', Registration::STATUS_CONFIRMED)
             ->count();
 
-        // Only admissions taken with the ticket's current credential count as
-        // checked in; history from a retired credential is retained for audit.
-        // The registration must still be confirmed, otherwise an attendee who was
-        // admitted and then cancelled would be counted as checked in while no
-        // longer being counted as registered.
-        $checkedIn = Admission::forCurrentCredential()
-            ->whereHas('ticket.registration', fn ($q) => $q
-                ->where('event_id', $event->id)
-                ->where('status', Registration::STATUS_CONFIRMED))
+        // Physical admission is ticket-level: rotating credentials never resets
+        // or removes an admitted attendee from attendance metrics.
+        $checkedIn = Registration::where('event_id', $event->id)
+            ->where('status', Registration::STATUS_CONFIRMED)
+            ->whereHas('ticket.admissions')
             ->count();
-
         $notArrived = max(0, $registered - $checkedIn);
         $percentage = $registered > 0 ? round(($checkedIn / $registered) * 100, 1) : 0.0;
 
@@ -131,8 +124,7 @@ class OrganizerAttendanceController extends Controller
     private function calculateGateStats(Event $event): array
     {
         return $event->accessPoints->map(function ($ap) use ($event) {
-            $count = Admission::forCurrentCredential()
-                ->where('access_point_id', $ap->id)
+            $count = Admission::where('access_point_id', $ap->id)
                 ->whereHas('ticket.registration', fn ($q) => $q
                     ->where('event_id', $event->id)
                     ->where('status', Registration::STATUS_CONFIRMED))
@@ -149,14 +141,12 @@ class OrganizerAttendanceController extends Controller
     /**
      * Get recent admissions stream for the event.
      *
-     * Scoped to each ticket's current credential and to still-confirmed
-     * registrations so the operational feed, the gate breakdown, and the
-     * "checked in" KPI always describe the same set of people.
+     * Scoped to still-confirmed registrations so the operational feed,
+     * the gate breakdown, and the "checked in" KPI describe active attendees.
      */
     private function getRecentAdmissions(Event $event)
     {
         return Admission::with(['ticket.registration.user', 'accessPoint', 'scannedBy'])
-            ->forCurrentCredential()
             ->whereHas('ticket.registration', fn ($q) => $q
                 ->where('event_id', $event->id)
                 ->where('status', Registration::STATUS_CONFIRMED))

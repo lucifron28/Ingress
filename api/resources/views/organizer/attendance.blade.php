@@ -174,7 +174,7 @@
                     @php
                         $ticket = $reg->ticket;
                         $admission = $ticket
-                            ? $ticket->admissions->firstWhere('credential_version', $ticket->credential_version)
+                            ? $ticket->admissions->sortByDesc('admitted_at')->first()
                             : null;
                         $isCheckedIn = (bool) $admission;
                     @endphp

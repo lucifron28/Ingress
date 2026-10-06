@@ -505,10 +505,10 @@ $assert(Admission::where('client_scan_id', $heldScanId)->count() === 1, 'no dupl
 echo "\n";
 
 // =============================================================================
-// CASE E — A cancellation cannot race past an in-flight admission
+// CASE E — Event cancellation vs in-flight admission
 // =============================================================================
-// Hold an uncommitted cancellation to verify that admission waits on the event lock.
-echo "CASE E: a held cancellation blocks an in-flight admission\n";
+// Hold an uncommitted event cancellation to verify that admission waits on the event lock.
+echo "CASE E: a held event cancellation blocks an in-flight admission\n";
 
 $raceStudents = collect([1, 2])->map(fn (int $n) => User::create([
     'name' => "Cancellation Race Attendee {$n}",
@@ -521,8 +521,8 @@ $raceStudents = collect([1, 2])->map(fn (int $n) => User::create([
 $raceEvent = Event::create([
     'organizer_id' => $organizer->id,
     'venue_id' => $venue->id,
-    'title' => 'Cancellation Race Event',
-    'slug' => "cancellation-race-{$suffix}",
+    'title' => 'Event Cancellation Race Event',
+    'slug' => "event-cancellation-race-{$suffix}",
     'capacity' => 50,
     'registration_opens_at' => now()->subHour(),
     'registration_closes_at' => now()->addDay(),
@@ -648,9 +648,9 @@ echo '  worker: '.json_encode($cancelResult).PHP_EOL;
 $raceAdmissions = Admission::where('ticket_id', $raceTickets[0]['ticket']->id)->count();
 echo "  admission rows for the scanned ticket: {$raceAdmissions}\n";
 
-$assert($cancelWorkerReady, 'the cancellation-race worker reached the barrier');
-$assert($observedBlocked > 0, 'the admission blocked on the event row rather than racing past the cancellation');
-$assert(($cancelResult['status'] ?? null) === 'event_cancelled', 'the admission saw the committed cancellation and was rejected');
+$assert($cancelWorkerReady, 'the event-cancellation-race worker reached the barrier');
+$assert($observedBlocked > 0, 'the admission blocked on the event row rather than racing past the event cancellation');
+$assert(($cancelResult['status'] ?? null) === 'event_cancelled', 'the admission saw the committed event cancellation and was rejected');
 $assert($raceAdmissions === 0, 'a cancelled event recorded no admission');
 echo "\n";
 

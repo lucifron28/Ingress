@@ -140,13 +140,19 @@ Execute this exact scenario to prove all architectural guarantees to the evaluat
 
 ### Step 5: Admit Ticket at Entrance 1
 1. Point Staff Phone 1 (Entrance 1) at Ron Vincent Cada's QR code.
-2. **Result**: Staff Phone 1 instantly displays:
+2. **Result**: Staff Phone 1 displays a read-only ticket preview:
+   ```
+   [✓] VALID TICKET
+   Ron Vincent Cada (A23-35524)
+   ```
+3. Staff verifies the attendee identity and taps **CONFIRM ADMISSION**.
+4. **Result**: Staff Phone 1 records the transactional admission:
    ```
    [✓] Ticket Valid
    Admitted at 1:42 PM
    Attendee: Ron Vincent Cada (A23-35524)
    ```
-3. Look at the laptop organizer dashboard: The **Checked In** count increments to 1, and the recent admissions feed displays Ron Vincent Cada admitted at Entrance 1.
+5. Look at the laptop organizer dashboard: The **Checked In** count increments to 1, and the recent admissions feed displays Ron Vincent Cada admitted at Entrance 1.
 
 ### Step 6: Anti-Passback Test — Attempt Admission at Entrance 2
 1. Immediately take Student Phone's QR code to Staff Phone 2 (Entrance 2).
@@ -194,7 +200,7 @@ It provisions its own `ingress_concurrency` database, releases genuinely overlap
 | B | two gates scanning the same ticket → exactly one admission; the other reports `already_admitted` |
 | C | one `client_scan_id` replayed across two tickets → exactly one admission; the other is an idempotency conflict |
 | D | a worker forced to collide on the unique index → mapped to `idempotency_conflict`, never an unhandled 500 |
-| E | a cancellation held open while a scan is in flight → the scan blocks, then is rejected; no admission recorded |
+| E | an event cancellation held open while a scan is in flight → the scan blocks, then is rejected; no admission recorded |
 | F | two different tickets scanned while a shared event lock is held → both admitted, proving scanners are not serialised |
 
 The script exits non-zero if any invariant fails.
