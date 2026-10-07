@@ -161,7 +161,7 @@ class AdmitTicket
         }
 
         try {
-            return DB::transaction(function () use ($staff, $ticket, $accessPoint, $event, $clientScanId, $scannedSecret) {
+            return DB::transaction(function () use ($staff, $ticket, $accessPoint, $event, $clientScanId, $scannedSecret, $accessPointId) {
                 // Lock event before ticket. Shared event locks keep different-ticket scans
                 // concurrent while forcing cancellation and event updates to wait.
                 $lockedEvent = Event::whereKey($event->getKey())->sharedLock()->first();
@@ -271,9 +271,52 @@ class AdmitTicket
                     ];
                 }
 
+                // Re-verify staff authorization before creating admission
+                $isSuperUser = $staff->isAdmin() || (int) $lockedEvent->organizer_id === (int) $staff->id;
+                $staffAssignment = EventStaff::where('event_id', $lockedEvent->id)
+                    ->where('user_id', $staff->id)
+                    ->first();
+
+                if (! $isSuperUser && ! $staffAssignment) {
+                    return [
+                        'http_code' => 403,
+                        'status' => 'unauthorized_staff',
+                        'message' => 'Unauthorized Staff',
+                        'detail' => 'You are not assigned to operate entrance scanners for this event.',
+                    ];
+                }
+
+                $reverifiedAccessPoint = AccessPoint::where('event_id', $lockedEvent->id)
+                    ->where('id', $accessPointId)
+                    ->where('is_active', true)
+                    ->first();
+
+                if (! $reverifiedAccessPoint) {
+                    return [
+                        'http_code' => 422,
+                        'status' => 'invalid_gate',
+                        'message' => 'Invalid Gate',
+                        'detail' => 'The selected access point is invalid or currently inactive.',
+                    ];
+                }
+
+                if (! $isSuperUser && $staffAssignment && $staffAssignment->access_point_id !== null) {
+                    if ((int) $staffAssignment->access_point_id !== (int) $reverifiedAccessPoint->id) {
+                        $assignedGate = AccessPoint::find($staffAssignment->access_point_id);
+                        $assignedName = $assignedGate?->name ?? 'another gate';
+
+                        return [
+                            'http_code' => 403,
+                            'status' => 'gate_mismatch',
+                            'message' => 'Unauthorized Access Point',
+                            'detail' => "You are assigned to scan at {$assignedName}. You cannot operate scanners at {$reverifiedAccessPoint->name}.",
+                        ];
+                    }
+                }
+
                 $admission = Admission::create([
                     'ticket_id' => $lockedTicket->id,
-                    'access_point_id' => $accessPoint->id,
+                    'access_point_id' => $reverifiedAccessPoint->id,
                     'scanned_by_user_id' => $staff->id,
                     'client_scan_id' => $clientScanId,
                     'credential_version' => $lockedTicket->credential_version,
@@ -290,7 +333,7 @@ class AdmitTicket
                     'admission' => [
                         'id' => $admission->id,
                         'admitted_at' => $admission->admitted_at->toISOString(),
-                        'access_point' => $accessPoint->name,
+                        'access_point' => $reverifiedAccessPoint->name,
                         'scanned_by' => $staff->name,
                     ],
                     'ticket' => [
