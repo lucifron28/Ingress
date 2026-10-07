@@ -15,6 +15,7 @@ class EventApiTest extends TestCase
 
     private Venue $venue;
     private User $organizer;
+    private User $student;
     private Event $publishedEvent;
     private Event $draftEvent;
 
@@ -24,6 +25,13 @@ class EventApiTest extends TestCase
 
         $this->organizer = User::factory()->create([
             'role' => User::ROLE_ORGANIZER,
+        ]);
+
+        $this->student = User::factory()->create([
+            'name' => 'Ron Vincent Cada',
+            'email' => 'a23-35524@student.mseuf.edu.ph',
+            'student_id' => 'A23-35524',
+            'role' => User::ROLE_STUDENT,
         ]);
 
         $this->venue = Venue::create([
@@ -61,9 +69,16 @@ class EventApiTest extends TestCase
         ]);
     }
 
+    public function test_unauthenticated_requests_to_events_return_401(): void
+    {
+        $this->getJson('/api/v1/events')->assertStatus(401);
+        $this->getJson("/api/v1/events/{$this->publishedEvent->id}")->assertStatus(401);
+    }
+
     public function test_api_returns_published_events_with_capacity_and_venue(): void
     {
-        $response = $this->getJson('/api/v1/events');
+        $response = $this->actingAs($this->student)
+            ->getJson('/api/v1/events');
 
         $response->assertStatus(200)
             ->assertJsonStructure([
@@ -89,7 +104,8 @@ class EventApiTest extends TestCase
 
     public function test_api_returns_single_published_event(): void
     {
-        $response = $this->getJson("/api/v1/events/{$this->publishedEvent->id}");
+        $response = $this->actingAs($this->student)
+            ->getJson("/api/v1/events/{$this->publishedEvent->id}");
 
         $response->assertStatus(200)
             ->assertJson([
@@ -105,8 +121,50 @@ class EventApiTest extends TestCase
 
     public function test_api_returns_404_for_draft_event_to_unauthorized_user(): void
     {
-        $response = $this->getJson("/api/v1/events/{$this->draftEvent->id}");
+        $response = $this->actingAs($this->student)
+            ->getJson("/api/v1/events/{$this->draftEvent->id}");
 
         $response->assertStatus(404);
     }
+
+    public function test_authenticated_student_events_index_returns_is_user_registered_true_after_registration(): void
+    {
+        // Before registration
+        $responseBefore = $this->actingAs($this->student)->getJson('/api/v1/events');
+        $responseBefore->assertStatus(200);
+        $eventBefore = collect($responseBefore->json('data'))->firstWhere('id', $this->publishedEvent->id);
+        $this->assertFalse($eventBefore['is_user_registered']);
+        $this->assertNull($eventBefore['user_ticket']);
+
+        // Register
+        $this->actingAs($this->student)
+            ->postJson("/api/v1/events/{$this->publishedEvent->id}/registration")
+            ->assertStatus(201);
+
+        // After registration
+        $responseAfter = $this->actingAs($this->student)->getJson('/api/v1/events');
+        $responseAfter->assertStatus(200);
+        $eventAfter = collect($responseAfter->json('data'))->firstWhere('id', $this->publishedEvent->id);
+        $this->assertTrue($eventAfter['is_user_registered']);
+        $this->assertNotNull($eventAfter['user_ticket']);
+        $this->assertEquals('active', $eventAfter['user_ticket']['status']);
+    }
+
+    public function test_authenticated_student_events_show_returns_ticket_summary(): void
+    {
+        // Register
+        $regResponse = $this->actingAs($this->student)
+            ->postJson("/api/v1/events/{$this->publishedEvent->id}/registration")
+            ->assertStatus(201);
+        $ticketPublicId = $regResponse->json('ticket.public_id');
+
+        // Show event
+        $response = $this->actingAs($this->student)->getJson("/api/v1/events/{$this->publishedEvent->id}");
+        $response->assertStatus(200);
+        $this->assertTrue($response->json('event.is_user_registered'));
+        $this->assertNotNull($response->json('event.user_ticket'));
+        $this->assertEquals($ticketPublicId, $response->json('event.user_ticket.public_id'));
+        $this->assertEquals('active', $response->json('event.user_ticket.status'));
+    }
+
 }
