@@ -24,7 +24,6 @@ interface AuthContextType {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
-  setSession: (token: string, user: UserProfile) => Promise<void>;
   /**
    * Points the app at a different Event Node. Resolves to true when the change
    * invalidated the current session, so the caller can send the user to login.
@@ -99,13 +98,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsLoading(false);
     }
   };
-  const setSession = async (newToken: string, newUser: UserProfile): Promise<void> => {
-    setToken(newToken);
-    setUser(newUser);
-    await AuthStorage.saveToken(newToken);
-    await AuthStorage.saveUser(JSON.stringify(newUser));
-  };
-
 
   const logout = async (): Promise<void> => {
     try {
@@ -145,7 +137,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isLoading,
         login,
         logout,
-        setSession,
         updateServerUrl,
       }}
     >

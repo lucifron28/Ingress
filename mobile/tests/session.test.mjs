@@ -239,12 +239,6 @@ check(
 
 
 
-const authContextSource = fs.readFileSync(path.resolve('src/context/AuthContext.tsx'), 'utf-8');
-check(
-  'auth context exposes setSession helper for direct activation session persistence',
-  authContextSource.includes('setSession:') &&
-    authContextSource.includes('await AuthStorage.saveToken(newToken)'),
-);
 
 console.log(`\n${passed} checks passed, ${failures.length} failed`);
 process.exit(failures.length === 0 ? 0 : 1);

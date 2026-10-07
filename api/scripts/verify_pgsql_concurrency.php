@@ -737,6 +737,108 @@ $assert($shareAdmissions === 2, 'each ticket recorded exactly one admission');
 echo "\n";
 
 // =============================================================================
+// CASE G — A held authorization reassignment blocks an in-flight admission
+// =============================================================================
+// Proves that admission confirmation authoritatively locks the staff authorization
+// row under FOR UPDATE. If an organizer reassigns or revokes staff concurrently,
+// the in-flight admission cannot race past with a stale authorization snapshot;
+// it serializes on the authorization row, reads the committed change, and rejects.
+echo "CASE G: a held authorization reassignment blocks an in-flight admission\n";
+
+$authRaceEvent = Event::create([
+    'organizer_id' => $organizer->id,
+    'venue_id' => $venue->id,
+    'title' => 'Authorization Race Event',
+    'slug' => "auth-race-{$suffix}",
+    'capacity' => 50,
+    'registration_opens_at' => now()->subHour(),
+    'registration_closes_at' => now()->addDay(),
+    'starts_at' => now()->subMinutes(10),
+    'ends_at' => now()->addHours(6),
+    'status' => Event::STATUS_PUBLISHED,
+]);
+
+$authGate1 = AccessPoint::create([
+    'event_id' => $authRaceEvent->id,
+    'name' => 'Gate 1 North',
+    'code' => 'G1-NORTH',
+    'is_active' => true,
+]);
+
+$authGate2 = AccessPoint::create([
+    'event_id' => $authRaceEvent->id,
+    'name' => 'Gate 2 South',
+    'code' => 'G2-SOUTH',
+    'is_active' => true,
+]);
+
+$authRaceStaff = User::create([
+    'name' => 'Auth Race Staff',
+    'email' => "race.auth.staff.{$suffix}@mseuf.edu.ph",
+    'role' => User::ROLE_STAFF,
+    'password' => Hash::make('password'),
+]);
+
+$authAssignment = EventStaff::create([
+    'event_id' => $authRaceEvent->id,
+    'user_id' => $authRaceStaff->id,
+    'access_point_id' => $authGate1->id,
+]);
+
+$authStudent = User::create([
+    'name' => 'Auth Race Student',
+    'email' => "race.auth.student.{$suffix}@mseuf.edu.ph",
+    'student_id' => "AUTH-{$suffix}",
+    'role' => User::ROLE_STUDENT,
+    'password' => Hash::make('password'),
+]);
+
+$authTicket = (new RegisterForEvent)->execute($authStudent, $authRaceEvent->id);
+
+$reassignConnection = $rawConnection($testDatabase);
+$reassignConnection->beginTransaction();
+$reassignConnection->prepare('update event_staff set access_point_id = ? where id = ?')
+    ->execute([$authGate2->id, $authAssignment->id]);
+
+[$authProcess, $authPipes] = $spawnWorker('scan', [
+    'staff_user_id' => $authRaceStaff->id,
+    'event_id' => $authRaceEvent->id,
+    'access_point_id' => $authGate1->id,
+    'qr_payload' => $authTicket['qr_payload'],
+    'client_scan_id' => (string) Str::uuid(),
+], $testDatabase, $childScript);
+
+$authWorkerReady = trim((string) fgets($authPipes[1])) === 'READY';
+stream_set_write_buffer($authPipes[0], 0);
+fwrite($authPipes[0], 'GO'.PHP_EOL);
+fflush($authPipes[0]);
+
+$blockedDeadline = microtime(true) + 20.0;
+$observedAuthBlocked = 0;
+while (microtime(true) < $blockedDeadline) {
+    $observedAuthBlocked = $blockedBackends($reassignConnection, $testDatabase);
+    if ($observedAuthBlocked > 0) {
+        break;
+    }
+    usleep(50_000);
+}
+
+echo "  admission blocked on the contested authorization row (blocked backends: {$observedAuthBlocked})\n";
+$reassignConnection->commit();
+
+$authResult = $collectWorker($authProcess, $authPipes);
+echo '  worker: '.json_encode($authResult).PHP_EOL;
+
+$authAdmissions = Admission::where('ticket_id', $authTicket['ticket']->id)->count();
+echo "  admission rows for the scanned ticket: {$authAdmissions}\n";
+
+$assert($authWorkerReady, 'the authorization-race worker reached the barrier');
+$assert($observedAuthBlocked > 0, 'the admission blocked on the event_staff row rather than using a stale authorization snapshot');
+$assert(($authResult['status'] ?? null) === 'gate_mismatch', 'the admission saw the committed reassignment and was rejected');
+$assert($authAdmissions === 0, 'a reassigned gate recorded no admission');
+echo "\n";
+
+// =============================================================================
 // Summary
 // =============================================================================
 if ($failures === []) {

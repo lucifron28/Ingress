@@ -271,49 +271,13 @@ class AdmitTicket
                     ];
                 }
 
-                // Re-verify staff authorization before creating admission
-                $isSuperUser = $staff->isAdmin() || (int) $lockedEvent->organizer_id === (int) $staff->id;
-                $staffAssignment = EventStaff::where('event_id', $lockedEvent->id)
-                    ->where('user_id', $staff->id)
-                    ->first();
-
-                if (! $isSuperUser && ! $staffAssignment) {
-                    return [
-                        'http_code' => 403,
-                        'status' => 'unauthorized_staff',
-                        'message' => 'Unauthorized Staff',
-                        'detail' => 'You are not assigned to operate entrance scanners for this event.',
-                    ];
+                // Authoritatively lock and re-verify staff/gate authorization under transaction before creating admission
+                $authResult = $this->verifyAuthoritativeAuthorization($staff, $lockedEvent, $accessPointId);
+                if (! $authResult['valid']) {
+                    return $authResult['error'];
                 }
 
-                $reverifiedAccessPoint = AccessPoint::where('event_id', $lockedEvent->id)
-                    ->where('id', $accessPointId)
-                    ->where('is_active', true)
-                    ->first();
-
-                if (! $reverifiedAccessPoint) {
-                    return [
-                        'http_code' => 422,
-                        'status' => 'invalid_gate',
-                        'message' => 'Invalid Gate',
-                        'detail' => 'The selected access point is invalid or currently inactive.',
-                    ];
-                }
-
-                if (! $isSuperUser && $staffAssignment && $staffAssignment->access_point_id !== null) {
-                    if ((int) $staffAssignment->access_point_id !== (int) $reverifiedAccessPoint->id) {
-                        $assignedGate = AccessPoint::find($staffAssignment->access_point_id);
-                        $assignedName = $assignedGate?->name ?? 'another gate';
-
-                        return [
-                            'http_code' => 403,
-                            'status' => 'gate_mismatch',
-                            'message' => 'Unauthorized Access Point',
-                            'detail' => "You are assigned to scan at {$assignedName}. You cannot operate scanners at {$reverifiedAccessPoint->name}.",
-                        ];
-                    }
-                }
-
+                $reverifiedAccessPoint = $authResult['access_point'];
                 $admission = Admission::create([
                     'ticket_id' => $lockedTicket->id,
                     'access_point_id' => $reverifiedAccessPoint->id,
@@ -353,6 +317,88 @@ class AdmitTicket
                 'detail' => 'The client scan ID was already used for a different admission request.',
             ];
         }
+    }
+
+
+    /**
+     * Authoritatively re-verifies and locks staff and gate authorization rows.
+     *
+     * Called exclusively inside the admission confirmation database transaction.
+     * Acquires exclusive row locks on EventStaff (for assigned staff) and AccessPoint
+     * (for all operators) to eliminate races against concurrent organizer reassignments
+     * or gate deactivations.
+     *
+     * @return array{
+     *     valid: bool,
+     *     error?: array{http_code: int, status: string, message: string, detail: string},
+     *     access_point?: AccessPoint
+     * }
+     */
+    private function verifyAuthoritativeAuthorization(
+        User $staff,
+        Event $lockedEvent,
+        int $accessPointId
+    ): array {
+        $isSuperUser = $staff->isAdmin() || (int) $lockedEvent->organizer_id === (int) $staff->id;
+        $staffAssignment = null;
+
+        if (! $isSuperUser) {
+            $staffAssignment = EventStaff::where('event_id', $lockedEvent->id)
+                ->where('user_id', $staff->id)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $staffAssignment) {
+                return [
+                    'valid' => false,
+                    'error' => [
+                        'http_code' => 403,
+                        'status' => 'unauthorized_staff',
+                        'message' => 'Unauthorized Staff',
+                        'detail' => 'You are not assigned to operate entrance scanners for this event.',
+                    ],
+                ];
+            }
+        }
+
+        $reverifiedAccessPoint = AccessPoint::where('event_id', $lockedEvent->id)
+            ->where('id', $accessPointId)
+            ->lockForUpdate()
+            ->first();
+
+        if (! $reverifiedAccessPoint || ! $reverifiedAccessPoint->is_active) {
+            return [
+                'valid' => false,
+                'error' => [
+                    'http_code' => 422,
+                    'status' => 'invalid_gate',
+                    'message' => 'Invalid Gate',
+                    'detail' => 'The selected access point is invalid or currently inactive.',
+                ],
+            ];
+        }
+
+        if (! $isSuperUser && $staffAssignment && $staffAssignment->access_point_id !== null) {
+            if ((int) $staffAssignment->access_point_id !== (int) $reverifiedAccessPoint->id) {
+                $assignedGate = AccessPoint::find($staffAssignment->access_point_id);
+                $assignedName = $assignedGate?->name ?? 'another gate';
+
+                return [
+                    'valid' => false,
+                    'error' => [
+                        'http_code' => 403,
+                        'status' => 'gate_mismatch',
+                        'message' => 'Unauthorized Access Point',
+                        'detail' => "You are assigned to scan at {$assignedName}. You cannot operate scanners at {$reverifiedAccessPoint->name}.",
+                    ],
+                ];
+            }
+        }
+
+        return [
+            'valid' => true,
+            'access_point' => $reverifiedAccessPoint,
+        ];
     }
 
     /**
