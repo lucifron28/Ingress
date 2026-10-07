@@ -63,6 +63,32 @@ Dashboard updates in real-time
   ↓ Live audit feed records timestamp & gate
 ```
 
+## System Scope: Implemented Now vs Planned Second Half
+
+### Implemented Now (First-Half Presentation Build)
+
+- **Venue LAN Authoritative Admission**: Event-day scanners operate over the venue LAN against an authoritative Laravel/PostgreSQL Event Node. Ingress removes the public internet from the critical event-day admission path, but still requires the venue LAN and Event Node (it is not independently offline).
+- **Two-Stage Admission**: Scanners execute read-only preview -> explicit attendee identity verification -> transactional admission confirmation. Previews never consume tickets or mutate state.
+- **Physical Anti-Passback**: A ticket once admitted remains admitted; credential rotation or repeat scans cannot reset physical admission.
+- **Authoritative Authorization Recheck**: Entrance scanner confirmation re-reads staff assignment, gate authorization, and active access point status within the database transaction before recording admission.
+- **Idempotency Across Ambiguous Retries**: One logical confirmation attempt owns a unique `client_scan_id`. If network or Event Node communication is interrupted, the pending preview and scan ID are preserved for identical-key retry.
+- **Concurrency-Safe Capacity & Admission**: Pessimistic row-level locking strictly guarantees confirmed registrations cannot exceed capacity, verified by live multi-process PostgreSQL tests.
+- **Multi-Day & Ongoing Event Discovery**: Published events remain discoverable while `ends_at >= now`.
+- **Authenticated Attendee Event State**: Event discovery and detail endpoints require `auth:sanctum`, reliably returning attendee registration status and ticket summaries.
+- **Role-Enforced Self-Registration**: Attendee self-registration is restricted server-side to provisioned student-role accounts; staff, organizers, and admins cannot consume attendee capacity.
+- **Credential Privacy**: QR payloads are only exposed to the ticket owner when the ticket is active and registration is confirmed. The mobile client presents an explicit unavailable state rather than constructing synthetic fallback QR credentials.
+
+### Planned Second Half
+
+- Verified MSEUF student institutional account self-activation and directory ingestion.
+- Cloud / Event Node split and post-event synchronization/reconciliation.
+- Offline cached student ticket wallet.
+- Scanner QR pairing to Event Node.
+- Guest and alumni tickets; walk-in passes.
+- Ticket transfer and ownership rotation.
+- In-venue presence, exit, and re-entry tracking.
+- Online payment gateway integrations.
+
 ---
 
 ## Target Full-System Architecture (Planned Second Half)
@@ -249,8 +275,7 @@ php artisan test --filter=RegistrationTest
 
 #### PostgreSQL concurrency verification (separate)
 
-SQLite serializes writers, so it cannot prove real race behaviour. Six guarantees
-are verified against the real PostgreSQL server using genuinely overlapping
+Seven guarantees are verified against the real PostgreSQL server using genuinely overlapping
 transactions released through a two-process barrier:
 
 1. two simultaneous registrations competing for the final seat
@@ -263,13 +288,15 @@ transactions released through a two-process barrier:
    rejected, proving event cancellation cannot race through admission
 6. two different tickets scanned while a shared event lock is held — both are
    admitted, proving scanners are not serialized behind each other
-
+7. a staff authorization reassignment held open while a scan is in flight — the scan blocks
+   on the authorization row under `FOR UPDATE` and is then rejected, proving stale authorization
+   cannot race through admission
 ```bash
 cd api
 php scripts/verify_pgsql_concurrency.php
 ```
 
-Cases 4 and 5 hold an uncommitted conflicting write from a second connection, wait
+Cases 4, 5, and 7 hold an uncommitted conflicting write from a second connection, wait
 until PostgreSQL reports the worker blocked (`pg_stat_activity`), then release it.
 The script provisions its own `ingress_concurrency` database (recreated on each run)
 so demonstration data is never touched, and exits non-zero if any invariant is

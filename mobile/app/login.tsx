@@ -118,13 +118,6 @@ export default function LoginScreen() {
             )}
           </Pressable>
 
-          {/* Student Account Activation */}
-          <View style={styles.activationContainer}>
-            <Text style={styles.activationPrompt}>New MSEUF Student?</Text>
-            <Pressable onPress={() => router.push('/activate')} hitSlop={8}>
-              <Text style={styles.activationLink}>Activate Your Account</Text>
-            </Pressable>
-          </View>
 
           {/* Quick Demo Credentials — development and classroom builds only */}
           {DEMO_MODE && (
@@ -367,24 +360,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#800000',
     fontWeight: '600',
-    textDecorationLine: 'underline',
-  },
-  activationContainer: {
-    marginTop: 14,
-    marginBottom: 4,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 6,
-  },
-  activationPrompt: {
-    fontSize: 13,
-    color: '#64748b',
-  },
-  activationLink: {
-    fontSize: 13,
-    color: '#800000',
-    fontWeight: '700',
     textDecorationLine: 'underline',
   },
 });

@@ -25,6 +25,7 @@ interface ScanFeedback {
 }
 
 interface PendingPreview {
+  clientScanId: string;
   qrPayload: string;
   publicId: string;
   attendeeName: string;
@@ -44,6 +45,7 @@ export default function ScannerScreen() {
   const [isValidating, setIsValidating] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
   const [pendingPreview, setPendingPreview] = useState<PendingPreview | null>(null);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<ScanFeedback | null>(null);
   const [isManualModalVisible, setIsManualModalVisible] = useState(false);
   const [manualCode, setManualCode] = useState('');
@@ -177,7 +179,9 @@ export default function ScannerScreen() {
       });
 
       if (res.status === 'valid') {
+        setConfirmError(null);
         setPendingPreview({
+          clientScanId: Crypto.randomUUID(),
           qrPayload: rawPayload.trim(),
           publicId: res.ticket.public_id,
           attendeeName: res.ticket.attendee_name,
@@ -198,13 +202,15 @@ export default function ScannerScreen() {
   const handleCancelVerification = () => {
     // Operator chose "NOT THIS PERSON": clear pending preview without mutating backend.
     setPendingPreview(null);
+    setConfirmError(null);
   };
 
   const handleConfirmAdmission = async () => {
     if (!pendingPreview || isConfirming) return;
 
     setIsConfirming(true);
-    const clientScanId = Crypto.randomUUID();
+    setConfirmError(null);
+    const clientScanId = pendingPreview.clientScanId;
     const payloadToAdmit = pendingPreview.qrPayload;
 
     try {
@@ -225,6 +231,7 @@ export default function ScannerScreen() {
       });
 
       setPendingPreview(null);
+      setConfirmError(null);
 
       if (res.status === 'admitted') {
         setFeedback({
@@ -237,8 +244,20 @@ export default function ScannerScreen() {
         });
       }
     } catch (err: unknown) {
-      setPendingPreview(null);
-      handleApiError(err);
+      // Differentiate ambiguous network/transport failure from definitive server rejection
+      const isAmbiguous = (err instanceof ApiError && (err.status === 0 || err.domainStatus === 'unavailable' || err.status >= 500))
+        || (!(err instanceof ApiError) && err instanceof Error);
+
+      if (isAmbiguous) {
+        // Preserve pendingPreview (including clientScanId and qrPayload) so operator can retry with SAME clientScanId
+        const detailMessage = err instanceof ApiError ? err.message : (err instanceof Error ? err.message : 'Server unavailable');
+        setConfirmError(detailMessage || 'Network unavailable. Press CONFIRM ADMISSION to retry.');
+      } else {
+        // Definitive response from server (already admitted, invalid ticket, unauthorized staff, etc.): clear pending preview
+        setPendingPreview(null);
+        setConfirmError(null);
+        handleApiError(err);
+      }
     } finally {
       setIsConfirming(false);
     }
@@ -380,6 +399,14 @@ export default function ScannerScreen() {
             <Text style={styles.verifyInstruction}>
               Compare the attendee with their university ID before admission.
             </Text>
+            {confirmError && (
+              <View style={styles.confirmErrorBanner}>
+                <Text style={styles.confirmErrorText}>{confirmError}</Text>
+                <Text style={styles.confirmErrorSubtext}>
+                  Network interrupted. ID preserved. Tap CONFIRM ADMISSION to retry.
+                </Text>
+              </View>
+            )}
 
             <View style={styles.verifyButtonRow}>
               <Pressable
@@ -1010,5 +1037,25 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: {
     opacity: 0.6,
+  },
+  confirmErrorBanner: {
+    backgroundColor: '#fff1f2',
+    borderColor: '#f43f5e',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 12,
+  },
+  confirmErrorText: {
+    color: '#e11d48',
+    fontSize: 13,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  confirmErrorSubtext: {
+    color: '#9f1239',
+    fontSize: 11,
+    textAlign: 'center',
+    marginTop: 2,
   },
 });

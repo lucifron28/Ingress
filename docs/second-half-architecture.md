@@ -1,7 +1,7 @@
 # Ingress second-half target architecture
 
 **Status:** Planned for the remaining 50% of the project.  
-**Current implementation:** The 50% milestone still uses one local Laravel/PostgreSQL server for student and staff mobile traffic, but the scanner already uses two-stage ticket preview and explicit staff confirmation before admission is recorded. Student institutional account activation is being implemented separately. This document records the agreed target architecture so later implementation does not drift.
+**Current implementation:** The 50% milestone uses one local Laravel/PostgreSQL server on the venue LAN for student and staff mobile traffic, with two-stage ticket preview and explicit staff confirmation before admission is recorded. Verified MSEUF student institutional account activation, cloud/Event Node synchronization, offline wallet, guest tickets, walk-ins, and ticket transfers are planned second-half functionality. Ingress removes the public internet from the critical event-day admission path, but still requires the venue LAN and Event Node. This document records the agreed target architecture so later implementation does not drift.
 
 ## 1. Core architecture
 
@@ -17,7 +17,7 @@ Student app
 Ingress cloud
 - verified student account activation and authentication
 - event discovery
-- student registration and cancellation
+- student registration
 - guest/alumni email ticket issuance
 - ticket transfer
 - ticket issuance
@@ -76,7 +76,7 @@ The organizer performs an explicit **Prepare for Admission** or **Finalize Admis
 4. record a snapshot/version identifier;
 5. mark the Event Node ready for admission.
 
-Once finalized, ordinary cloud registration, cancellation, and self-service ticket transfer for that event are closed. New attendees use the walk-in process instead.
+Once finalized, ordinary cloud registration and self-service ticket transfer for that event are closed. New attendees use the walk-in process instead.
 
 This rule prevents split-brain cases where the cloud says a ticket is valid but an offline Event Node has never received it.
 
@@ -114,7 +114,6 @@ Allowed offline:
 Not allowed offline:
 
 - register for a new event;
-- cancel a registration;
 - transfer a ticket;
 - change account credentials;
 - fetch a ticket that was never synchronized to the device.
@@ -230,7 +229,6 @@ Before the deadline, students use the cloud to register normally.
 After the deadline:
 
 - online registration is closed;
-- online cancellation is closed after finalization;
 - self-service ticket transfer is closed after finalization;
 - the final ticket snapshot is synchronized to the Event Node;
 - attendees without a preregistered ticket use the walk-in process.

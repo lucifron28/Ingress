@@ -24,7 +24,10 @@ class StaffAdmissionController extends Controller
                 ->get();
         } else {
             $events = Event::with(['venue', 'accessPoints', 'staffAssignments'])
-                ->whereHas('staffAssignments', fn ($q) => $q->where('user_id', $user->id))
+                ->where(function ($query) use ($user) {
+                    $query->whereHas('staffAssignments', fn ($q) => $q->where('user_id', $user->id))
+                        ->orWhere('organizer_id', $user->id);
+                })
                 ->published()
                 ->orderBy('starts_at', 'asc')
                 ->get();

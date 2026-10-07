@@ -16,7 +16,7 @@ interface TicketDetail {
   public_id: string;
   status: string;
   issued_at: string;
-  qr_payload: string; // Opaque payload: ingress:v1:<public_id>:<secret>
+  qr_payload?: string | null; // Opaque payload: ingress:v1:<public_id>:<secret>
   event: {
     id: number;
     title: string;
@@ -117,21 +117,34 @@ export default function TicketDetailScreen() {
 
         {/* High-Contrast Opaque QR Canvas (Active Tickets Only) */}
         {ticket.status === 'active' ? (
-          <View style={styles.qrSection}>
-            <View style={styles.qrContainer}>
-              <QRCode
-                value={ticket.qr_payload || `ingress:v1:${ticket.public_id}`}
-                size={220}
-                color="#000000"
-                backgroundColor="#ffffff"
-              />
-            </View>
+          ticket.qr_payload ? (
+            <View style={styles.qrSection}>
+              <View style={styles.qrContainer}>
+                <QRCode
+                  value={ticket.qr_payload}
+                  size={220}
+                  color="#000000"
+                  backgroundColor="#ffffff"
+                />
+              </View>
 
-            <Text style={styles.refCode}>Ticket Ref: {ticket.public_id}</Text>
-            <Text style={styles.securityNotice}>
-              Opaque Cryptographic Credential &bull; Zero Student PII Encoded
-            </Text>
-          </View>
+              <Text style={styles.refCode}>Ticket Ref: {ticket.public_id}</Text>
+              <Text style={styles.securityNotice}>
+                Opaque Cryptographic Credential &bull; Zero Student PII Encoded
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.revokedSection}>
+              <View style={styles.revokedIconBadge}>
+                <Text style={styles.revokedIconText}>[!]</Text>
+              </View>
+              <Text style={styles.revokedTitle}>QR Credential Unavailable</Text>
+              <Text style={styles.revokedSubtitle}>
+                A valid admission credential is not available for this ticket. Please refresh or contact event staff.
+              </Text>
+              <Text style={styles.refCode}>Ticket Ref: {ticket.public_id}</Text>
+            </View>
+          )
         ) : (
           <View style={styles.revokedSection}>
             <View style={styles.revokedIconBadge}>

@@ -393,4 +393,61 @@ class RegistrationTest extends TestCase
         $this->assertEquals('revoked_ticket', $scanResult['status']);
         $this->assertEquals(0, Admission::where('ticket_id', $ticket->id)->count());
     }
+
+    public function test_staff_cannot_self_register(): void
+    {
+        $staff = User::factory()->create(['role' => User::ROLE_STAFF]);
+
+        $response = $this->actingAs($staff)
+            ->postJson("/api/v1/events/{$this->event->id}/registration");
+
+        $response->assertStatus(403);
+        $this->assertEquals(0, Ticket::count());
+        $this->assertEquals(0, Registration::count());
+    }
+
+    public function test_organizer_cannot_self_register(): void
+    {
+        $response = $this->actingAs($this->organizer)
+            ->postJson("/api/v1/events/{$this->event->id}/registration");
+
+        $response->assertStatus(403);
+        $this->assertEquals(0, Ticket::count());
+        $this->assertEquals(0, Registration::count());
+    }
+
+    public function test_admin_cannot_self_register(): void
+    {
+        $admin = User::factory()->create(['role' => User::ROLE_ADMIN]);
+
+        $response = $this->actingAs($admin)
+            ->postJson("/api/v1/events/{$this->event->id}/registration");
+
+        $response->assertStatus(403);
+        $this->assertEquals(0, Ticket::count());
+        $this->assertEquals(0, Registration::count());
+    }
+
+    public function test_non_student_attempts_do_not_consume_capacity_or_issue_tickets(): void
+    {
+        $initialCapacity = $this->event->capacity;
+        $staff = User::factory()->create(['role' => User::ROLE_STAFF]);
+        $admin = User::factory()->create(['role' => User::ROLE_ADMIN]);
+
+        $this->actingAs($staff)->postJson("/api/v1/events/{$this->event->id}/registration")->assertStatus(403);
+        $this->actingAs($this->organizer)->postJson("/api/v1/events/{$this->event->id}/registration")->assertStatus(403);
+        $this->actingAs($admin)->postJson("/api/v1/events/{$this->event->id}/registration")->assertStatus(403);
+
+        $this->assertEquals(0, Registration::where('event_id', $this->event->id)->count());
+        $this->assertEquals(0, Ticket::count());
+        $this->assertEquals($initialCapacity, $this->event->fresh()->capacity);
+
+        // Verify student can still register and take a seat
+        $this->actingAs($this->student1)
+            ->postJson("/api/v1/events/{$this->event->id}/registration")
+            ->assertStatus(201);
+
+        $this->assertEquals(1, Registration::where('event_id', $this->event->id)->count());
+        $this->assertEquals(1, Ticket::count());
+    }
 }

@@ -206,7 +206,6 @@
                 <nav style="display: flex; gap: 1rem; font-size: 0.875rem;">
                     <a href="{{ route('organizer.dashboard') }}" style="color: {{ request()->routeIs('organizer.dashboard') ? '#ffffff' : '#fca5a5' }}; text-decoration: none; font-weight: {{ request()->routeIs('organizer.dashboard') ? '600' : '400' }};">Dashboard</a>
                     <a href="{{ route('organizer.events.index') }}" style="color: {{ request()->routeIs('organizer.events.*') ? '#ffffff' : '#fca5a5' }}; text-decoration: none; font-weight: {{ request()->routeIs('organizer.events.*') ? '600' : '400' }};">Events</a>
-                    <a href="{{ route('organizer.students.index') }}" style="color: {{ request()->routeIs('organizer.students.*') ? '#ffffff' : '#fca5a5' }}; text-decoration: none; font-weight: {{ request()->routeIs('organizer.students.*') ? '600' : '400' }};">Student Directory</a>
                 </nav>
             </div>
             <div style="display: flex; align-items: center; gap: 1rem; font-size: 0.875rem;">

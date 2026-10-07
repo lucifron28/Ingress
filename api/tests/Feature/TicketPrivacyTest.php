@@ -155,4 +155,18 @@ class TicketPrivacyTest extends TestCase
 
         $this->assertArrayNotHasKey('qr_payload', $response->json('ticket'));
     }
+
+    public function test_owner_cannot_view_qr_payload_if_ticket_is_revoked(): void
+    {
+        $this->ticket->update([
+            'status' => Ticket::STATUS_REVOKED,
+            'revoked_at' => Carbon::now(),
+        ]);
+
+        $response = $this->actingAs($this->student, 'sanctum')
+            ->getJson("/api/v1/tickets/{$this->ticket->id}");
+
+        $response->assertStatus(200);
+        $this->assertArrayNotHasKey('qr_payload', $response->json('ticket'));
+    }
 }

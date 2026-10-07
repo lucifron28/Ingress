@@ -192,7 +192,7 @@ cd api
 php scripts/verify_pgsql_concurrency.php
 ```
 
-It provisions its own `ingress_concurrency` database, releases genuinely overlapping transactions through a two-process barrier, and asserts six invariants:
+It provisions its own `ingress_concurrency` database, releases genuinely overlapping transactions through a two-process barrier, and asserts seven invariants:
 
 | Case | Invariant |
 | :--- | :--- |
@@ -202,7 +202,7 @@ It provisions its own `ingress_concurrency` database, releases genuinely overlap
 | D | a worker forced to collide on the unique index → mapped to `idempotency_conflict`, never an unhandled 500 |
 | E | an event cancellation held open while a scan is in flight → the scan blocks, then is rejected; no admission recorded |
 | F | two different tickets scanned while a shared event lock is held → both admitted, proving scanners are not serialised |
-
+| G | a staff authorization reassignment held open while a scan is in flight → the scan blocks on the authorization row, then is rejected; no admission recorded |
 The script exits non-zero if any invariant fails.
 
 ---

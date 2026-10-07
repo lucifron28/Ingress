@@ -19,13 +19,16 @@ class TicketResource extends JsonResource
         $event = $registration?->event;
         $attendee = $registration?->user;
         $isOwner = $user && $registration && (int) $registration->user_id === (int) $user->id;
+        $canExposeQr = $isOwner
+            && $this->isActive()
+            && $registration?->status === \App\Models\Registration::STATUS_CONFIRMED;
 
         return [
             'id' => $this->id,
             'public_id' => $this->public_id,
             'status' => $this->status,
             'issued_at' => $this->issued_at?->toISOString(),
-            'qr_payload' => $this->when($isOwner, fn () => $this->getQrPayload()),
+            'qr_payload' => $this->when($canExposeQr, fn () => $this->getQrPayload()),
             'event' => [
                 'id' => $event?->id,
                 'title' => $event?->title,
