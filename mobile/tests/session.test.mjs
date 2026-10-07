@@ -224,21 +224,20 @@ check(
   ticketDetailSource.includes("ticket.status === 'active'") &&
     ticketDetailSource.includes('This ticket is no longer valid.'),
 );
-
-const loginScreenSource = fs.readFileSync(path.resolve('app/login.tsx'), 'utf-8');
 check(
-  'login screen provides student account activation call-to-action',
-  loginScreenSource.includes('/activate') &&
-    loginScreenSource.includes('Activate Your Account'),
+  'ticket detail does not synthesize fake QR credentials when payload is missing',
+  !ticketDetailSource.includes('ingress:v1:${ticket.public_id}') &&
+    ticketDetailSource.includes('QR Credential Unavailable'),
 );
 
-const activateScreenSource = fs.readFileSync(path.resolve('app/activate.tsx'), 'utf-8');
 check(
-  'activation screen implements challenge request and confirmation flow',
-  activateScreenSource.includes('/auth/activate/request') &&
-    activateScreenSource.includes('/auth/activate/confirm') &&
-    activateScreenSource.includes('/auth/activate/resend'),
+  'scanner preserves client scan ID on ambiguous network errors for idempotent retry',
+  scanScreenSource.includes('isAmbiguous') &&
+    scanScreenSource.includes('confirmError') &&
+    scanScreenSource.includes('pendingPreview.clientScanId'),
 );
+
+
 
 const authContextSource = fs.readFileSync(path.resolve('src/context/AuthContext.tsx'), 'utf-8');
 check(

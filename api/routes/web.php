@@ -30,7 +30,4 @@ Route::middleware(['auth', 'organizer'])->prefix('organizer')->name('organizer.'
     Route::get('/events/{event}/attendance', [\App\Http\Controllers\Web\OrganizerAttendanceController::class, 'show'])->name('attendance');
     Route::get('/events/{event}/attendance/feed', [\App\Http\Controllers\Web\OrganizerAttendanceController::class, 'feed'])->name('attendance.feed');
 
-    // Student Directory & Activation Management
-    Route::get('/students', [\App\Http\Controllers\Web\OrganizerStudentController::class, 'index'])->name('students.index');
-    Route::post('/students/import', [\App\Http\Controllers\Web\OrganizerStudentController::class, 'import'])->name('students.import');
 });

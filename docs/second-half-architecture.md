@@ -1,7 +1,7 @@
 # Ingress second-half target architecture
 
 **Status:** Planned for the remaining 50% of the project.  
-**Current implementation:** The 50% milestone still uses one local Laravel/PostgreSQL server for student and staff mobile traffic, but the scanner already uses two-stage ticket preview and explicit staff confirmation before admission is recorded. Student institutional account activation is being implemented separately. This document records the agreed target architecture so later implementation does not drift.
+**Current implementation:** The 50% milestone uses one local Laravel/PostgreSQL server on the venue LAN for student and staff mobile traffic, with two-stage ticket preview and explicit staff confirmation before admission is recorded. Verified MSEUF student institutional account activation, cloud/Event Node synchronization, offline wallet, guest tickets, walk-ins, and ticket transfers are planned second-half functionality. Ingress removes the public internet from the critical event-day admission path, but still requires the venue LAN and Event Node. This document records the agreed target architecture so later implementation does not drift.
 
 ## 1. Core architecture
 
