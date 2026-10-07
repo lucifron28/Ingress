@@ -16,6 +16,12 @@ class RegistrationController extends Controller
      */
     public function store(Request $request, Event $event, RegisterForEvent $action): JsonResponse
     {
+        if (! $request->user()->isStudent()) {
+            return response()->json([
+                'message' => 'Only students are permitted to self-register for events.',
+            ], 403);
+        }
+
         $result = $action->execute($request->user(), $event->id);
 
         return response()->json([
