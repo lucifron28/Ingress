@@ -220,4 +220,39 @@ class StaffAdmissionTest extends TestCase
         $this->assertEquals(0, Admission::where('ticket_id', $this->ticket->id)->count());
     }
 
+    public function test_organizer_can_see_and_select_their_own_event_in_staff_events(): void
+    {
+        // Organizer has no entry in EventStaff
+        $this->assertDatabaseMissing('event_staff', [
+            'event_id' => $this->event->id,
+            'user_id' => $this->organizer->id,
+        ]);
+
+        // Request assigned events
+        $response = $this->actingAs($this->organizer)
+            ->getJson('/api/v1/staff/events');
+
+        $response->assertStatus(200);
+
+        $events = $response->json('events');
+        $this->assertNotEmpty($events);
+
+        $eventIds = collect($events)->pluck('id')->all();
+        $this->assertContains($this->event->id, $eventIds);
+
+        // Check that organizer sees all active access points
+        $eventData = collect($events)->firstWhere('id', $this->event->id);
+        $this->assertCount(2, $eventData['access_points']);
+
+        $gateIds = collect($eventData['access_points'])->pluck('id')->all();
+        $this->assertContains($this->gateA->id, $gateIds);
+        $this->assertContains($this->gateB->id, $gateIds);
+
+        // Also test access-points endpoint directly for organizer
+        $apResponse = $this->actingAs($this->organizer)
+            ->getJson("/api/v1/staff/events/{$this->event->id}/access-points");
+
+        $apResponse->assertStatus(200);
+        $this->assertCount(2, $apResponse->json('access_points'));
+    }
 }
