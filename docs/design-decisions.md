@@ -261,7 +261,7 @@ Students need normal internet-based event discovery, registration, account acces
 ### Decision
 Use two operational authorities separated by event phase:
 
-- before finalization, the cloud is authoritative for student authentication, registration, cancellation, ticket issuance, and transfer;
+- before finalization, the cloud is authoritative for student authentication, registration, ticket issuance, and transfer;
 - at finalization, registration closes and the Event Node receives a verified final event snapshot;
 - during admission, the Event Node is authoritative for ticket validation, anti-passback, walk-ins, and local exceptional actions;
 - after the event, Event Node admissions and walk-ins reconcile back to the cloud.
@@ -281,7 +281,7 @@ Events commonly accept walk-ins. Continuing cloud registration after an Event No
 ### Decision
 Every event has a registration deadline followed by an explicit **Prepare for Admission / Finalize Admission** step.
 
-Finalization closes ordinary online registration, cancellation, and self-service transfer, then synchronizes a final preregistered attendee/ticket snapshot to the Event Node. The Event Node records a snapshot/version before admission begins.
+Finalization closes ordinary online registration and self-service transfer, then synchronizes a final preregistered attendee/ticket snapshot to the Event Node. The Event Node records a snapshot/version before admission begins.
 
 After finalization, a person without a preregistered ticket is handled as a walk-in even if that person still has internet access.
 
@@ -346,7 +346,7 @@ Student authentication is cloud based. A device must authenticate successfully o
 
 After a successful online session, the app securely caches the minimum identity and ticket material needed to render owned tickets. When the cloud is unreachable, a previously authenticated student may enter a read-only offline mode to view cached tickets and event information.
 
-Offline mode cannot register, cancel, transfer, change credentials, or retrieve unsynchronized tickets.
+Offline mode cannot register, transfer, change credentials, or retrieve unsynchronized tickets.
 
 A confirmed `401 Unauthorized` invalidates the local session and sensitive ticket cache. A transport failure does not automatically log out the student. Manual logout clears sensitive cached ticket credentials.
 
@@ -401,7 +401,7 @@ Events may disable transfer, limit the number of transfers, or require organizer
 Planned for the second half.
 
 ### Context
-Ingress is primarily for MSEUF events. Verified students are recurring institutional users who benefit from a persistent account, ticket wallet, registration history, cancellation, transfer, and future notifications. Alumni and external guests are occasional attendees and should not be forced through the same account-activation flow.
+Ingress is primarily for MSEUF events. Verified students are recurring institutional users who benefit from a persistent account, ticket wallet, registration history, transfer, and future notifications. Alumni and external guests are occasional attendees and should not be forced through the same account-activation flow.
 
 A single email-only model for everyone would make students repeatedly verify identity for every event and would weaken the link between a ticket and the university student record. A universal account requirement for outsiders would create unnecessary friction for invited guests, alumni, parents, partner-school visitors, and paid external attendees.
 

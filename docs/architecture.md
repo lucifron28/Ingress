@@ -67,7 +67,7 @@ The remaining 50% will move to a hybrid model:
 Student app --Internet--> Ingress cloud
                          - student authentication
                          - event discovery
-                         - registration/cancellation
+                         - student registration
                          - ticket issuance/transfer
                                   |
                                   | finalized ticket snapshot

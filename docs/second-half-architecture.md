@@ -17,7 +17,7 @@ Student app
 Ingress cloud
 - verified student account activation and authentication
 - event discovery
-- student registration and cancellation
+- student registration
 - guest/alumni email ticket issuance
 - ticket transfer
 - ticket issuance
@@ -76,7 +76,7 @@ The organizer performs an explicit **Prepare for Admission** or **Finalize Admis
 4. record a snapshot/version identifier;
 5. mark the Event Node ready for admission.
 
-Once finalized, ordinary cloud registration, cancellation, and self-service ticket transfer for that event are closed. New attendees use the walk-in process instead.
+Once finalized, ordinary cloud registration and self-service ticket transfer for that event are closed. New attendees use the walk-in process instead.
 
 This rule prevents split-brain cases where the cloud says a ticket is valid but an offline Event Node has never received it.
 
@@ -114,7 +114,6 @@ Allowed offline:
 Not allowed offline:
 
 - register for a new event;
-- cancel a registration;
 - transfer a ticket;
 - change account credentials;
 - fetch a ticket that was never synchronized to the device.
@@ -230,7 +229,6 @@ Before the deadline, students use the cloud to register normally.
 After the deadline:
 
 - online registration is closed;
-- online cancellation is closed after finalization;
 - self-service ticket transfer is closed after finalization;
 - the final ticket snapshot is synchronized to the Event Node;
 - attendees without a preregistered ticket use the walk-in process.
