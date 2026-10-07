@@ -114,6 +114,6 @@ class Event extends Model
 
     public function scopeUpcoming(Builder $query): Builder
     {
-        return $query->where('starts_at', '>=', Carbon::now()->subHours(6));
+        return $query->where('ends_at', '>=', Carbon::now());
     }
 }

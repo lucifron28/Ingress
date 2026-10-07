@@ -167,4 +167,105 @@ class EventApiTest extends TestCase
         $this->assertEquals('active', $response->json('event.user_ticket.status'));
     }
 
+    public function test_future_event_appears_in_events_discovery(): void
+    {
+        $response = $this->actingAs($this->student)->getJson('/api/v1/events');
+        $response->assertStatus(200);
+
+        $titles = collect($response->json('data'))->pluck('title');
+        $this->assertTrue($titles->contains('Tech Summit 2026'));
+    }
+
+    public function test_event_currently_in_progress_appears_even_if_started_over_6_hours_ago(): void
+    {
+        $now = Carbon::now();
+        Event::create([
+            'organizer_id' => $this->organizer->id,
+            'venue_id' => $this->venue->id,
+            'title' => 'Symposium Started 8 Hours Ago',
+            'slug' => 'symposium-started-8h-ago',
+            'capacity' => 100,
+            'registration_opens_at' => $now->copy()->subDays(2),
+            'registration_closes_at' => $now->copy()->subHours(9),
+            'starts_at' => $now->copy()->subHours(8),
+            'ends_at' => $now->copy()->addHours(2),
+            'status' => Event::STATUS_PUBLISHED,
+        ]);
+
+        $response = $this->actingAs($this->student)->getJson('/api/v1/events');
+        $response->assertStatus(200);
+
+        $titles = collect($response->json('data'))->pluck('title');
+        $this->assertTrue($titles->contains('Symposium Started 8 Hours Ago'));
+    }
+
+    public function test_multi_day_ongoing_event_appears_in_events_discovery(): void
+    {
+        $now = Carbon::now();
+        Event::create([
+            'organizer_id' => $this->organizer->id,
+            'venue_id' => $this->venue->id,
+            'title' => 'Multi-Day University Festival',
+            'slug' => 'multi-day-festival',
+            'capacity' => 500,
+            'registration_opens_at' => $now->copy()->subDays(5),
+            'registration_closes_at' => $now->copy()->subDays(3),
+            'starts_at' => $now->copy()->subDays(2),
+            'ends_at' => $now->copy()->addDays(2),
+            'status' => Event::STATUS_PUBLISHED,
+        ]);
+
+        $response = $this->actingAs($this->student)->getJson('/api/v1/events');
+        $response->assertStatus(200);
+
+        $titles = collect($response->json('data'))->pluck('title');
+        $this->assertTrue($titles->contains('Multi-Day University Festival'));
+    }
+
+    public function test_ended_event_does_not_appear_in_events_discovery(): void
+    {
+        $now = Carbon::now();
+        Event::create([
+            'organizer_id' => $this->organizer->id,
+            'venue_id' => $this->venue->id,
+            'title' => 'Yesterday Concluded Event',
+            'slug' => 'yesterday-concluded-event',
+            'capacity' => 100,
+            'registration_opens_at' => $now->copy()->subDays(3),
+            'registration_closes_at' => $now->copy()->subDays(2),
+            'starts_at' => $now->copy()->subDay()->subHours(3),
+            'ends_at' => $now->copy()->subDay(),
+            'status' => Event::STATUS_PUBLISHED,
+        ]);
+
+        $response = $this->actingAs($this->student)->getJson('/api/v1/events');
+        $response->assertStatus(200);
+
+        $titles = collect($response->json('data'))->pluck('title');
+        $this->assertFalse($titles->contains('Yesterday Concluded Event'));
+    }
+
+    public function test_draft_and_cancelled_events_remain_filtered_out(): void
+    {
+        $now = Carbon::now();
+        Event::create([
+            'organizer_id' => $this->organizer->id,
+            'venue_id' => $this->venue->id,
+            'title' => 'Future Cancelled Event',
+            'slug' => 'future-cancelled-event',
+            'capacity' => 50,
+            'registration_opens_at' => $now->copy()->subDay(),
+            'registration_closes_at' => $now->copy()->addDay(),
+            'starts_at' => $now->copy()->addDay(),
+            'ends_at' => $now->copy()->addDays(2),
+            'status' => Event::STATUS_CANCELLED,
+        ]);
+
+        $response = $this->actingAs($this->student)->getJson('/api/v1/events');
+        $response->assertStatus(200);
+
+        $titles = collect($response->json('data'))->pluck('title');
+        $this->assertFalse($titles->contains('Draft Secret Meeting'));
+        $this->assertFalse($titles->contains('Future Cancelled Event'));
+    }
 }
