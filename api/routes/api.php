@@ -7,6 +7,8 @@ Route::prefix('v1')->group(function () {
     // Public Authentication
     Route::post('/auth/login', [\App\Http\Controllers\Api\V1\AuthController::class, 'login'])
         ->middleware('throttle:login');
+    Route::post('/auth/register', [\App\Http\Controllers\Api\V1\AuthController::class, 'register'])
+        ->middleware('throttle:6,1');
 
     // Authenticated API
     Route::middleware('auth:sanctum')->group(function () {

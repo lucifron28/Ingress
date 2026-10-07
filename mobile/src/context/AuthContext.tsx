@@ -17,6 +17,14 @@ interface LoginResponse {
   user: UserProfile;
 }
 
+export interface RegisterParams {
+  name: string;
+  student_id: string;
+  email: string;
+  password: string;
+  password_confirmation: string;
+}
+
 interface AuthContextType {
   user: UserProfile | null;
   token: string | null;
@@ -24,6 +32,7 @@ interface AuthContextType {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  register: (params: RegisterParams) => Promise<void>;
   /**
    * Points the app at a different Event Node. Resolves to true when the change
    * invalidated the current session, so the caller can send the user to login.
@@ -99,6 +108,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const register = async (params: RegisterParams): Promise<void> => {
+    setIsLoading(true);
+    try {
+      const response = await apiRequest<LoginResponse>('/auth/register', {
+        method: 'POST',
+        body: JSON.stringify({ ...params, device_name: 'Ingress-Mobile' }),
+      });
+
+      setToken(response.token);
+      setUser(response.user);
+
+      await AuthStorage.saveToken(response.token);
+      await AuthStorage.saveUser(JSON.stringify(response.user));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const logout = async (): Promise<void> => {
     try {
       await apiRequest('/auth/logout', { method: 'POST' });
@@ -138,6 +165,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         login,
         logout,
         updateServerUrl,
+        register,
       }}
     >
       {children}

@@ -1,7 +1,7 @@
 # Ingress second-half target architecture
 
 **Status:** Planned for the remaining 50% of the project.  
-**Current implementation:** The 50% milestone uses one local Laravel/PostgreSQL server on the venue LAN for student and staff mobile traffic, with two-stage ticket preview and explicit staff confirmation before admission is recorded. Verified MSEUF student institutional account activation, cloud/Event Node synchronization, offline wallet, guest tickets, walk-ins, and ticket transfers are planned second-half functionality. Ingress removes the public internet from the critical event-day admission path, but still requires the venue LAN and Event Node. This document records the agreed target architecture so later implementation does not drift.
+**Current implementation:** The 50% milestone uses one local Laravel/PostgreSQL server on the venue LAN for student and staff mobile traffic, with two-stage ticket preview, explicit staff confirmation, and basic student self-registration with self-declared student information (without identity/enrollment verification). Institutional student account verification through an active `@student.mseuf.edu.ph` institutional email using a one-time verification link, cloud/Event Node synchronization, offline wallet, guest tickets, walk-ins, and ticket transfers are planned second-half functionality. Ingress removes the public internet from the critical event-day admission path, but still requires the venue LAN and Event Node. This document records the agreed target architecture so later implementation does not drift.
 
 ## 1. Core architecture
 
@@ -84,10 +84,9 @@ This rule prevents split-brain cases where the cloud says a ticket is valid but 
 
 Student authentication is internet/cloud based.
 
-### Institutional student account activation
+### Institutional student account verification (Planned Second Half)
 
-Normal self-service accounts are intended for verified MSEUF students. Ingress should activate a student account only when the supplied student number and institutional email match the same preloaded institutional directory record. The verification challenge is delivered to that institutional email, and the server assigns the student role. Public users never choose a privileged role.
-
+The presentation build implements basic student self-registration using self-declared student information without enrollment verification. For the target second-half system, normal self-service accounts are intended for verified MSEUF students. Ingress should complete a student account only after verification through an active `@student.mseuf.edu.ph` institutional email using a one-time email verification link, matching a preloaded institutional directory record. The server assigns the student role; public users never choose a privileged role.
 This keeps the recurring student experience account-based while preserving the MSEUF-first scope of the system. Faculty, staff, and organizers who need privileged access are provisioned through authorized administrative workflows rather than public signup.
 
 External guests and alumni do not need a normal MSEUF account merely to attend an event. They may receive an organizer-issued or paid guest ticket by email, or be registered as a walk-in when the event permits it.

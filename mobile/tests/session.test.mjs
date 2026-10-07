@@ -237,6 +237,38 @@ check(
     scanScreenSource.includes('pendingPreview.clientScanId'),
 );
 
+const registerScreenPath = path.resolve('app/register.tsx');
+const registerScreenExists = fs.existsSync(registerScreenPath);
+const registerScreenSource = registerScreenExists ? fs.readFileSync(registerScreenPath, 'utf-8') : '';
+
+check(
+  'registration screen exists and provides student account registration fields',
+  registerScreenExists &&
+    registerScreenSource.includes('Full Name') &&
+    registerScreenSource.includes('Student ID') &&
+    registerScreenSource.includes('University Email') &&
+    registerScreenSource.includes('Password') &&
+    registerScreenSource.includes('Confirm Password') &&
+    registerScreenSource.includes('Create Account'),
+);
+
+const loginScreenSource = fs.readFileSync(path.resolve('app/login.tsx'), 'utf-8');
+check(
+  'login screen provides link to create student account',
+  loginScreenSource.includes('/register') &&
+    loginScreenSource.includes("Don't have an account?") &&
+    loginScreenSource.includes('Create Student Account'),
+);
+
+const authContextSource = fs.readFileSync(path.resolve('src/context/AuthContext.tsx'), 'utf-8');
+check(
+  'auth context exposes register helper that establishes session and persists credentials',
+  authContextSource.includes('register:') &&
+    authContextSource.includes("'/auth/register'") &&
+    authContextSource.includes('AuthStorage.saveToken(response.token)') &&
+    authContextSource.includes('AuthStorage.saveUser(JSON.stringify(response.user))'),
+);
+
 
 
 

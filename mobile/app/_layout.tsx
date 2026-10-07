@@ -20,6 +20,7 @@ export default function RootLayout() {
       >
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="login" options={{ title: 'Sign In - Ingress' }} />
+        <Stack.Screen name="register" options={{ title: 'Create Student Account' }} />
         <Stack.Screen name="(attendee)" options={{ headerShown: false }} />
         <Stack.Screen name="(staff)" options={{ headerShown: false }} />
         <Stack.Screen name="server-settings" options={{ title: 'LAN Server Settings' }} />

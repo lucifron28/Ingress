@@ -118,6 +118,14 @@ export default function LoginScreen() {
             )}
           </Pressable>
 
+          {/* Student Registration CTA */}
+          <View style={styles.registerContainer}>
+            <Text style={styles.registerPrompt}>Don't have an account?</Text>
+            <Pressable onPress={() => router.push('/register')} hitSlop={8}>
+              <Text style={styles.registerLink}>Create Student Account</Text>
+            </Pressable>
+          </View>
+
 
           {/* Quick Demo Credentials — development and classroom builds only */}
           {DEMO_MODE && (
@@ -361,5 +369,21 @@ const styles = StyleSheet.create({
     color: '#800000',
     fontWeight: '600',
     textDecorationLine: 'underline',
+  },
+  registerContainer: {
+    marginTop: 20,
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  registerPrompt: {
+    fontSize: 13,
+    color: '#64748b',
+  },
+  registerLink: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#800000',
   },
 });

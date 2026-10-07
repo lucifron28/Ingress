@@ -42,6 +42,37 @@ class AuthController extends Controller
     }
 
     /**
+     * Register a new student account.
+     */
+    public function register(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'student_id' => ['required', 'string', 'max:64', 'unique:users,student_id'],
+            'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
+            'password' => ['required', 'string', 'min:8', 'confirmed'],
+            'device_name' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $user = User::create([
+            'name' => trim($validated['name']),
+            'student_id' => trim($validated['student_id']),
+            'email' => strtolower(trim($validated['email'])),
+            'password' => $validated['password'],
+            'role' => User::ROLE_STUDENT,
+        ]);
+
+        $deviceName = $validated['device_name'] ?? 'mobile-app';
+        $token = $user->createToken($deviceName)->plainTextToken;
+
+        return response()->json([
+            'token' => $token,
+            'token_type' => 'Bearer',
+            'user' => new UserResource($user),
+        ], 201);
+    }
+
+    /**
      * Current authenticated user profile.
      */
     public function me(Request $request): JsonResponse
