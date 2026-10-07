@@ -46,6 +46,20 @@ class AuthController extends Controller
      */
     public function register(Request $request): JsonResponse
     {
+        $normalized = [];
+        if ($request->has('name') && is_string($request->input('name'))) {
+            $normalized['name'] = trim($request->input('name'));
+        }
+        if ($request->has('student_id') && is_string($request->input('student_id'))) {
+            $normalized['student_id'] = trim($request->input('student_id'));
+        }
+        if ($request->has('email') && is_string($request->input('email'))) {
+            $normalized['email'] = strtolower(trim($request->input('email')));
+        }
+        if ($normalized !== []) {
+            $request->merge($normalized);
+        }
+
         $validated = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'student_id' => ['required', 'string', 'max:64', 'unique:users,student_id'],
@@ -55,9 +69,9 @@ class AuthController extends Controller
         ]);
 
         $user = User::create([
-            'name' => trim($validated['name']),
-            'student_id' => trim($validated['student_id']),
-            'email' => strtolower(trim($validated['email'])),
+            'name' => $validated['name'],
+            'student_id' => $validated['student_id'],
+            'email' => $validated['email'],
             'password' => $validated['password'],
             'role' => User::ROLE_STUDENT,
         ]);

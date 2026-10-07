@@ -75,13 +75,13 @@ Dashboard updates in real-time
 - **Concurrency-Safe Capacity & Admission**: Pessimistic row-level locking strictly guarantees confirmed registrations cannot exceed capacity, verified by live multi-process PostgreSQL tests.
 - **Multi-Day & Ongoing Event Discovery**: Published events remain discoverable while `ends_at >= now`.
 - **Authenticated Attendee Event State**: Event discovery and detail endpoints require `auth:sanctum`, reliably returning attendee registration status and ticket summaries.
-- **Basic Student Self-Registration**: New students can create an account directly in the mobile app (`POST /api/v1/auth/register`) with self-declared student information (Full Name, Student ID, Email, Password). Accounts are strictly created with the student role, preventing privilege escalation. This is a basic presentation flow that does not verify enrollment or institutional identity.
+- **Basic Student Self-Registration**: New students can create an account directly in the mobile app (`POST /api/v1/auth/register`) with self-declared student information (Full Name, Student ID, Email, Password; any valid email is accepted). Accounts are strictly created with the student role, preventing privilege escalation. This is a basic presentation flow that does not verify enrollment or institutional identity.
 - **Role-Enforced Event Registration**: Attendee event self-registration (`POST /api/v1/events/{event}/registration`) is strictly restricted server-side to student-role accounts; staff, organizers, and admins cannot consume attendee capacity.
 - **Credential Privacy**: QR payloads are only exposed to the ticket owner when the ticket is active and registration is confirmed. The mobile client presents an explicit unavailable state rather than constructing synthetic fallback QR credentials.
 
 ### Planned Second Half
 
-- Institutional student verification through an active `@student.mseuf.edu.ph` institutional email using a one-time email verification link and institutional directory ingestion before account completion.
+- Institutional student verification requiring an active `@student.mseuf.edu.ph` institutional email and a one-time email verification link before account completion (MSEUF deactivates institutional emails when no longer valid, serving as the trust anchor).
 - Cloud / Event Node split and post-event synchronization/reconciliation.
 - Offline cached student ticket wallet.
 - Scanner QR pairing to Event Node.

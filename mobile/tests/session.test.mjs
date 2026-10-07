@@ -246,7 +246,7 @@ check(
   registerScreenExists &&
     registerScreenSource.includes('Full Name') &&
     registerScreenSource.includes('Student ID') &&
-    registerScreenSource.includes('University Email') &&
+    registerScreenSource.includes('Email') &&
     registerScreenSource.includes('Password') &&
     registerScreenSource.includes('Confirm Password') &&
     registerScreenSource.includes('Create Account'),

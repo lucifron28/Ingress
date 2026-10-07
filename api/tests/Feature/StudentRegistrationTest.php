@@ -230,4 +230,70 @@ class StudentRegistrationTest extends TestCase
         $response->assertStatus(422)
             ->assertJsonValidationErrors(['password']);
     }
+
+    public function test_duplicate_email_with_different_case_is_rejected_as_validation_error(): void
+    {
+        User::factory()->create([
+            'email' => 'lowercase@student.mseuf.edu.ph',
+            'student_id' => '2024-55551',
+            'role' => User::ROLE_STUDENT,
+        ]);
+
+        $payload = [
+            'name' => 'Case Test Student',
+            'student_id' => '2026-55552',
+            'email' => 'LOWERCASE@STUDENT.MSEUF.EDU.PH',
+            'password' => 'password123',
+            'password_confirmation' => 'password123',
+        ];
+
+        $response = $this->postJson('/api/v1/auth/register', $payload);
+
+        $response->assertStatus(422)
+            ->assertJsonValidationErrors(['email']);
+    }
+
+    public function test_duplicate_email_with_surrounding_spaces_is_rejected_as_validation_error(): void
+    {
+        User::factory()->create([
+            'email' => 'trimmed@student.mseuf.edu.ph',
+            'student_id' => '2024-66661',
+            'role' => User::ROLE_STUDENT,
+        ]);
+
+        $payload = [
+            'name' => 'Space Test Student',
+            'student_id' => '2026-66662',
+            'email' => '   trimmed@student.mseuf.edu.ph   ',
+            'password' => 'password123',
+            'password_confirmation' => 'password123',
+        ];
+
+        $response = $this->postJson('/api/v1/auth/register', $payload);
+
+        $response->assertStatus(422)
+            ->assertJsonValidationErrors(['email']);
+    }
+
+    public function test_duplicate_student_id_with_surrounding_spaces_is_rejected_as_validation_error(): void
+    {
+        User::factory()->create([
+            'email' => 'idtest1@student.mseuf.edu.ph',
+            'student_id' => '2024-77777',
+            'role' => User::ROLE_STUDENT,
+        ]);
+
+        $payload = [
+            'name' => 'Space ID Student',
+            'student_id' => '   2024-77777   ',
+            'email' => 'idtest2@student.mseuf.edu.ph',
+            'password' => 'password123',
+            'password_confirmation' => 'password123',
+        ];
+
+        $response = $this->postJson('/api/v1/auth/register', $payload);
+
+        $response->assertStatus(422)
+            ->assertJsonValidationErrors(['student_id']);
+    }
 }

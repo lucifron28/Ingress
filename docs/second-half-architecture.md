@@ -86,7 +86,7 @@ Student authentication is internet/cloud based.
 
 ### Institutional student account verification (Planned Second Half)
 
-The presentation build implements basic student self-registration using self-declared student information without enrollment verification. For the target second-half system, normal self-service accounts are intended for verified MSEUF students. Ingress should complete a student account only after verification through an active `@student.mseuf.edu.ph` institutional email using a one-time email verification link, matching a preloaded institutional directory record. The server assigns the student role; public users never choose a privileged role.
+The presentation build implements basic student self-registration using self-declared student information (accepting any valid email) without enrollment or identity verification. For the target second-half system, normal self-service accounts are intended for verified MSEUF students. Ingress requires an active `@student.mseuf.edu.ph` institutional email: the server sends a one-time email verification link, and the student completes account creation only after confirming control of that active address. Because MSEUF deactivates institutional emails when students are no longer enrolled, the active institutional email serves as the authoritative trust anchor. The server assigns the student role; public users never choose a privileged role.
 This keeps the recurring student experience account-based while preserving the MSEUF-first scope of the system. Faculty, staff, and organizers who need privileged access are provisioned through authorized administrative workflows rather than public signup.
 
 External guests and alumni do not need a normal MSEUF account merely to attend an event. They may receive an organizer-issued or paid guest ticket by email, or be registered as a walk-in when the event permits it.
@@ -451,7 +451,7 @@ Existing anti-passback and `credential_version` concepts should be reused instea
 
 ## 17. Suggested second-half implementation order
 
-1. Finish and merge verified MSEUF student account activation and institutional directory ingestion.
+1. Finish and merge verified MSEUF student account verification via active institutional email links.
 2. Split student cloud API configuration from staff Event Node API configuration.
 3. Remove Event Node/IP settings from the student experience.
 4. Add student cached-session restoration and offline cached ticket wallet.
