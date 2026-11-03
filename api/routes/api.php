@@ -1,33 +1,37 @@
 <?php
 
-use Illuminate\Http\Request;
+use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\EventController;
+use App\Http\Controllers\Api\V1\RegistrationController;
+use App\Http\Controllers\Api\V1\StaffAdmissionController;
+use App\Http\Controllers\Api\V1\TicketController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
     // Public Authentication
-    Route::post('/auth/login', [\App\Http\Controllers\Api\V1\AuthController::class, 'login'])
+    Route::post('/auth/login', [AuthController::class, 'login'])
         ->middleware('throttle:login');
 
     // Authenticated API
     Route::middleware('auth:sanctum')->group(function () {
-        Route::post('/auth/logout', [\App\Http\Controllers\Api\V1\AuthController::class, 'logout']);
-        Route::get('/me', [\App\Http\Controllers\Api\V1\AuthController::class, 'me']);
+        Route::post('/auth/logout', [AuthController::class, 'logout']);
+        Route::get('/me', [AuthController::class, 'me']);
 
         // Event Discovery
-        Route::get('/events', [\App\Http\Controllers\Api\V1\EventController::class, 'index']);
-        Route::get('/events/{event}', [\App\Http\Controllers\Api\V1\EventController::class, 'show']);
+        Route::get('/events', [EventController::class, 'index']);
+        Route::get('/events/{event}', [EventController::class, 'show']);
 
         // Attendee Registration & Digital Tickets
-        Route::post('/events/{event}/registration', [\App\Http\Controllers\Api\V1\RegistrationController::class, 'store']);
-        Route::get('/me/tickets', [\App\Http\Controllers\Api\V1\TicketController::class, 'myTickets']);
-        Route::get('/tickets/{ticket}', [\App\Http\Controllers\Api\V1\TicketController::class, 'show']);
+        Route::post('/events/{event}/registration', [RegistrationController::class, 'store'])->middleware('runtime:legacy,cloud');
+        Route::get('/me/tickets', [TicketController::class, 'myTickets']);
+        Route::get('/tickets/{ticket}', [TicketController::class, 'show']);
 
         // Staff Admission & Multi-Gate Scanning
-        Route::prefix('staff')->group(function () {
-            Route::get('/events', [\App\Http\Controllers\Api\V1\StaffAdmissionController::class, 'assignedEvents']);
-            Route::get('/events/{event}/access-points', [\App\Http\Controllers\Api\V1\StaffAdmissionController::class, 'accessPoints']);
-            Route::post('/events/{event}/admissions/preview', [\App\Http\Controllers\Api\V1\StaffAdmissionController::class, 'preview']);
-            Route::post('/events/{event}/admissions', [\App\Http\Controllers\Api\V1\StaffAdmissionController::class, 'scan']);
+        Route::prefix('staff')->middleware('runtime:legacy')->group(function () {
+            Route::get('/events', [StaffAdmissionController::class, 'assignedEvents']);
+            Route::get('/events/{event}/access-points', [StaffAdmissionController::class, 'accessPoints']);
+            Route::post('/events/{event}/admissions/preview', [StaffAdmissionController::class, 'preview']);
+            Route::post('/events/{event}/admissions', [StaffAdmissionController::class, 'scan']);
         });
     });
 });
