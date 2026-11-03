@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\EventController;
+use App\Http\Controllers\Api\V1\NodeStaffAuthController;
 use App\Http\Controllers\Api\V1\RegistrationController;
 use App\Http\Controllers\Api\V1\StaffAdmissionController;
 use App\Http\Controllers\Api\V1\TicketController;
@@ -14,10 +15,12 @@ Route::prefix('v1')->group(function () {
         ->middleware(['runtime:cloud', 'throttle:student-email']);
 
     Route::post('/auth/login', [AuthController::class, 'login'])
-        ->middleware('throttle:login');
+        ->middleware(['runtime:legacy,cloud', 'throttle:login']);
+    Route::post('/auth/node-staff/login', [NodeStaffAuthController::class, 'login'])
+        ->middleware(['runtime:node', 'throttle:node-staff-login']);
 
     // Authenticated API
-    Route::middleware('auth:sanctum')->group(function () {
+    Route::middleware(['auth:sanctum', 'node.staff'])->group(function () {
         Route::post('/auth/logout', [AuthController::class, 'logout']);
         Route::get('/me', [AuthController::class, 'me']);
 

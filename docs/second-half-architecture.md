@@ -26,6 +26,12 @@ This is a manual staging workflow. A receipt proves possession of the node trans
 
 A package is bound to the first target node selected for its snapshot. The limit is 16 MiB per encrypted package. Invalidated snapshots and staged payloads retain encrypted identity data until an operator removes them under a future retention procedure.
 
+### Provision node staff credentials
+
+After importing a current snapshot, an operator with local node access can run `php artisan ingress:list-node-staff` to see assigned staff and their cloud user IDs. Run `php artisan ingress:provision-node-staff CLOUD_USER_ID` to issue a random local password. It is printed once; deliver it through a secure channel. Repeating the command rotates the password and revokes that user's node sessions. `php artisan ingress:revoke-node-staff CLOUD_USER_ID` revokes the local password and sessions, including after the assignment is removed. Cloud passwords are not copied to the node.
+
+`POST /api/v1/auth/node-staff/login` accepts the assigned user's email and local password. Outside local and testing environments it requires HTTPS, as do authenticated node API requests. Provision a certificate trusted by staff devices and configure trusted TLS proxies where used. Tokens expire after 12 hours. The node rechecks current imported assignments on authenticated requests, and a newer staged snapshot makes the older assignment unavailable until refresh. The existing mobile app does not yet offer node-specific sign-in or pairing. Admission endpoints remain disabled. Before enabling them, enforce token ability and event-scoped authorization inside the admission transaction; a token alone does not grant admission authority.
+
 The runtime identity is retained in the database. Switching the runtime of an existing database or restoring it as another node requires a deliberate, offline migration procedure, which is not implemented yet. Do not delete or edit the identity row to bypass this restriction. Database migrations must be applied before serving requests. `/up` is a process health endpoint and does not check this binding.
 
 ## 1. Core architecture

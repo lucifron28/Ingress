@@ -13,9 +13,11 @@
 use App\Actions\AdmitTicket;
 use App\Actions\ExportSnapshot;
 use App\Actions\ImportReceivedSnapshot;
+use App\Actions\NodeStaffAccess;
 use App\Actions\PrepareEventSnapshot;
 use App\Actions\ReceiveSnapshot;
 use App\Actions\RegisterForEvent;
+use App\Http\Controllers\Api\V1\NodeStaffAuthController;
 use App\Http\Controllers\StudentEmailVerificationController;
 use App\Http\Middleware\EnsureRuntimeDatabase;
 use App\Models\User;
@@ -127,6 +129,12 @@ try {
         config(['ingress.mode' => 'cloud']);
         $snapshot = app(PrepareEventSnapshot::class)->execute($payload['event_id']);
         $emit(['ok' => true, 'id' => $snapshot['id'], 'version' => $snapshot['version']]);
+    } elseif ($mode === 'node_staff_login') {
+        $app->detectEnvironment(fn () => 'testing');
+        config(['ingress.mode' => 'node', 'ingress.node_id' => $payload['node_id']]);
+        $request = Request::create('/api/v1/auth/node-staff/login', 'POST', ['email' => $payload['email'], 'password' => $payload['password']]);
+        $response = app(NodeStaffAuthController::class)->login($request, app(NodeStaffAccess::class));
+        $emit(['ok' => $response->getStatusCode() === 200, 'http_code' => $response->getStatusCode()]);
     } elseif ($mode === 'student_complete') {
         config(['ingress.mode' => 'cloud']);
         $request = Request::create('/student/complete', 'POST', [
