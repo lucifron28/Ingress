@@ -17,7 +17,7 @@ Status is relative to `main` at `9242a4d`. A checked item requires a merged chan
 4. [ ] Add secure offline student ticket caching and session restoration. Native apps cache the wallet after registration or an online wallet refresh and show the saved QR on transport failure. Device verification remains pending. Cached tickets provide display only, not admission or registration authority.
 5. [ ] Add Event Node staff authentication, scanner pairing, and staff-only manual LAN configuration.
 6. [ ] Add idempotent Event Node to cloud reconciliation, retries, and recovery.
-7. [ ] Add institutional email verification and account completion. Require control of an `@student.mseuf.edu.ph` address through a single-use link; do not require a directory import without a separate requirement.
+7. [ ] Add institutional email verification and account completion. The cloud issues a single-use link to an `@student.mseuf.edu.ph` address and creates an account after form submission without a directory import. Mail delivery configuration and device verification remain to be checked in deployment.
 8. [ ] Add guest and alumni tickets, walk-ins, capacity enforcement, and printable QR passes using the shared validation engine.
 9. [ ] Add entry, exit, re-entry policies, and current-presence reporting.
 10. [ ] Add pre-finalization transfers with recipient acceptance, credential rotation, and audit history.

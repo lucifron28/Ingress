@@ -254,13 +254,15 @@ cd api
 composer install
 cp .env.example .env
 php artisan key:generate
-php artisan migrate:fresh --seed
+php artisan migrate --seed
 php artisan serve --host=0.0.0.0 --port=8000
 ```
 Organizer portal available at: `http://localhost:8000/login`
 
+For cloud student signup, set `INGRESS_RUNTIME=cloud`, use a public HTTPS `APP_URL`, and configure a real mail transport and sender (for SMTP set `MAIL_SCHEME=smtps`). Outside local and testing, signup rejects HTTP and log or array mailers. Students request a link in the app and complete their account in a browser. The email proves address control; the student number is self-reported. See [the architecture notes](docs/second-half-architecture.md#institutional-student-account-activation) for configuration and limits.
+
 ### 3. Run Backend Integration Tests
-The fast backend suite runs on in-memory SQLite. The latest successful CI run recorded 83 backend tests and 504 assertions:
+The fast backend suite runs on in-memory SQLite:
 ```bash
 cd api
 php artisan test
@@ -275,7 +277,7 @@ php artisan test --filter=RegistrationTest
 
 #### PostgreSQL concurrency verification (separate)
 
-Sixteen guarantees are verified against the real PostgreSQL server using genuinely overlapping
+Nineteen scenarios are checked against the real PostgreSQL server using genuinely overlapping
 transactions released through a two-process barrier:
 
 1. two simultaneous registrations competing for the final seat
@@ -300,6 +302,9 @@ transactions released through a two-process barrier:
 14. concurrent registration of one node issues only one secret
 15. concurrent exports bind a snapshot to only one target node
 16. reuse of one snapshot ID across events produces one staged record and a handled conflict
+17. concurrent imports of one snapshot produce one node event
+18. concurrent use of one student verification link creates one account
+19. concurrent claims of one student number create one account
 ```bash
 cd api
 php scripts/verify_pgsql_concurrency.php

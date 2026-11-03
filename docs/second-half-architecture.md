@@ -1,7 +1,7 @@
 # Ingress second-half target architecture
 
 **Status:** Planned for the remaining 50% of the project.  
-**Current implementation:** The 50% milestone uses one local Laravel/PostgreSQL server on the venue LAN for student and staff mobile traffic, with two-stage ticket preview and explicit staff confirmation before admission is recorded. Verified MSEUF student institutional account activation, cloud/Event Node synchronization, guest tickets, walk-ins, and ticket transfers are planned second-half functionality. Ingress removes the public internet from the critical event-day admission path, but still requires the venue LAN and Event Node. This document records the agreed target architecture so later implementation does not drift.
+**Current implementation:** The 50% milestone uses one local Laravel/PostgreSQL server on the venue LAN for student and staff mobile traffic, with two-stage ticket preview and explicit staff confirmation before admission is recorded. Cloud/Event Node synchronization, guest tickets, walk-ins, and ticket transfers are planned second-half functionality. Ingress removes the public internet from the critical event-day admission path, but still requires the venue LAN and Event Node. This document records the agreed target architecture so later implementation does not drift.
 
 ## Runtime boundary implemented so far
 
@@ -111,7 +111,11 @@ Student authentication is internet/cloud based.
 
 ### Institutional student account activation
 
-Normal self-service accounts are intended for MSEUF students. The planned flow sends a single-use verification link to an `@student.mseuf.edu.ph` address and completes the account only after the recipient proves control of that address. The server assigns the student role; public users never choose a privileged role. Directory ingestion is not required for this flow. Email control does not by itself prove that a student number belongs to the account holder or that enrollment is current; those claims require a separate institutional source.
+Normal self-service accounts are intended for MSEUF students. The cloud sends a single-use verification link to an `@student.mseuf.edu.ph` address and completes the account only after the recipient proves control of that address. The server assigns the student role; public users never choose a privileged role. Directory ingestion is not required for this flow. Email control does not by itself prove that a student number belongs to the account holder or that enrollment is current; those claims require a separate institutional source.
+
+The mobile sign-in screen can request a link. Opening the email link shows a web form; submitting it consumes the token and creates the account. Links expire after 30 minutes, and a new request invalidates the previous link. The link token is in the URL fragment rather than the server request path. Only its hash is stored in the database. The form uses a CSRF-protected POST; opening the link alone does not create an account.
+
+For cloud deployment, set `APP_URL` to the public HTTPS origin, configure a real mail transport and sender (for SMTP set `MAIL_SCHEME=smtps`) with `MAIL_MAILER` and `MAIL_FROM_ADDRESS`, apply migrations, and configure trusted TLS proxies if applicable. Outside local and testing environments, account verification refuses HTTP, a non-HTTPS `APP_URL`, log or array mail transports, and SMTP without `smtps`. Delivery failures are logged without the email address or link; the request response remains generic. Configure mail monitoring and retention for expired verification records. Existing directory imports are not required for signup.
 
 This keeps the recurring student experience account-based while preserving the MSEUF-first scope of the system. Faculty, staff, and organizers who need privileged access are provisioned through authorized administrative workflows rather than public signup.
 
