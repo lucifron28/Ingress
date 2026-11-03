@@ -8,10 +8,11 @@ use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
-use RuntimeException;
 
 class PrepareEventSnapshot
 {
+    public function __construct(private ReadPreparedSnapshot $reader) {}
+
     /** @return array{id: string, version: int, sha256: string} */
     public function execute(int $eventId): array
     {
@@ -27,20 +28,7 @@ class PrepareEventSnapshot
             }
 
             if ($event->snapshot_prepared_at !== null) {
-                $existing = DB::table('event_snapshots')->where('event_id', $event->id)
-                    ->where('version', $event->snapshot_version)->whereNull('invalidated_at')->first();
-                if (! $existing) {
-                    throw new RuntimeException('The prepared snapshot is missing or corrupt.');
-                }
-                $json = Crypt::decryptString($existing->payload_ciphertext);
-                $payload = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
-                if (! hash_equals($existing->sha256, hash('sha256', $json))
-                    || ($payload['snapshot_id'] ?? null) !== $existing->id
-                    || ($payload['version'] ?? null) !== (int) $existing->version
-                    || ($payload['schema_version'] ?? null) !== (int) $existing->schema_version
-                    || ($payload['event']['id'] ?? null) !== $event->id) {
-                    throw new RuntimeException('The prepared snapshot is missing or corrupt.');
-                }
+                $existing = $this->reader->execute($event)['record'];
 
                 return ['id' => $existing->id, 'version' => (int) $existing->version, 'sha256' => $existing->sha256];
             }

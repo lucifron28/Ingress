@@ -23,6 +23,7 @@
  */
 
 use App\Actions\RegisterForEvent;
+use App\Actions\SnapshotEnvelope;
 use App\Models\AccessPoint;
 use App\Models\Admission;
 use App\Models\Event;
@@ -40,8 +41,18 @@ use Illuminate\Support\Str;
 
 require __DIR__.'/../vendor/autoload.php';
 
-$app = require __DIR__.'/../bootstrap/app.php';
-$app->make(Kernel::class)->bootstrap();
+try {
+    $app = require __DIR__.'/../bootstrap/app.php';
+    $app->make(Kernel::class)->bootstrap();
+} catch (Throwable $error) {
+    fwrite(STDERR, 'POSTGRESQL CONCURRENCY VERIFICATION FAILED: '.get_class($error).PHP_EOL);
+    exit(1);
+}
+
+set_exception_handler(static function (Throwable $error): void {
+    fwrite(STDERR, 'POSTGRESQL CONCURRENCY VERIFICATION FAILED: '.get_class($error).PHP_EOL);
+    exit(1);
+});
 
 $testDatabase = getenv('INGRESS_CONCURRENCY_DB') ?: 'ingress_concurrency';
 $childScript = __DIR__.'/pgsql_concurrency_child.php';
@@ -86,10 +97,17 @@ if (! preg_match('/^[a-z][a-z0-9_]{0,62}$/', $testDatabase)) {
 $admin->exec(sprintf('CREATE DATABASE "%s"', $testDatabase));
 echo "  created.\n";
 
-config(['database.connections.pgsql.database' => $testDatabase]);
+config([
+    'database.default' => 'pgsql',
+    'database.connections.pgsql.url' => null,
+    'database.connections.pgsql.database' => $testDatabase,
+]);
 DB::purge('pgsql');
 
-Artisan::call('migrate:fresh', ['--force' => true]);
+if (Artisan::call('migrate:fresh', ['--force' => true]) !== 0) {
+    fwrite(STDERR, "POSTGRESQL CONCURRENCY VERIFICATION FAILED: migration failed.\n");
+    exit(1);
+}
 echo "  schema migrated.\n\n";
 
 $suffix = Str::lower(Str::random(6));
@@ -966,6 +984,107 @@ $assert($snapshotBlocked > 0, 'snapshot preparation waited for the event lock');
 $assert(($snapshotResult['ok'] ?? false) === true, 'snapshot preparation completed after the update');
 $assert(($snapshotPayload['event']['title'] ?? null) === 'After update', 'snapshot includes the committed event update');
 $assert(($snapshotPayload['access_points'][0]['code'] ?? null) === 'COMMITTED', 'snapshot includes the committed gate');
+echo "\n";
+
+// =============================================================================
+// CASE L - Idempotent concurrent receipt on a single node
+// =============================================================================
+echo "CASE L: concurrent receipt of one snapshot is idempotent\n";
+DB::table('runtime_identity')->delete();
+$nodeSecret = base64_encode(random_bytes(32));
+$sourceSnapshot = DB::table('event_snapshots')->where('event_id', $snapshotEvent->id)->first();
+$sourceJson = Crypt::decryptString($sourceSnapshot->payload_ciphertext);
+$sealed = app(SnapshotEnvelope::class)->seal('race-node', $nodeSecret, $sourceJson);
+$receiveJobs = [
+    ['receive', ['node_id' => 'race-node', 'secret' => $nodeSecret, 'sealed' => $sealed]],
+    ['receive', ['node_id' => 'race-node', 'secret' => $nodeSecret, 'sealed' => $sealed]],
+];
+$receiveResults = $runConcurrently($receiveJobs, $childScript, $testDatabase);
+$assert(($receiveResults[0]['ok'] ?? false) && ($receiveResults[1]['ok'] ?? false), 'both receipt retries succeeded');
+$assert(! empty($receiveResults[0]['receipt_hash']) && $receiveResults[0]['receipt_hash'] === ($receiveResults[1]['receipt_hash'] ?? null), 'both retries produced the same receipt');
+$assert(DB::table('received_snapshots')->where('event_id', $snapshotEvent->id)->count() === 1, 'only one staged snapshot exists');
+echo "\n";
+
+// =============================================================================
+// CASE M - Conflicting packages for one version cannot both be staged
+// =============================================================================
+echo "CASE M: conflicting packages for one event version race\n";
+$otherSource = DB::table('event_snapshots')->where('event_id', $gateSnapshotEvent->id)->first();
+$firstJson = Crypt::decryptString($otherSource->payload_ciphertext);
+$otherPayload = json_decode($firstJson, true, 512, JSON_THROW_ON_ERROR);
+$otherPayload['snapshot_id'] = (string) Str::uuid();
+$otherJson = json_encode($otherPayload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+$conflictJobs = [
+    ['receive', ['node_id' => 'race-node', 'secret' => $nodeSecret, 'sealed' => app(SnapshotEnvelope::class)->seal('race-node', $nodeSecret, $firstJson)]],
+    ['receive', ['node_id' => 'race-node', 'secret' => $nodeSecret, 'sealed' => app(SnapshotEnvelope::class)->seal('race-node', $nodeSecret, $otherJson)]],
+];
+$conflictResults = $runConcurrently($conflictJobs, $childScript, $testDatabase);
+$successes = count(array_filter($conflictResults, fn ($result) => ($result['ok'] ?? false) === true));
+$rejected = count(array_filter($conflictResults, fn ($result) => ($result['reason'] ?? null) === 'validation_error'));
+$assert($successes === 1 && $rejected === 1, 'exactly one conflicting package was accepted');
+$assert(DB::table('received_snapshots')->where('event_id', $gateSnapshotEvent->id)->count() === 1, 'only one package for that event version was staged');
+echo "\n";
+
+// =============================================================================
+// CASE N - Concurrent node registration does not issue two secrets
+// =============================================================================
+echo "CASE N: concurrent registration of one node\n";
+DB::table('runtime_identity')->delete();
+$nodeJobs = [
+    ['register_node', ['node_id' => 'registered-race-node']],
+    ['register_node', ['node_id' => 'registered-race-node']],
+];
+$nodeResults = $runConcurrently($nodeJobs, $childScript, $testDatabase);
+$issued = count(array_filter($nodeResults, fn ($result) => ($result['ok'] ?? false) && ($result['key_shown'] ?? false)));
+$rejected = count(array_filter($nodeResults, fn ($result) => ! ($result['ok'] ?? false) && ! ($result['key_shown'] ?? false)));
+$assert($issued === 1 && $rejected === 1, 'exactly one registration issued a secret');
+$assert(DB::table('event_nodes')->where('id', 'registered-race-node')->count() === 1, 'exactly one node credential exists');
+echo "\n";
+
+// =============================================================================
+// CASE O - A snapshot cannot be exported to competing nodes
+// =============================================================================
+echo "CASE O: concurrent export to two nodes\n";
+foreach (['target-a', 'target-b'] as $target) {
+    DB::table('event_nodes')->insert([
+        'id' => $target, 'key_ciphertext' => Crypt::encryptString(base64_encode(random_bytes(32))),
+        'created_at' => now(), 'updated_at' => now(),
+    ]);
+}
+$exportJobs = [
+    ['export', ['node_id' => 'target-a', 'event_id' => $snapshotEvent->id]],
+    ['export', ['node_id' => 'target-b', 'event_id' => $snapshotEvent->id]],
+];
+$exportResults = $runConcurrently($exportJobs, $childScript, $testDatabase);
+$exports = count(array_filter($exportResults, fn ($result) => ($result['ok'] ?? false) === true));
+$rejections = count(array_filter($exportResults, fn ($result) => ($result['reason'] ?? null) === 'validation_error'));
+$target = DB::table('event_snapshots')->where('event_id', $snapshotEvent->id)->value('target_node_id');
+$assert($exports === 1 && $rejections === 1, 'only one target received an export');
+$assert(in_array($target, ['target-a', 'target-b'], true), 'snapshot retained the winning target');
+echo "\n";
+
+// =============================================================================
+// CASE P - Reused snapshot identifiers across events fail closed
+// =============================================================================
+echo "CASE P: one snapshot ID is reused across two events\n";
+DB::table('runtime_identity')->delete();
+$firstPayload = json_decode($firstJson, true, 512, JSON_THROW_ON_ERROR);
+$firstPayload['snapshot_id'] = (string) Str::uuid();
+$firstPayload['event']['id'] = $gateSnapshotEvent->id + 100000;
+$secondPayload = $firstPayload;
+$secondPayload['event']['id']++;
+$firstPackage = app(SnapshotEnvelope::class)->seal('race-node', $nodeSecret, json_encode($firstPayload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
+$secondPackage = app(SnapshotEnvelope::class)->seal('race-node', $nodeSecret, json_encode($secondPayload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
+$duplicateIdJobs = [
+    ['receive', ['node_id' => 'race-node', 'secret' => $nodeSecret, 'sealed' => $firstPackage]],
+    ['receive', ['node_id' => 'race-node', 'secret' => $nodeSecret, 'sealed' => $secondPackage]],
+];
+$duplicateIdResults = $runConcurrently($duplicateIdJobs, $childScript, $testDatabase);
+echo '  workers: '.json_encode($duplicateIdResults).PHP_EOL;
+$successes = count(array_filter($duplicateIdResults, fn ($result) => ($result['ok'] ?? false) === true));
+$rejections = count(array_filter($duplicateIdResults, fn ($result) => ($result['reason'] ?? null) === 'validation_error'));
+$assert($successes === 1 && $rejections === 1, 'a reused snapshot ID is rejected without an unhandled error');
+$assert(DB::table('received_snapshots')->where('id', $firstPayload['snapshot_id'])->count() === 1, 'only one snapshot with that ID was staged');
 echo "\n";
 
 // =============================================================================

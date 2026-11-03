@@ -11,13 +11,16 @@
  */
 
 use App\Actions\AdmitTicket;
+use App\Actions\ExportSnapshot;
 use App\Actions\PrepareEventSnapshot;
+use App\Actions\ReceiveSnapshot;
 use App\Actions\RegisterForEvent;
 use App\Http\Middleware\EnsureRuntimeDatabase;
 use App\Models\User;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -31,7 +34,11 @@ $mode = $argv[1] ?? '';
 $payload = json_decode(base64_decode($argv[2] ?? ''), true) ?: [];
 
 // Point this worker at the dedicated concurrency database.
-config(['database.connections.pgsql.database' => $payload['db']]);
+config([
+    'database.default' => 'pgsql',
+    'database.connections.pgsql.url' => null,
+    'database.connections.pgsql.database' => $payload['db'],
+]);
 DB::purge('pgsql');
 
 // Open the PostgreSQL connection (full handshake) before announcing readiness, so
@@ -97,15 +104,28 @@ try {
             'status' => $result['status'],
             'attempted_admission_insert' => $attemptedAdmissionInsert,
         ]);
+    } elseif ($mode === 'register_node') {
+        config(['ingress.mode' => 'cloud']);
+        $exitCode = Artisan::call('ingress:register-node', ['node_id' => $payload['node_id']]);
+        $output = Artisan::output();
+        $emit(['ok' => $exitCode === 0, 'key_shown' => str_contains($output, 'INGRESS_NODE_SYNC_KEY=')]);
+    } elseif ($mode === 'export') {
+        config(['ingress.mode' => 'cloud']);
+        $sealed = app(ExportSnapshot::class)->execute($payload['event_id'], $payload['node_id']);
+        $emit(['ok' => true, 'sealed' => $sealed !== '']);
+    } elseif ($mode === 'receive') {
+        config(['ingress.mode' => 'node', 'ingress.node_id' => $payload['node_id'], 'ingress.node_sync_key' => $payload['secret']]);
+        $receipt = app(ReceiveSnapshot::class)->execute($payload['sealed']);
+        $emit(['ok' => true, 'receipt_hash' => hash('sha256', $receipt)]);
     } elseif ($mode === 'snapshot') {
         config(['ingress.mode' => 'cloud']);
-        $snapshot = (new PrepareEventSnapshot)->execute($payload['event_id']);
+        $snapshot = app(PrepareEventSnapshot::class)->execute($payload['event_id']);
         $emit(['ok' => true, 'id' => $snapshot['id'], 'version' => $snapshot['version']]);
     } elseif ($mode === 'runtime') {
         $app->detectEnvironment(fn () => 'production');
         config(['ingress.mode' => $payload['runtime'], 'ingress.node_id' => $payload['node_id'] ?? null]);
         try {
-            $response = (new EnsureRuntimeDatabase)->handle(
+            $response = app(EnsureRuntimeDatabase::class)->handle(
                 Request::create('/login'),
                 fn () => response('ok')
             );
