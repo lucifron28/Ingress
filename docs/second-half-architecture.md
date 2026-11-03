@@ -3,6 +3,14 @@
 **Status:** Planned for the remaining 50% of the project.  
 **Current implementation:** The 50% milestone uses one local Laravel/PostgreSQL server on the venue LAN for student and staff mobile traffic, with two-stage ticket preview and explicit staff confirmation before admission is recorded. Verified MSEUF student institutional account activation, cloud/Event Node synchronization, offline wallet, guest tickets, walk-ins, and ticket transfers are planned second-half functionality. Ingress removes the public internet from the critical event-day admission path, but still requires the venue LAN and Event Node. This document records the agreed target architecture so later implementation does not drift.
 
+## Runtime boundary implemented so far
+
+`INGRESS_RUNTIME=legacy` retains the single-server demo only when `APP_ENV` is `local` or `testing`. Cloud and node runtimes require PostgreSQL outside automated tests. Set a unique, stable `INGRESS_NODE_ID` on each node. Each database binds to the first runtime and node identity that uses it; a different identity receives HTTP 503. Configure separate PostgreSQL databases for cloud and each node. This binding prevents an accidental shared database, but it does not authenticate a node or prevent copies of a database from running independently.
+
+Cloud permits student registration and organizer event changes, but rejects scanner endpoints. Node rejects registration, organizer operations, and scanner endpoints. Admission remains available only in the non-production legacy demo until verified snapshots and an authority handoff are implemented. Neither runtime currently transfers events or synchronizes admissions. Do not use split runtimes for event admission yet.
+
+The runtime identity is retained in the database. Switching the runtime of an existing database or restoring it as another node requires a deliberate, offline migration procedure, which is not implemented yet. Do not delete or edit the identity row to bypass this restriction. Database migrations must be applied before serving requests. `/up` is a process health endpoint and does not check this binding.
+
 ## 1. Core architecture
 
 Ingress will separate online ticketing from event-day admission.
