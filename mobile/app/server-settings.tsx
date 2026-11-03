@@ -9,7 +9,7 @@ import {
   View,
 } from 'react-native';
 import { useAuth } from '../src/context/AuthContext';
-import { DEFAULT_API_URL } from '../src/services/api-client';
+import { DEFAULT_API_URL, DEMO_MODE } from '../src/services/api-client';
 
 export default function ServerSettingsScreen() {
   const { serverUrl, updateServerUrl } = useAuth();
@@ -62,6 +62,10 @@ export default function ServerSettingsScreen() {
   const handleReset = () => {
     setUrlInput(DEFAULT_API_URL);
   };
+
+  if (!DEMO_MODE) {
+    return <View style={styles.container}><Text>Legacy server configuration is available only in demo builds.</Text></View>;
+  }
 
   return (
     <View style={styles.container}>

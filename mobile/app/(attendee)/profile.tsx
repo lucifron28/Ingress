@@ -9,9 +9,13 @@ import {
   View,
 } from 'react-native';
 import { useAuth } from '../../src/context/AuthContext';
+import { useNodeStaff } from '../../src/context/NodeStaffContext';
+import { DEMO_MODE } from '../../src/services/api-client';
+import { canUseStaffEntry } from '../../src/services/staff-access';
 
 export default function ProfileScreen() {
   const { user, serverUrl, logout } = useAuth();
+  const node = useNodeStaff();
 
   const handleLogout = () => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out of Ingress?', [
@@ -20,7 +24,10 @@ export default function ProfileScreen() {
         text: 'Sign Out',
         style: 'destructive',
         onPress: async () => {
+          let nodeFailed = false;
+          try { await node.logout(); } catch { nodeFailed = true; }
           await logout();
+          if (nodeFailed) Alert.alert('Staff sign out incomplete', 'Secure storage was unavailable. Sign out of the staff session when it is available.');
           router.replace('/login');
         },
       },
@@ -59,6 +66,12 @@ export default function ProfileScreen() {
         </View>
       </View>
 
+      {user && canUseStaffEntry(user) && (
+        <Pressable style={styles.settingsButton} onPress={() => router.push('/node-staff-login')}>
+          <Text style={styles.settingsButtonText}>Staff scanner sign in</Text>
+        </Pressable>
+      )}
+      {DEMO_MODE && (
       <View style={styles.infoCard}>
         <Text style={styles.sectionHeading}>LAN Event Server</Text>
         <View style={styles.row}>
@@ -72,6 +85,7 @@ export default function ProfileScreen() {
           <Text style={styles.settingsButtonText}>Configure LAN Server IP</Text>
         </Pressable>
       </View>
+      )}
 
       <Pressable style={styles.logoutButton} onPress={handleLogout}>
         <Text style={styles.logoutButtonText}>Sign Out</Text>

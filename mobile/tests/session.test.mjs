@@ -31,6 +31,7 @@ export async function deleteItemAsync(k) { store.delete(k); }
 `);
 
 const REACT_NATIVE_STUB = encode(`export const Platform = { OS: 'android' };`);
+const EXPO_FETCH_STUB = encode(`export const fetch = (...args) => globalThis.fetch(...args);`);
 
 const LOADER = encode(`
 import { existsSync } from 'node:fs';
@@ -39,6 +40,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const MAPPINGS = {
   'expo-secure-store': ${JSON.stringify(SECURE_STORE_STUB)},
   'react-native': ${JSON.stringify(REACT_NATIVE_STUB)},
+  'expo/fetch': ${JSON.stringify(EXPO_FETCH_STUB)},
 };
 
 export async function resolve(specifier, context, nextResolve) {
@@ -66,7 +68,9 @@ register(LOADER, import.meta.url);
 const { AuthStorage, TicketWallet } = await import('../src/services/auth-storage.ts');
 const SecureStore = await import('expo-secure-store');
 const { Platform } = await import('react-native');
+const { canUseStaffEntry } = await import('../src/services/staff-access.ts');
 const { loadWallet, loadWalletTicket } = await import('../src/services/wallet-sync.ts');
+const { loginNodeStaff, getNodeSession, nodeRequest, logoutNodeStaff, normalizeNodeUrl, setNodeUnauthorizedHandler } = await import('../src/services/node-session.ts');
 const { apiRequest, DEMO_MODE, ApiError, setUnauthorizedHandler } = await import('../src/services/api-client.ts');
 
 let passed = 0;
@@ -145,6 +149,84 @@ Platform.OS = 'android';
 await AuthStorage.clearAll();
 
 const realFetch = globalThis.fetch;
+await AuthStorage.saveServerUrl(scope.serverUrl);
+await AuthStorage.saveToken(scope.token);
+await AuthStorage.saveUser(JSON.stringify({ id: scope.userId, name: 'Student', role: 'student' }));
+await TicketWallet.replace(scope, [ticket]);
+const staffUser = { id: 77, name: 'Staff', email: 'staff@example.test', role: 'student', student_id: null };
+const calls = [];
+globalThis.fetch = async (url, options) => {
+  calls.push({ url: String(url), options });
+  if (String(url).endsWith('/auth/node-staff/login')) return new Response(JSON.stringify({ token: 'node-token', user: staffUser, node_staff: true }), { status: 200 });
+  if (String(url).endsWith('/me')) return new Response(JSON.stringify({ user: staffUser }), { status: 200 });
+  return new Response('{}', { status: 200 });
+};
+await loginNodeStaff('https://node.example/api/v1/', 'staff@example.test', 'secret');
+await nodeRequest('/me');
+check('node login and requests use HTTPS without redirects or cloud credentials', calls.length === 2 && calls.every((call) => call.url.startsWith('https://node.example/') && call.options.redirect === 'error' && call.options.credentials === 'omit') && !calls[0].options.headers.Authorization && calls[1].options.headers.Authorization === 'Bearer node-token');
+check('node session persists independently of the cloud wallet', (await getNodeSession())?.token === 'node-token' && (await AuthStorage.getToken()) === scope.token && (await TicketWallet.read(scope))?.tickets[0]?.qr_payload === ticket.qr_payload);
+let rejectedUrls = 0;
+for (const url of ['http://node.example/api/v1', 'https://user:pass@node.example/api/v1', 'https://node.example/api/v1?x=1', 'https://node.example/api/v1#x', 'https://node.example/other']) {
+  try { normalizeNodeUrl(url); } catch { rejectedUrls++; }
+}
+check('node configuration rejects insecure or ambiguous addresses', rejectedUrls === 5);
+const beforeEscape = calls.length;
+try { await nodeRequest('/../../other'); } catch { /* Expected rejection. */ }
+check('node requests cannot escape the configured API path', calls.length === beforeEscape);
+try { await nodeRequest('/staff/%2e%2e/other'); } catch { /* Expected rejection. */ }
+check('node requests reject encoded path traversal', calls.length === beforeEscape);
+check('staff entry hides from known unassigned students and permits assigned students', !canUseStaffEntry({ ...staffUser, is_event_staff: false }) && canUseStaffEntry({ ...staffUser, is_event_staff: true }));
+check('staff entry remains available when an older cached profile has no assignment flag', canUseStaffEntry(staffUser));
+globalThis.fetch = async () => new Response(JSON.stringify({ status: 'already_admitted', message: 'Already admitted', detail: 'Previously admitted', previous_admission: { access_point: 'Gate A', admitted_at: '2026-01-01T00:00:00Z' } }), { status: 409 });
+let nodeConflict;
+try { await nodeRequest('/staff/events/1/admissions'); } catch (error) { nodeConflict = error; }
+check('node errors preserve admission status and prior gate', nodeConflict?.domainStatus === 'already_admitted' && nodeConflict?.data?.previous_admission?.access_point === 'Gate A');
+globalThis.fetch = async () => new Response('{}', { status: 200 });
+await logoutNodeStaff();
+check('node logout clears only the node session', (await getNodeSession()) === null && (await AuthStorage.getToken()) === scope.token && (await TicketWallet.read(scope)) !== null);
+globalThis.fetch = async () => new Response(JSON.stringify({ token: 'node-token', user: staffUser, node_staff: true }), { status: 200 });
+await loginNodeStaff('https://node.example/api/v1', 'staff@example.test', 'secret');
+globalThis.fetch = async () => new Response('{"message":"Unauthenticated"}', { status: 401 });
+try { await nodeRequest('/me'); } catch { /* Expected rejection. */ }
+check('node 401 clears only the matching node session', (await getNodeSession()) === null && (await AuthStorage.getToken()) === scope.token && (await TicketWallet.read(scope)) !== null);
+let loginNumber = 0;
+let releaseOldRequest;
+let notified = false;
+setNodeUnauthorizedHandler(() => { notified = true; });
+globalThis.fetch = async (url) => {
+  if (String(url).endsWith('/auth/node-staff/login')) {
+    loginNumber++;
+    return new Response(JSON.stringify({ token: `node-token-${loginNumber}`, user: staffUser, node_staff: true }), { status: 200 });
+  }
+  if (String(url).endsWith('/me')) return new Promise((resolve) => { releaseOldRequest = resolve; });
+  return new Response('{}', { status: 200 });
+};
+await loginNodeStaff('https://node.example/api/v1', 'staff@example.test', 'secret');
+const oldRequest = nodeRequest('/me').catch(() => undefined);
+while (!releaseOldRequest) await new Promise((resolve) => setTimeout(resolve, 0));
+await loginNodeStaff('https://node2.example/api/v1', 'staff@example.test', 'secret');
+releaseOldRequest(new Response('{"message":"Unauthenticated"}', { status: 401 }));
+await oldRequest;
+check('a delayed node 401 cannot clear a newer node session', (await getNodeSession())?.token === 'node-token-2' && !notified);
+await logoutNodeStaff();
+setNodeUnauthorizedHandler(null);
+let revokedUnsaved = false;
+globalThis.fetch = async (url) => {
+  if (String(url).endsWith('/auth/logout')) { revokedUnsaved = true; return new Response('{}', { status: 200 }); }
+  return new Response(JSON.stringify({ token: 'unsaved-token', user: staffUser, node_staff: true }), { status: 200 });
+};
+SecureStore.failNextWrite('ingress_node_staff_session_v1');
+let secureFailure = false;
+try { await loginNodeStaff('https://node.example/api/v1', 'staff@example.test', 'secret'); } catch { secureFailure = true; }
+check('failed secure storage rejects sign-in and revokes the unsaved token', secureFailure && revokedUnsaved && (await getNodeSession()) === null);
+Platform.OS = 'web';
+let webRejected = false;
+try { await loginNodeStaff('https://node.example/api/v1', 'staff@example.test', 'secret'); } catch { webRejected = true; }
+check('node sessions are not persisted in web storage', webRejected);
+Platform.OS = 'android';
+globalThis.fetch = realFetch;
+await AuthStorage.clearAll();
+
 await AuthStorage.saveServerUrl(scope.serverUrl);
 await AuthStorage.saveToken(scope.token);
 await AuthStorage.saveUser(JSON.stringify({ id: scope.userId }));

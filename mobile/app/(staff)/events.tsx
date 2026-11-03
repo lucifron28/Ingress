@@ -10,6 +10,8 @@ import {
   View,
 } from 'react-native';
 import { useAuth } from '../../src/context/AuthContext';
+import { useNodeStaff } from '../../src/context/NodeStaffContext';
+import { nodeRequest } from '../../src/services/node-session';
 import { apiRequest } from '../../src/services/api-client';
 
 interface AssignedEvent {
@@ -29,7 +31,10 @@ interface AssignedEvent {
 }
 
 export default function StaffEventsScreen() {
-  const { user } = useAuth();
+  const cloud = useAuth();
+  const node = useNodeStaff();
+  const user = node.active ? node.session?.user : cloud.user;
+  const request = node.active ? nodeRequest : apiRequest;
   const [events, setEvents] = useState<AssignedEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -38,7 +43,7 @@ export default function StaffEventsScreen() {
   const fetchAssignedEvents = async () => {
     try {
       setErrorMessage(null);
-      const res = await apiRequest<{ events: AssignedEvent[] }>('/staff/events');
+      const res = await request<{ events: AssignedEvent[] }>('/staff/events');
       setEvents(res.events || []);
     } catch (err: unknown) {
       const errorObj = err as { message?: string };

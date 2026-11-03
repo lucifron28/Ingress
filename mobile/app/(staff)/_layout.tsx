@@ -2,9 +2,11 @@ import { router, Stack } from 'expo-router';
 import React from 'react';
 import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '../../src/context/AuthContext';
+import { useNodeStaff } from '../../src/context/NodeStaffContext';
 
 export default function StaffLayout() {
-  const { user, logout } = useAuth();
+  const { logout } = useAuth();
+  const node = useNodeStaff();
 
   const handleLogout = () => {
     Alert.alert('Sign Out', 'Sign out of Staff Scanner mode?', [
@@ -13,8 +15,18 @@ export default function StaffLayout() {
         text: 'Sign Out',
         style: 'destructive',
         onPress: async () => {
-          await logout();
-          router.replace('/login');
+          try {
+            if (node.active) {
+              await node.logout();
+              router.replace('/node-staff-login');
+            } else {
+              await node.logout();
+              await logout();
+              router.replace('/login');
+            }
+          } catch {
+            Alert.alert('Sign out failed', 'Secure storage is unavailable. Try again.');
+          }
         },
       },
     ]);
@@ -36,6 +48,9 @@ export default function StaffLayout() {
             <View style={styles.staffBadge}>
               <Text style={styles.staffBadgeText}>STAFF</Text>
             </View>
+            <Pressable onPress={() => router.push('/node-staff-login')} style={styles.signOutButton}>
+              <Text style={styles.signOutText}>{node.active ? 'Node' : 'Connect node'}</Text>
+            </Pressable>
             <Pressable onPress={handleLogout} style={styles.signOutButton}>
               <Text style={styles.signOutText}>Exit</Text>
             </Pressable>
