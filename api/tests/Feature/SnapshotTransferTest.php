@@ -3,10 +3,12 @@
 namespace Tests\Feature;
 
 use App\Actions\ExportSnapshot;
+use App\Actions\ImportReceivedSnapshot;
 use App\Actions\ReceiveSnapshot;
 use App\Actions\SnapshotEnvelope;
 use App\Http\Controllers\Web\OrganizerEventController;
 use App\Models\Event;
+use App\Models\Ticket;
 use App\Models\User;
 use App\Models\Venue;
 use Illuminate\Encryption\Encrypter;
@@ -96,6 +98,12 @@ class SnapshotTransferTest extends TestCase
             $stored = DB::table('received_snapshots')->first();
             $this->assertStringNotContainsString('Private Attendee', $stored->payload_ciphertext);
             $this->assertStringContainsString('Private Attendee', Crypt::decryptString($stored->payload_ciphertext));
+            $importedId = app(ImportReceivedSnapshot::class)->execute($event->id);
+            $this->assertDatabaseHas('events', ['id' => $importedId, 'title' => $event->title]);
+            $ticket = Ticket::firstOrFail();
+            $this->assertTrue($ticket->verifySecret(explode(':', $qr)[3]));
+            $this->assertNull($ticket->encrypted_secret);
+            $this->assertSame($importedId, app(ImportReceivedSnapshot::class)->execute($event->id));
             $path = tempnam(sys_get_temp_dir(), 'ingress-test-');
             try {
                 file_put_contents($path, $sealed);

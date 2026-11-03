@@ -22,6 +22,7 @@
  * touches demonstration data.
  */
 
+use App\Actions\ReceiveSnapshot;
 use App\Actions\RegisterForEvent;
 use App\Actions\SnapshotEnvelope;
 use App\Models\AccessPoint;
@@ -1085,6 +1086,32 @@ $successes = count(array_filter($duplicateIdResults, fn ($result) => ($result['o
 $rejections = count(array_filter($duplicateIdResults, fn ($result) => ($result['reason'] ?? null) === 'validation_error'));
 $assert($successes === 1 && $rejections === 1, 'a reused snapshot ID is rejected without an unhandled error');
 $assert(DB::table('received_snapshots')->where('id', $firstPayload['snapshot_id'])->count() === 1, 'only one snapshot with that ID was staged');
+echo "\n";
+
+// =============================================================================
+// CASE Q - Concurrent imports create one local event
+// =============================================================================
+echo "CASE Q: concurrent import of one snapshot is idempotent\n";
+$importPayload = json_decode($sourceJson, true, 512, JSON_THROW_ON_ERROR);
+$importPayload['snapshot_id'] = (string) Str::uuid();
+$importPayload['event']['id'] += 200000;
+$importPayload['event']['slug'] = "import-race-{$suffix}";
+$importPayload['event']['organizer']['id'] += 200000;
+$importPayload['event']['organizer']['email'] = "import-{$suffix}@example.test";
+$importPayload['event']['venue']['id'] += 200000;
+$importPayload['event']['venue']['code'] = "IMP{$suffix}";
+$importJson = json_encode($importPayload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+config(['ingress.mode' => 'node', 'ingress.node_id' => 'race-node', 'ingress.node_sync_key' => $nodeSecret]);
+app(ReceiveSnapshot::class)->execute(app(SnapshotEnvelope::class)->seal('race-node', $nodeSecret, $importJson));
+$importJobs = [
+    ['import', ['node_id' => 'race-node', 'event_id' => $importPayload['event']['id']]],
+    ['import', ['node_id' => 'race-node', 'event_id' => $importPayload['event']['id']]],
+];
+$importResults = $runConcurrently($importJobs, $childScript, $testDatabase);
+echo '  workers: '.json_encode($importResults).PHP_EOL;
+$assert(($importResults[0]['ok'] ?? false) && ($importResults[1]['ok'] ?? false), 'both imports completed');
+$assert(! empty($importResults[0]['event_id']) && ($importResults[0]['event_id'] ?? null) === ($importResults[1]['event_id'] ?? null), 'both imports returned the same node event');
+$assert(DB::table('node_event_imports')->where('cloud_event_id', $importPayload['event']['id'])->count() === 1, 'only one event import exists');
 echo "\n";
 
 // =============================================================================
