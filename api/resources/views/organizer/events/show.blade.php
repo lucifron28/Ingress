@@ -1,9 +1,9 @@
 @extends('layouts.app')
 
 @section('content')
-@if ($errors->has('event') || $errors->has('registration'))
+@if ($errors->has('event') || $errors->has('registration') || $errors->has('transfer') || $errors->has('node_id') || $errors->has('receipt'))
     <div role="alert" style="background: #fef2f2; color: #991b1b; padding: 1rem; margin-bottom: 1rem;">
-        {{ $errors->first('event') ?: $errors->first('registration') }}
+        {{ $errors->first('event') ?: ($errors->first('registration') ?: ($errors->first('transfer') ?: ($errors->first('node_id') ?: $errors->first('receipt')))) }}
     </div>
 @endif
 <div style="margin-bottom: 2rem;">
@@ -80,6 +80,27 @@
 <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem; margin-bottom: 2rem;">
     @if ($event->snapshot_prepared_at)
         <p class="card" style="grid-column: 1 / -1;">Snapshot prepared. Event changes are locked. Admission is not ready yet.</p>
+    @endif
+    @if (config('ingress.mode') === 'cloud' && $event->snapshot_prepared_at && auth()->user()->can('update', $event))
+        <div class="card" style="grid-column: 1 / -1;">
+            <h2>Send snapshot to Event Node</h2>
+            <p>Download the encrypted package and import it on the named node. Return the node's receipt here. Admission remains unavailable.</p>
+            @if ($receiptNodeId)
+                <p>Received by node {{ $receiptNodeId }}. Admission is not ready.</p>
+            @endif
+            <form method="POST" action="{{ route('organizer.events.snapshot.export', $event) }}">
+                @csrf
+                <label for="node-id">Node ID</label>
+                <input id="node-id" name="node_id" required maxlength="64" class="form-input">
+                <button type="submit" class="btn-secondary">Download Package</button>
+            </form>
+            <form method="POST" action="{{ route('organizer.events.snapshot.receipt', $event) }}" style="margin-top: 1rem;">
+                @csrf
+                <label for="snapshot-receipt">Node receipt</label>
+                <textarea id="snapshot-receipt" name="receipt" required maxlength="4096" class="form-input"></textarea>
+                <button type="submit" class="btn-secondary">Confirm Receipt</button>
+            </form>
+        </div>
     @endif
     <!-- Event Details Card -->
     <div class="card">

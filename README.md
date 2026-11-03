@@ -275,7 +275,7 @@ php artisan test --filter=RegistrationTest
 
 #### PostgreSQL concurrency verification (separate)
 
-Eleven guarantees are verified against the real PostgreSQL server using genuinely overlapping
+Sixteen guarantees are verified against the real PostgreSQL server using genuinely overlapping
 transactions released through a two-process barrier:
 
 1. two simultaneous registrations competing for the final seat
@@ -295,6 +295,11 @@ transactions released through a two-process barrier:
 9. a registration waiting on a held cutoff — registration observes the cutoff and is rejected
 10. concurrent preparation requests return one snapshot version
 11. snapshot preparation waits for an event and gate update and captures the committed data
+12. concurrent receipt of one snapshot produces one staged record and the same receipt
+13. conflicting packages for one event version cannot both be staged
+14. concurrent registration of one node issues only one secret
+15. concurrent exports bind a snapshot to only one target node
+16. reuse of one snapshot ID across events produces one staged record and a handled conflict
 ```bash
 cd api
 php scripts/verify_pgsql_concurrency.php
@@ -304,7 +309,7 @@ Cases 4, 5, and 7 hold an uncommitted conflicting write from a second connection
 until PostgreSQL reports the worker blocked (`pg_stat_activity`), then release it.
 The script provisions its own `ingress_concurrency` database (created only when the name does not already exist)
 so demonstration data is never touched, and exits non-zero if any invariant is
-violated. Set `INGRESS_CONCURRENCY_DB` to an unused database name for each run. The verifier refuses to reset an existing database.
+violated. Set `INGRESS_CONCURRENCY_DB` to an unused database name for each run. The verifier refuses to reset an existing database. It explicitly uses PostgreSQL with the `DB_HOST`, `DB_PORT`, `DB_USERNAME`, and `DB_PASSWORD` settings and ignores `DB_URL`.
 
 #### Mobile session checks
 

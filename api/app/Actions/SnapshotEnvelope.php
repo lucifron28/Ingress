@@ -1,0 +1,120 @@
+<?php
+
+namespace App\Actions;
+
+use Illuminate\Contracts\Encryption\DecryptException;
+use Illuminate\Encryption\Encrypter;
+use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
+use JsonException;
+
+class SnapshotEnvelope
+{
+    private function key(string $secret, string $purpose): string
+    {
+        $raw = base64_decode($secret, true);
+        if ($raw === false || strlen($raw) !== 32 || ! hash_equals(base64_encode($raw), $secret)) {
+            throw ValidationException::withMessages(['transfer' => 'Invalid node transfer credential.']);
+        }
+
+        return hash_hkdf('sha256', $raw, 32, $purpose);
+    }
+
+    private function invalid(): never
+    {
+        throw ValidationException::withMessages(['transfer' => 'Invalid snapshot transfer.']);
+    }
+
+    /** @return array{node_id: string, snapshot_id: string, event_id: int, version: int, sha256: string} */
+    private function metadata(string $nodeId, string $json): array
+    {
+        try {
+            $payload = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+        } catch (JsonException) {
+            $this->invalid();
+        }
+        if (! is_array($payload) || ($payload['schema_version'] ?? null) !== 1
+            || ! is_string($payload['snapshot_id'] ?? null) || ! Str::isUuid($payload['snapshot_id'])
+            || ! is_int($payload['version'] ?? null) || $payload['version'] < 1
+            || ! is_array($payload['event'] ?? null)
+            || ! is_int($payload['event']['id'] ?? null) || $payload['event']['id'] < 1
+            || ! is_array($payload['registrations'] ?? null) || ! is_array($payload['staff'] ?? null)
+            || ! is_array($payload['access_points'] ?? null)) {
+            $this->invalid();
+        }
+
+        return ['node_id' => $nodeId, 'snapshot_id' => $payload['snapshot_id'],
+            'event_id' => $payload['event']['id'], 'version' => $payload['version'], 'sha256' => hash('sha256', $json)];
+    }
+
+    public function seal(string $nodeId, string $secret, string $json): string
+    {
+        $metadata = $this->metadata($nodeId, $json);
+        $encrypter = new Encrypter($this->key($secret, 'ingress snapshot encryption v1'), 'AES-256-CBC');
+
+        $sealed = $encrypter->encryptString(json_encode(['protocol' => 1, 'metadata' => $metadata, 'payload' => $json], JSON_THROW_ON_ERROR));
+        if (strlen($sealed) > 16 * 1024 * 1024) {
+            throw ValidationException::withMessages(['transfer' => 'Snapshot package is too large.']);
+        }
+
+        return $sealed;
+    }
+
+    /** @return array{metadata: array, json: string} */
+    public function open(string $nodeId, string $secret, string $envelope): array
+    {
+        if (strlen($envelope) > 16 * 1024 * 1024) {
+            $this->invalid();
+        }
+        $decoded = base64_decode($envelope, true);
+        if ($decoded === false || ! hash_equals(base64_encode($decoded), $envelope)) {
+            $this->invalid();
+        }
+        $encrypter = new Encrypter($this->key($secret, 'ingress snapshot encryption v1'), 'AES-256-CBC');
+        try {
+            $body = json_decode($encrypter->decryptString($envelope), true, 512, JSON_THROW_ON_ERROR);
+        } catch (DecryptException|JsonException) {
+            $this->invalid();
+        }
+        if (! is_array($body) || ($body['protocol'] ?? null) !== 1 || ! is_string($body['payload'] ?? null)
+            || ! is_array($body['metadata'] ?? null)) {
+            $this->invalid();
+        }
+        $metadata = $this->metadata($nodeId, $body['payload']);
+        if ($body['metadata'] !== $metadata) {
+            $this->invalid();
+        }
+
+        return ['metadata' => $metadata, 'json' => $body['payload']];
+    }
+
+    public function receipt(array $metadata, string $secret): string
+    {
+        $encoded = rtrim(strtr(base64_encode(json_encode($metadata, JSON_THROW_ON_ERROR)), '+/', '-_'), '=');
+        $mac = hash_hmac('sha256', $encoded, $this->key($secret, 'ingress snapshot receipt v1'));
+
+        return $encoded.'.'.$mac;
+    }
+
+    public function verifyReceipt(string $receipt, string $secret): array
+    {
+        if (strlen($receipt) > 4096 || ! preg_match('/^([A-Za-z0-9_-]+)\.([a-f0-9]{64})$/', $receipt, $matches)) {
+            $this->invalid();
+        }
+        $expected = hash_hmac('sha256', $matches[1], $this->key($secret, 'ingress snapshot receipt v1'));
+        if (! hash_equals($expected, $matches[2])) {
+            $this->invalid();
+        }
+        $json = base64_decode(strtr($matches[1], '-_', '+/'), true);
+        try {
+            $metadata = json_decode($json === false ? '' : $json, true, 16, JSON_THROW_ON_ERROR);
+        } catch (JsonException) {
+            $this->invalid();
+        }
+        if (! is_array($metadata)) {
+            $this->invalid();
+        }
+
+        return $metadata;
+    }
+}

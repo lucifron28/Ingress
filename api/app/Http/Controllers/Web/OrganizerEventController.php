@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Web;
 
+use App\Actions\ConfirmSnapshotReceipt;
+use App\Actions\ExportSnapshot;
 use App\Actions\PrepareEventSnapshot;
 use App\Http\Controllers\Controller;
 use App\Models\AccessPoint;
@@ -19,6 +21,7 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
+use Symfony\Component\HttpFoundation\Response;
 
 class OrganizerEventController extends Controller
 {
@@ -137,8 +140,19 @@ class OrganizerEventController extends Controller
 
         $event->load(['venue', 'accessPoints', 'staffAssignments.user', 'staffAssignments.accessPoint']);
         $staffUsers = User::where('role', User::ROLE_STAFF)->orderBy('name')->get();
+        $receiptNodeId = null;
+        if (config('ingress.mode') === 'cloud' && $event->snapshot_prepared_at !== null && Auth::user()->can('update', $event)) {
+            $receiptNodeId = DB::table('event_snapshots')
+                ->join('event_snapshot_receipts', 'event_snapshots.id', '=', 'event_snapshot_receipts.snapshot_id')
+                ->join('event_nodes', 'event_nodes.id', '=', 'event_snapshot_receipts.node_id')
+                ->whereColumn('event_snapshot_receipts.node_id', 'event_snapshots.target_node_id')
+                ->whereColumn('event_snapshot_receipts.sha256', 'event_snapshots.sha256')
+                ->whereNull('event_nodes.revoked_at')->whereNotNull('event_nodes.key_ciphertext')
+                ->where('event_snapshots.event_id', $event->id)->where('event_snapshots.version', $event->snapshot_version)
+                ->whereNull('event_snapshots.invalidated_at')->value('event_snapshot_receipts.node_id');
+        }
 
-        return view('organizer.events.show', compact('event', 'staffUsers'));
+        return view('organizer.events.show', compact('event', 'staffUsers', 'receiptNodeId'));
     }
 
     /**
@@ -249,7 +263,39 @@ class OrganizerEventController extends Controller
     }
 
     /**
-     * Discard a snapshot before transfer is implemented.
+     * Download an encrypted package for the chosen node.
+     */
+    public function exportSnapshot(Request $request, Event $event, ExportSnapshot $action): Response
+    {
+        Gate::authorize('update', $event);
+        abort_if(! $request->secure() && ! app()->environment(['local', 'testing']), 403, 'HTTPS is required.');
+        $validated = $request->validate(['node_id' => ['required', 'string', 'max:64', 'regex:/^[a-zA-Z0-9_-]+$/']]);
+        $sealed = $action->execute($event->id, $validated['node_id']);
+
+        return response($sealed, 200, [
+            'Content-Type' => 'application/octet-stream',
+            'Content-Disposition' => 'attachment; filename="ingress-snapshot.bin"',
+            'Cache-Control' => 'no-store, private',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
+    /**
+     * Record an authenticated node receipt without enabling admission.
+     */
+    public function confirmSnapshotReceipt(Request $request, Event $event, ConfirmSnapshotReceipt $action): RedirectResponse
+    {
+        Gate::authorize('update', $event);
+        abort_if(! $request->secure() && ! app()->environment(['local', 'testing']), 403, 'HTTPS is required.');
+        $validated = $request->validate(['receipt' => ['required', 'string', 'max:4096']]);
+        $action->execute($event->id, $validated['receipt']);
+
+        return redirect()->route('organizer.events.show', $event)
+            ->with('success', 'Snapshot received by the node. Admission is not ready yet.');
+    }
+
+    /**
+     * Discard a provisional snapshot before any authority handoff.
      */
     public function discardSnapshot(Event $event): RedirectResponse
     {
