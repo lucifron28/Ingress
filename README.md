@@ -275,7 +275,7 @@ php artisan test --filter=RegistrationTest
 
 #### PostgreSQL concurrency verification (separate)
 
-Seven guarantees are verified against the real PostgreSQL server using genuinely overlapping
+Eight guarantees are verified against the real PostgreSQL server using genuinely overlapping
 transactions released through a two-process barrier:
 
 1. two simultaneous registrations competing for the final seat
@@ -291,6 +291,7 @@ transactions released through a two-process barrier:
 7. a staff authorization reassignment held open while a scan is in flight — the scan blocks
    on the authorization row under `FOR UPDATE` and is then rejected, proving stale authorization
    cannot race through admission
+8. cloud and node runtimes racing to bind the same database — exactly one runtime is accepted
 ```bash
 cd api
 php scripts/verify_pgsql_concurrency.php
@@ -298,9 +299,9 @@ php scripts/verify_pgsql_concurrency.php
 
 Cases 4, 5, and 7 hold an uncommitted conflicting write from a second connection, wait
 until PostgreSQL reports the worker blocked (`pg_stat_activity`), then release it.
-The script provisions its own `ingress_concurrency` database (recreated on each run)
+The script provisions its own `ingress_concurrency` database (created only when the name does not already exist)
 so demonstration data is never touched, and exits non-zero if any invariant is
-violated. Override the database name with `INGRESS_CONCURRENCY_DB` if needed.
+violated. Set `INGRESS_CONCURRENCY_DB` to an unused database name for each run. The verifier refuses to reset an existing database.
 
 #### Mobile session checks
 

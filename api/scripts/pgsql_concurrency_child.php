@@ -12,11 +12,14 @@
 
 use App\Actions\AdmitTicket;
 use App\Actions\RegisterForEvent;
+use App\Http\Middleware\EnsureRuntimeDatabase;
 use App\Models\User;
 use Illuminate\Contracts\Console\Kernel;
+use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 
 require __DIR__.'/../vendor/autoload.php';
 
@@ -93,6 +96,17 @@ try {
             'status' => $result['status'],
             'attempted_admission_insert' => $attemptedAdmissionInsert,
         ]);
+    } elseif ($mode === 'runtime') {
+        config(['ingress.mode' => $payload['runtime'], 'ingress.node_id' => $payload['node_id'] ?? null]);
+        try {
+            $response = (new EnsureRuntimeDatabase)->handle(
+                Request::create('/login'),
+                fn () => response('ok')
+            );
+            $emit(['http_code' => $response->getStatusCode()]);
+        } catch (HttpException $e) {
+            $emit(['http_code' => $e->getStatusCode()]);
+        }
     } else {
         $emit(['ok' => false, 'reason' => 'unknown_mode']);
         exit(1);
