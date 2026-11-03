@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -9,48 +9,59 @@ import {
   Text,
   View,
 } from 'react-native';
-import { apiRequest } from '../../../src/services/api-client';
+import { loadWallet } from '../../../src/services/wallet-sync';
 
-export interface TicketItem {
-  id: number;
-  public_id: string;
-  status: string;
-  issued_at: string;
-  event: {
-    id: number;
-    title: string;
-    venue?: {
-      name: string;
-      location: string;
-    };
-    starts_at: string;
-    ends_at: string;
-  };
-}
+import { useAuth } from '../../../src/context/AuthContext';
+import { WalletTicket } from '../../../src/services/auth-storage';
+
+type TicketItem = WalletTicket;
 
 export default function MyTicketsScreen() {
+  const { user, token, serverUrl } = useAuth();
+  const requestId = useRef(0);
   const [tickets, setTickets] = useState<TicketItem[]>([]);
+  const [offlineSince, setOfflineSince] = useState<string | null>(null);
+  const [cacheUnavailable, setCacheUnavailable] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const fetchTickets = async () => {
+    const request = ++requestId.current;
+    const scope = user && token ? { userId: user.id, token, serverUrl } : null;
+    if (!scope) return;
     try {
       setErrorMessage(null);
-      const res = await apiRequest<{ data: TicketItem[] }>('/me/tickets');
-      setTickets(res.data || []);
+      const result = await loadWallet(scope);
+      if (request !== requestId.current) return;
+      setTickets(result.tickets);
+      setOfflineSince(result.offlineSince);
+      setCacheUnavailable(!result.saved);
     } catch (err: unknown) {
-      const errorObj = err as { message?: string };
-      setErrorMessage(errorObj?.message || 'Could not load your digital tickets.');
+      if (request !== requestId.current) return;
+      const errorObj = err as { status?: number; message?: string };
+      setTickets([]);
+      setOfflineSince(null);
+      setErrorMessage(errorObj?.status === 0 ? 'No saved tickets are available. Connect to load your wallet.' : errorObj?.message || 'Could not load your digital tickets.');
     } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
+      if (request === requestId.current) {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      }
     }
   };
 
   useEffect(() => {
-    fetchTickets();
-  }, []);
+    if (user && token) {
+      setIsLoading(true);
+      fetchTickets();
+    } else {
+      setTickets([]);
+      setOfflineSince(null);
+      setIsLoading(false);
+    }
+    return () => { requestId.current++; };
+  }, [user?.id, token, serverUrl]);
 
   const formatDate = (isoString: string) => {
     try {
@@ -74,9 +85,9 @@ export default function MyTicketsScreen() {
     >
       <View style={styles.cardHeader}>
         <Text style={styles.venueText}>{item.event.venue?.name || 'MSEUF Campus'}</Text>
-        <View style={item.status === 'active' ? styles.activeBadge : styles.revokedBadge}>
-          <Text style={item.status === 'active' ? styles.activeBadgeText : styles.revokedBadgeText}>
-            {item.status.toUpperCase()}
+        <View style={item.status === 'active' && item.event.status !== 'cancelled' ? styles.activeBadge : styles.revokedBadge}>
+          <Text style={item.status === 'active' && item.event.status !== 'cancelled' ? styles.activeBadgeText : styles.revokedBadgeText}>
+            {item.event.status === 'cancelled' ? 'EVENT CANCELLED' : item.status.toUpperCase()}
           </Text>
         </View>
       </View>
@@ -102,6 +113,14 @@ export default function MyTicketsScreen() {
 
   return (
     <View style={styles.container}>
+      {offlineSince && (
+        <View style={styles.errorBanner}>
+          <Text style={styles.errorText}>Offline copy saved {new Date(offlineSince).toLocaleString()}. Ticket status may have changed; event staff will verify it.</Text>
+        </View>
+      )}
+      {!offlineSince && cacheUnavailable && !errorMessage && (
+        <View style={styles.errorBanner}><Text style={styles.errorText}>Offline storage is unavailable. Connect to view these tickets later.</Text></View>
+      )}
       {errorMessage && (
         <View style={styles.errorBanner}>
           <Text style={styles.errorText}>{errorMessage}</Text>
@@ -123,7 +142,7 @@ export default function MyTicketsScreen() {
             colors={['#800000']}
           />
         }
-        ListEmptyComponent={
+        ListEmptyComponent={!errorMessage ? (
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyTitle}>No Active Tickets</Text>
             <Text style={styles.emptySubtitle}>
@@ -136,7 +155,7 @@ export default function MyTicketsScreen() {
               <Text style={styles.discoverButtonText}>Discover Events</Text>
             </Pressable>
           </View>
-        }
+        ) : null}
       />
     </View>
   );

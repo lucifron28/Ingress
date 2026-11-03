@@ -19,7 +19,13 @@ const encode = (source) => `data:text/javascript,${encodeURIComponent(source)}`;
 
 const SECURE_STORE_STUB = encode(`
 const store = new Map();
-export async function setItemAsync(k, v) { store.set(k, v); }
+export const WHEN_UNLOCKED_THIS_DEVICE_ONLY = 1;
+let failureKey = null;
+export function failNextWrite(key) { failureKey = key; }
+export async function setItemAsync(k, v) {
+  if (k === failureKey) { failureKey = null; throw new Error('storage unavailable'); }
+  store.set(k, v);
+}
 export async function getItemAsync(k) { return store.has(k) ? store.get(k) : null; }
 export async function deleteItemAsync(k) { store.delete(k); }
 `);
@@ -57,8 +63,11 @@ export async function resolve(specifier, context, nextResolve) {
 
 register(LOADER, import.meta.url);
 
-const { AuthStorage } = await import('../src/services/auth-storage.ts');
-const { apiRequest, DEMO_MODE, ApiError } = await import('../src/services/api-client.ts');
+const { AuthStorage, TicketWallet } = await import('../src/services/auth-storage.ts');
+const SecureStore = await import('expo-secure-store');
+const { Platform } = await import('react-native');
+const { loadWallet, loadWalletTicket } = await import('../src/services/wallet-sync.ts');
+const { apiRequest, DEMO_MODE, ApiError, setUnauthorizedHandler } = await import('../src/services/api-client.ts');
 
 let passed = 0;
 const failures = [];
@@ -92,7 +101,72 @@ check(
   String(await AuthStorage.getServerUrl()),
 );
 
+const scope = { userId: 42, token: 'wallet-token', serverUrl: 'https://cloud.example/api/v1' };
+await AuthStorage.saveServerUrl(scope.serverUrl);
+await AuthStorage.saveToken(scope.token);
+await AuthStorage.saveUser(JSON.stringify({ id: scope.userId, name: 'Student', role: 'student' }));
+const ticket = {
+  id: 7, public_id: 'ticket-7', status: 'active', issued_at: '2026-01-01T00:00:00Z',
+  qr_payload: 'ingress:v1:ticket-7:secret',
+  event: { id: 9, title: 'Event ' + '🎟'.repeat(700), starts_at: '2026-01-01T00:00:00Z', ends_at: '2026-01-02T00:00:00Z' },
+  attendee: { name: 'Student', student_id: 'S1', email: 'student@example.test' },
+};
+check('wallet saves a large Unicode ticket in secure storage', await TicketWallet.replace(scope, [ticket]));
+let wallet = await TicketWallet.read(scope);
+check('wallet restores the exact opaque QR and Unicode ticket', JSON.stringify(wallet?.tickets) === JSON.stringify([ticket]));
+check('wallet rejects another account', (await TicketWallet.read({ ...scope, userId: 43 })) === null);
+check('wallet rejects another server', (await TicketWallet.read({ ...scope, serverUrl: 'https://other.example/api/v1' })) === null);
+check('wallet rejects another session token', (await TicketWallet.read({ ...scope, token: 'new-token' })) === null);
+await TicketWallet.update(scope, { ...ticket, status: 'revoked', qr_payload: null });
+wallet = await TicketWallet.read(scope);
+check('a refreshed revoked ticket replaces the cached QR', wallet?.tickets[0]?.status === 'revoked' && wallet?.tickets[0]?.qr_payload === null);
+const olderRequest = TicketWallet.beginRequest();
+const newerRequest = TicketWallet.beginRequest();
+await TicketWallet.update(scope, { ...ticket, status: 'revoked', qr_payload: null }, newerRequest);
+check('an older response cannot overwrite a newer revocation', !(await TicketWallet.replace(scope, [ticket], olderRequest)) && (await TicketWallet.read(scope))?.tickets[0]?.status === 'revoked');
+SecureStore.failNextWrite('ingress_wallet_1');
+check('an interrupted wallet write reports failure', !(await TicketWallet.replace(scope, [ticket])));
+check('an interrupted write cannot restore a stale wallet', (await TicketWallet.read(scope)) === null);
+await TicketWallet.replace(scope, [ticket]);
+const pendingSave = TicketWallet.replace(scope, [ticket]);
+const pendingLogout = AuthStorage.clearAll();
+await Promise.all([pendingSave, pendingLogout]);
+check('logout clears the wallet even when a save is in flight', (await TicketWallet.read(scope)) === null);
+check('a late save after logout cannot recreate the wallet', !(await TicketWallet.replace(scope, [ticket])));
+await AuthStorage.saveToken(scope.token);
+await AuthStorage.saveUser(JSON.stringify({ id: scope.userId }));
+await TicketWallet.replace(scope, [ticket]);
+await AuthStorage.saveServerUrl('https://other.example/api/v1');
+check('switching the configured server hides the old wallet', (await TicketWallet.read(scope)) === null);
+await AuthStorage.saveServerUrl(scope.serverUrl);
+Platform.OS = 'web';
+check('web never writes a ticket wallet to local storage', !(await TicketWallet.replace(scope, [ticket])) && (await TicketWallet.read(scope)) === null);
+Platform.OS = 'android';
+await AuthStorage.clearAll();
+
 const realFetch = globalThis.fetch;
+await AuthStorage.saveServerUrl(scope.serverUrl);
+await AuthStorage.saveToken(scope.token);
+await AuthStorage.saveUser(JSON.stringify({ id: scope.userId }));
+globalThis.fetch = async () => new Response(JSON.stringify({ data: [ticket] }), { status: 200 });
+const onlineWallet = await loadWallet(scope);
+check('online wallet fetch saves the returned ticket', onlineWallet.saved && onlineWallet.offlineSince === null);
+globalThis.fetch = async () => { throw new TypeError('offline'); };
+const offlineWallet = await loadWallet(scope);
+const offlineTicket = await loadWalletTicket(scope, '7');
+check('offline wallet and detail restore the same QR', offlineWallet.offlineSince !== null && offlineTicket.ticket.qr_payload === ticket.qr_payload);
+globalThis.fetch = async () => new Response('{"message":"Forbidden"}', { status: 403 });
+try { await loadWalletTicket(scope, '7'); } catch { /* Expected rejection. */ }
+check('a server rejection removes the cached wallet', (await TicketWallet.read(scope)) === null);
+globalThis.fetch = async () => { throw new TypeError('offline'); };
+let noFallback = false;
+try { await loadWalletTicket(scope, '7'); } catch { noFallback = true; }
+check('a rejected ticket is not shown on the next offline attempt', noFallback);
+await AuthStorage.clearAll();
+await AuthStorage.saveToken('rejected-token');
+await AuthStorage.saveUser(JSON.stringify({ id: 42 }));
+setUnauthorizedHandler(async (token) => { await AuthStorage.clearIfToken(token); });
+
 
 globalThis.fetch = async () =>
   new Response('{"message":"Unauthenticated."}', {
@@ -107,6 +181,12 @@ try {
   unauthorizedStatus = error?.status;
 }
 check('a 401 is reported as status 401, so the session can be cleared', unauthorizedStatus === 401, `got ${unauthorizedStatus}`);
+check('a matching 401 clears the rejected session', (await AuthStorage.getToken()) === null);
+await AuthStorage.saveToken('new-session');
+await AuthStorage.saveUser(JSON.stringify({ id: 43 }));
+check('a delayed 401 cannot clear a newer session', !(await AuthStorage.clearIfToken('rejected-token')) && (await AuthStorage.getToken()) === 'new-session');
+setUnauthorizedHandler(null);
+
 
 globalThis.fetch = async () => {
   throw new TypeError('Network request failed');

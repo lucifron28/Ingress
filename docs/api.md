@@ -222,7 +222,7 @@ Transactionally reserves a seat with a row lock and issues a digital ticket. Reg
 ---
 
 ### 3.2 My Tickets (Ticket Wallet)
-Returns all tickets issued to the authenticated student. Because the response contains only the caller's own tickets, each entry includes the reusable `qr_payload`.
+Returns all tickets issued to the authenticated student. The response includes `qr_payload` only for an active ticket with a confirmed registration whose event has not been cancelled. Each ticket includes the event's current `status`.
 
 - **Method**: `GET`
 - **Endpoint**: `/me/tickets`
@@ -241,6 +241,7 @@ Returns all tickets issued to the authenticated student. Because the response co
       "event": {
         "id": 1,
         "title": "MSEUF University Intramurals 2026",
+        "status": "published",
         "venue": {
           "id": 1,
           "name": "MSEUF University Gymnasium",
@@ -261,7 +262,7 @@ Returns all tickets issued to the authenticated student. Because the response co
 
 
 ### 3.3 Ticket Details
-Retrieves single ticket details. The reusable `qr_payload` is returned **only to the attendee who owns the ticket**.
+Retrieves single ticket details. The reusable `qr_payload` is returned **only to the attendee who owns an active ticket with a confirmed registration for an event that has not been cancelled**. The event includes its current `status`.
 
 - **Method**: `GET`
 - **Endpoint**: `/tickets/{id}`
@@ -285,6 +286,7 @@ Retrieves single ticket details. The reusable `qr_payload` is returned **only to
     "event": {
       "id": 1,
       "title": "MSEUF University Intramurals 2026",
+      "status": "published",
       "venue": { "id": 1, "name": "MSEUF University Gymnasium", "location": "Lucena City" },
       "starts_at": "2026-10-03T09:00:00.000000Z",
       "ends_at": "2026-10-03T17:00:00.000000Z"
@@ -330,6 +332,7 @@ Lists events where the authenticated staff member is assigned to scan tickets.
     {
       "id": 1,
       "title": "MSEUF University Intramurals 2026",
+      "status": "published",
       "venue": {
         "name": "MSEUF University Gymnasium",
         "location": "Lucena City"

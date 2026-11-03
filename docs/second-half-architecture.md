@@ -1,7 +1,7 @@
 # Ingress second-half target architecture
 
 **Status:** Planned for the remaining 50% of the project.  
-**Current implementation:** The 50% milestone uses one local Laravel/PostgreSQL server on the venue LAN for student and staff mobile traffic, with two-stage ticket preview and explicit staff confirmation before admission is recorded. Verified MSEUF student institutional account activation, cloud/Event Node synchronization, offline wallet, guest tickets, walk-ins, and ticket transfers are planned second-half functionality. Ingress removes the public internet from the critical event-day admission path, but still requires the venue LAN and Event Node. This document records the agreed target architecture so later implementation does not drift.
+**Current implementation:** The 50% milestone uses one local Laravel/PostgreSQL server on the venue LAN for student and staff mobile traffic, with two-stage ticket preview and explicit staff confirmation before admission is recorded. Verified MSEUF student institutional account activation, cloud/Event Node synchronization, guest tickets, walk-ins, and ticket transfers are planned second-half functionality. Ingress removes the public internet from the critical event-day admission path, but still requires the venue LAN and Event Node. This document records the agreed target architecture so later implementation does not drift.
 
 ## Runtime boundary implemented so far
 
@@ -119,7 +119,7 @@ External guests and alumni do not need a normal MSEUF account merely to attend a
 
 A student must successfully authenticate online on a device before that device can restore the student's session offline. Ingress will not attempt to verify a password locally.
 
-After a successful online session, the student app may securely cache:
+On Android and iOS, the app caches the owned wallet in device secure storage after registration or an online wallet refresh. Web has no persistent offline wallet. The cache is bound to the signed-in account, session token, and server, and it is cleared on logout, server change, or a confirmed 401. A storage failure leaves the wallet available online only. The cache contains:
 
 - student identity needed by the UI;
 - owned ticket metadata;
@@ -127,7 +127,7 @@ After a successful online session, the student app may securely cache:
 - event title, venue, and schedule;
 - last successful synchronization time.
 
-When the cloud is unreachable, a previously authenticated student can open an **offline read-only session** and view cached tickets.
+When the cloud is unreachable, a previously authenticated student can open an **offline read-only session** and view cached tickets. The app shows the last full wallet refresh time. A cached ticket may have been revoked or its event cancelled since that refresh; the Event Node makes the admission decision. Offline wallet behavior has not yet been verified on physical devices.
 
 Allowed offline:
 

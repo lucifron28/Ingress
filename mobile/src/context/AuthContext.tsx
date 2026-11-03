@@ -1,5 +1,6 @@
+import { router } from 'expo-router';
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { apiRequest, DEFAULT_API_URL } from '../services/api-client';
+import { apiRequest, DEFAULT_API_URL, setUnauthorizedHandler } from '../services/api-client';
 import { AuthStorage } from '../services/auth-storage';
 
 export interface UserProfile {
@@ -40,11 +41,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   useEffect(() => {
+    setUnauthorizedHandler(async (rejectedToken) => {
+      if (await AuthStorage.clearIfToken(rejectedToken)) {
+        if (await AuthStorage.getToken()) return;
+        setToken(null);
+        setUser(null);
+        router.replace('/login');
+      }
+    });
+    return () => setUnauthorizedHandler(null);
+  }, []);
+
+  useEffect(() => {
     async function restoreSession() {
       try {
         const storedUrl = await AuthStorage.getServerUrl();
         if (storedUrl) {
-          setServerUrl(storedUrl);
+          setServerUrl(storedUrl.trim().replace(/\/+$/, ''));
         }
 
         const storedToken = await AuthStorage.getToken();
@@ -58,17 +71,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const meRes = await apiRequest<{ user: UserProfile }>('/me');
             setUser(meRes.user);
             await AuthStorage.saveUser(JSON.stringify(meRes.user));
-          } catch (err: unknown) {
-            const status = (err as { status?: number } | null)?.status;
-
-            if (status === 401) {
-              // A rejected token is no longer a valid local session.
-              setToken(null);
-              setUser(null);
-              await AuthStorage.clearAll();
-            }
-
-            // Keep cached identity when the Event Node is unreachable; server actions still fail.
+          } catch {
+            // The shared 401 handler clears rejected sessions. Network failures keep them.
           }
         }
       } catch {
@@ -89,11 +93,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         body: JSON.stringify({ email, password, device_name: 'Ingress-Mobile' }),
       });
 
-      setToken(response.token);
-      setUser(response.user);
-
+      await AuthStorage.clearAll();
       await AuthStorage.saveToken(response.token);
       await AuthStorage.saveUser(JSON.stringify(response.user));
+
+      setToken(response.token);
+      setUser(response.user);
     } finally {
       setIsLoading(false);
     }
