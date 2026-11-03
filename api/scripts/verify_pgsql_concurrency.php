@@ -23,6 +23,7 @@
  */
 
 use App\Actions\ImportReceivedSnapshot;
+use App\Actions\ManageNodeStaffCredential;
 use App\Actions\ReceiveSnapshot;
 use App\Actions\RegisterForEvent;
 use App\Actions\SnapshotEnvelope;
@@ -1235,6 +1236,59 @@ $assert($refreshBlocked > 0, 'refresh waited for the admission event lock');
 $assert(($refreshResult['reason'] ?? null) === 'validation_error', 'refresh rejected the committed admission');
 $assert(DB::table('admissions')->where('client_scan_id', "refresh-race-{$suffix}")->count() === 1, 'the admission is preserved');
 $assert(DB::table('node_event_imports')->where('event_id', $raceEventId)->where('version', 1)->count() === 1, 'the prior import remains active');
+echo "\n";
+
+// =============================================================================
+// CASE V - Credential rotation blocks an in-flight staff login
+// =============================================================================
+echo "CASE V: staff login waits for credential rotation\n";
+$authPayload = $racePayload;
+$authPayload['snapshot_id'] = (string) Str::uuid();
+$authPayload['version'] = 1;
+$authPayload['event']['id'] += 100000;
+$authPayload['event']['slug'] = "staff-login-{$suffix}";
+$authPayload['event']['organizer']['id'] += 100000;
+$authPayload['event']['organizer']['email'] = "staff-owner-{$suffix}@example.test";
+$authPayload['event']['venue']['id'] += 100000;
+$authPayload['event']['venue']['code'] = "AUTH{$suffix}";
+$authPayload['access_points'] = [];
+$authPayload['registrations'] = [];
+$authPayload['staff'][0]['id'] += 100000;
+$authPayload['staff'][0]['access_point_id'] = null;
+$authPayload['staff'][0]['user']['id'] += 100000;
+$authPayload['staff'][0]['user']['email'] = "node-staff-{$suffix}@example.test";
+$authJson = json_encode($authPayload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+app(ReceiveSnapshot::class)->execute(app(SnapshotEnvelope::class)->seal('race-node', $nodeSecret, $authJson));
+app(ImportReceivedSnapshot::class)->execute($authPayload['event']['id']);
+$authCloudUser = $authPayload['staff'][0]['user']['id'];
+$staffPassword = app(ManageNodeStaffCredential::class)->provision($authCloudUser);
+$localUser = DB::table('node_import_ids')->where('kind', 'user')->where('cloud_id', $authCloudUser)->value('local_id');
+$rotatedHash = Hash::make(bin2hex(random_bytes(16)));
+$rotationConnection = $rawConnection($testDatabase);
+$rotationConnection->beginTransaction();
+$rotationConnection->query('select id from runtime_identity where id = 1 for update');
+$rotationConnection->prepare('update node_staff_credentials set password_hash = ? where user_id = ?')->execute([$rotatedHash, $localUser]);
+[$staffProcess, $staffPipes] = $spawnWorker('node_staff_login', [
+    'node_id' => 'race-node', 'email' => $authPayload['staff'][0]['user']['email'], 'password' => $staffPassword,
+], $testDatabase, $childScript);
+$staffReady = trim((string) fgets($staffPipes[1])) === 'READY';
+fwrite($staffPipes[0], 'GO'.PHP_EOL);
+fflush($staffPipes[0]);
+$staffDeadline = microtime(true) + 20.0;
+$staffBlocked = 0;
+while (microtime(true) < $staffDeadline) {
+    $staffBlocked = $blockedBackends($rotationConnection, $testDatabase);
+    if ($staffBlocked > 0) {
+        break;
+    }
+    usleep(50_000);
+}
+$rotationConnection->commit();
+$staffResult = $collectWorker($staffProcess, $staffPipes);
+$assert($staffReady, 'staff login worker reached the barrier');
+$assert($staffBlocked > 0, 'staff login waited for credential rotation');
+$assert(($staffResult['reason'] ?? null) === 'validation_error', 'the rotated credential was rejected');
+$assert(DB::table('personal_access_tokens')->where('tokenable_id', $localUser)->count() === 0, 'no token was issued for the old credential');
 echo "\n";
 
 // =============================================================================

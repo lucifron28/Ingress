@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\EnsureNodeStaffToken;
 use App\Http\Middleware\EnsureOrganizer;
 use App\Http\Middleware\EnsureRuntimeDatabase;
 use App\Http\Middleware\EnsureStaff;
@@ -23,6 +24,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'organizer' => EnsureOrganizer::class,
             'staff' => EnsureStaff::class,
+            'node.staff' => EnsureNodeStaffToken::class,
             'runtime' => RequireRuntime::class,
         ]);
     })

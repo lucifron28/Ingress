@@ -32,6 +32,16 @@ class AppServiceProvider extends ServiceProvider
             );
         }
 
+        RateLimiter::for('node-staff-login', function (Request $request) {
+            $email = $request->input('email');
+            $normalized = is_string($email) ? Str::lower(trim($email)) : '';
+
+            return [
+                Limit::perMinute(5)->by('node-staff:'.hash('sha256', $normalized).'|'.$request->ip()),
+                Limit::perMinute(30)->by('node-staff-ip:'.$request->ip()),
+            ];
+        });
+
         RateLimiter::for('student-email', function (Request $request) {
             $email = $request->input('email');
             $normalized = is_string($email) ? Str::lower(trim($email)) : '';
