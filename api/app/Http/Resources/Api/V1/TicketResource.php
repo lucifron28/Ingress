@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\Api\V1;
 
+use App\Models\Registration;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -21,7 +22,8 @@ class TicketResource extends JsonResource
         $isOwner = $user && $registration && (int) $registration->user_id === (int) $user->id;
         $canExposeQr = $isOwner
             && $this->isActive()
-            && $registration?->status === \App\Models\Registration::STATUS_CONFIRMED;
+            && $event && ! $event->isCancelled()
+            && $registration?->status === Registration::STATUS_CONFIRMED;
 
         return [
             'id' => $this->id,
@@ -32,6 +34,7 @@ class TicketResource extends JsonResource
             'event' => [
                 'id' => $event?->id,
                 'title' => $event?->title,
+                'status' => $event?->status,
                 'venue' => $event?->venue ? [
                     'id' => $event->venue->id,
                     'name' => $event->venue->name,

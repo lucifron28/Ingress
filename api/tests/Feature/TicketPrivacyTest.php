@@ -16,11 +16,17 @@ class TicketPrivacyTest extends TestCase
     use RefreshDatabase;
 
     private User $student;
+
     private User $staff;
+
     private User $organizerA;
+
     private User $organizerB;
+
     private User $admin;
+
     private Event $eventA;
+
     private Ticket $ticket;
 
     protected function setUp(): void
@@ -75,7 +81,7 @@ class TicketPrivacyTest extends TestCase
         ]);
 
         // Register student for event A
-        $action = new RegisterForEvent();
+        $action = new RegisterForEvent;
         $res = $action->execute($this->student, $this->eventA->id);
         $this->ticket = $res['ticket'];
     }
@@ -100,6 +106,18 @@ class TicketPrivacyTest extends TestCase
 
         $this->assertNotNull($response->json('ticket.qr_payload'));
         $this->assertStringStartsWith('ingress:v1:ING-', $response->json('ticket.qr_payload'));
+    }
+
+    public function test_cancelled_event_never_returns_ticket_qr(): void
+    {
+        $this->eventA->update(['status' => Event::STATUS_CANCELLED]);
+        $detail = $this->actingAs($this->student, 'sanctum')
+            ->getJson("/api/v1/tickets/{$this->ticket->id}")->assertOk()
+            ->assertJsonPath('ticket.event.status', 'cancelled');
+        $this->assertArrayNotHasKey('qr_payload', $detail->json('ticket'));
+        $list = $this->getJson('/api/v1/me/tickets')->assertOk()
+            ->assertJsonPath('data.0.event.status', 'cancelled');
+        $this->assertArrayNotHasKey('qr_payload', $list->json('data.0'));
     }
 
     public function test_staff_cannot_inspect_attendee_ticket(): void
