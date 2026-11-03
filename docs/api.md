@@ -21,7 +21,7 @@ The email contains a 30-minute, single-use link. Opening it displays a form; the
 
 `POST /auth/node-staff/login` is available only on an Event Node. Send `email`, the node-issued `password`, and an optional `device_name`. The node checks the local credential and a current imported staff assignment, then returns a bearer token with the `node:staff` ability and a 12-hour expiration. It returns a generic credential error for an invalid password or assignment and rate-limits attempts. HTTPS is required outside local and testing environments. The response has `Cache-Control: no-store`.
 
-Node tokens support `GET /me`, `POST /auth/logout`, and the `/staff` event, gate, preview, and admission endpoints. Each node scan requires an activated signed grant, a current event assignment, the assigned gate, and a valid node token. Preview is read-only; only confirmation records an admission. A missing or invalid authority returns `403` with status `node_authority_unavailable`. Admissions remain on the node until reconciliation is implemented. The ordinary `/auth/login` endpoint remains available on cloud and legacy runtimes, not nodes. The staff member's account role is not changed by a node assignment.
+Node tokens support `GET /me`, `POST /auth/logout`, and the `/staff` event, gate, preview, and admission endpoints. Each node scan requires an activated signed grant, a current event assignment, the assigned gate, and a valid node token. Preview is read-only; only confirmation records an admission. A missing or invalid authority returns `403` with status `node_authority_unavailable`. Admissions are sent to the cloud in retryable batches when connectivity returns; cloud reports may lag. The ordinary `/auth/login` endpoint remains available on cloud and legacy runtimes, not nodes. The staff member's account role is not changed by a node assignment.
 
 ### 1.1 Mobile Login
 Issues a personal access token for mobile attendees and event staff.
@@ -606,3 +606,7 @@ Step 13 verifies that no prior admission exists for the ticket across all entran
 ### Staff assignment navigation hint
 
 The authenticated user resource includes `is_event_staff`, indicating whether the user currently has an event staff assignment. Clients may use it to show staff navigation. It is not an authorization grant; the node checks the assignment when issuing and using a node staff token.
+
+### Event Node admission synchronization
+
+`POST /node-sync/admissions` is available only on the cloud runtime and requires HTTPS outside local and testing environments. The node sends an encrypted, authenticated batch as `application/octet-stream` with its ID in `X-Ingress-Node`. The cloud checks that node's active event authority and the frozen snapshot before applying the batch. A successful response returns a batch ID and authenticated receipt. Repeating the same batch returns the same receipt without duplicating admissions. Invalid credentials, conflicting records, or malformed batches are rejected without partial writes.
