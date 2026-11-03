@@ -97,6 +97,7 @@ try {
             'attempted_admission_insert' => $attemptedAdmissionInsert,
         ]);
     } elseif ($mode === 'runtime') {
+        $app->detectEnvironment(fn () => 'production');
         config(['ingress.mode' => $payload['runtime'], 'ingress.node_id' => $payload['node_id'] ?? null]);
         try {
             $response = (new EnsureRuntimeDatabase)->handle(
