@@ -192,7 +192,7 @@ cd api
 php scripts/verify_pgsql_concurrency.php
 ```
 
-It creates its own `ingress_concurrency` database, releases transactions through a two-process barrier, and asserts eleven invariants. If that database already exists, set `INGRESS_CONCURRENCY_DB` to an unused name; the script refuses to reset an existing database:
+It creates its own `ingress_concurrency` database, releases transactions through a two-process barrier, and asserts sixteen invariants. If that database already exists, set `INGRESS_CONCURRENCY_DB` to an unused name; the script refuses to reset an existing database:
 
 | Case | Invariant |
 | :--- | :--- |
@@ -207,6 +207,11 @@ It creates its own `ingress_concurrency` database, releases transactions through
 | I | a registration waits on an uncommitted cutoff → it sees the cutoff and is rejected |
 | J | concurrent snapshot preparation → both requests return the same version |
 | K | snapshot preparation waits on an event and gate update → it captures the committed data |
+| L | repeated concurrent receipt → one staged snapshot and the same receipt |
+| M | conflicting packages for one event version → exactly one is staged |
+| N | concurrent node registration → one secret is issued |
+| O | concurrent exports to two nodes → one target is bound |
+| P | reuse of a snapshot ID across events → one staged record and a handled conflict |
 The script exits non-zero if any invariant fails.
 
 ---
