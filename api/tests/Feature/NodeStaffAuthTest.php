@@ -77,7 +77,7 @@ class NodeStaffAuthTest extends TestCase
         $hash = DB::table('node_staff_credentials')->where('user_id', $staff->id)->value('password_hash');
         $this->assertNotSame($password, $hash);
         $this->assertTrue(Hash::check($password, $hash));
-        $response = $this->signIn($password)->assertOk()->assertHeader('Cache-Control', 'no-store, private')->assertJsonPath('node_staff', true)->assertJsonPath('user.role', 'student');
+        $response = $this->signIn($password)->assertOk()->assertHeader('Cache-Control', 'no-store, private')->assertJsonPath('node_staff', true)->assertJsonPath('user.role', 'student')->assertJsonPath('user.is_event_staff', true);
         $token = $response->json('token');
         $this->assertNotEmpty($token);
         $tokenRecord = $staff->tokens()->firstOrFail();

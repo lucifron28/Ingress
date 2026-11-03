@@ -2,7 +2,10 @@
 
 namespace Tests\Feature;
 
+use App\Models\Event;
+use App\Models\EventStaff;
 use App\Models\User;
+use App\Models\Venue;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -35,6 +38,7 @@ class AuthTest extends TestCase
                 'user' => [
                     'email' => 'student.test@mseuf.edu.ph',
                     'role' => User::ROLE_STUDENT,
+                    'is_event_staff' => false,
                 ],
             ]);
 
@@ -84,6 +88,23 @@ class AuthTest extends TestCase
                     'role' => User::ROLE_STAFF,
                 ],
             ]);
+    }
+
+    public function test_student_profile_exposes_staff_assignment_without_changing_role(): void
+    {
+        $student = User::factory()->create(['role' => User::ROLE_STUDENT]);
+        $owner = User::factory()->create(['role' => User::ROLE_ORGANIZER]);
+        $venue = Venue::create(['name' => 'Hall', 'code' => 'HALL', 'default_capacity' => 20]);
+        $event = Event::create([
+            'organizer_id' => $owner->id, 'venue_id' => $venue->id, 'title' => 'Event', 'slug' => 'event', 'capacity' => 20,
+            'registration_opens_at' => now()->subDay(), 'registration_closes_at' => now()->addDay(),
+            'starts_at' => now(), 'ends_at' => now()->addDay(), 'status' => Event::STATUS_PUBLISHED,
+        ]);
+        $this->actingAs($student, 'sanctum')->getJson('/api/v1/me')->assertOk()->assertJsonPath('user.is_event_staff', false);
+        $assignment = EventStaff::create(['event_id' => $event->id, 'user_id' => $student->id]);
+        $this->getJson('/api/v1/me')->assertOk()->assertJsonPath('user.is_event_staff', true)->assertJsonPath('user.role', 'student');
+        $assignment->delete();
+        $this->getJson('/api/v1/me')->assertOk()->assertJsonPath('user.is_event_staff', false);
     }
 
     public function test_user_can_logout_and_revoke_token(): void
