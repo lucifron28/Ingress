@@ -16,7 +16,9 @@ use App\Actions\ExportSnapshot;
 use App\Actions\ImportReceivedSnapshot;
 use App\Actions\IssueImportReceipt;
 use App\Actions\NodeStaffAccess;
+use App\Actions\PrepareAdmissionBatch;
 use App\Actions\PrepareEventSnapshot;
+use App\Actions\ReceiveAdmissionBatch;
 use App\Actions\ReceiveSnapshot;
 use App\Actions\RegisterForEvent;
 use App\Actions\TransferEventAuthority;
@@ -112,6 +114,14 @@ try {
             'status' => $result['status'],
             'attempted_admission_insert' => $attemptedAdmissionInsert,
         ]);
+    } elseif ($mode === 'prepare_admissions') {
+        config(['ingress.mode' => 'node', 'ingress.node_id' => $payload['node_id'], 'ingress.node_sync_key' => $payload['secret'], 'ingress.authority_public_key' => $payload['public_key']]);
+        $batch = app(PrepareAdmissionBatch::class)->execute($payload['event_id']);
+        $emit(['ok' => $batch !== null, 'batch_id' => $batch['batch_id'] ?? null, 'package_hash' => isset($batch['package']) ? hash('sha256', $batch['package']) : null]);
+    } elseif ($mode === 'receive_admissions') {
+        config(['ingress.mode' => 'cloud']);
+        $result = app(ReceiveAdmissionBatch::class)->execute($payload['node_id'], $payload['package']);
+        $emit(['ok' => true, 'receipt' => $result['receipt']]);
     } elseif ($mode === 'node_scan') {
         config(['ingress.mode' => 'node', 'ingress.node_id' => $payload['node_id'], 'ingress.authority_public_key' => $payload['public_key']]);
         $staff = User::findOrFail($payload['staff_user_id']);

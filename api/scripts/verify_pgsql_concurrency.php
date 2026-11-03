@@ -23,9 +23,11 @@
  */
 
 use App\Actions\ActivateEventAuthority;
+use App\Actions\AdmissionSyncEnvelope;
 use App\Actions\AuthorityGrant;
 use App\Actions\ImportReceivedSnapshot;
 use App\Actions\ManageNodeStaffCredential;
+use App\Actions\PrepareEventSnapshot;
 use App\Actions\ReceiveSnapshot;
 use App\Actions\RegisterForEvent;
 use App\Actions\SnapshotEnvelope;
@@ -1480,6 +1482,78 @@ $assert($nodeReady, 'node scan worker reached the barrier');
 $assert($nodeBlocked > 0, 'node scan waited for credential revocation');
 $assert(($revokedNodeResult['status'] ?? null) === 'node_authority_unavailable', 'the revoked token could not replay a scan');
 $assert(DB::table('admissions')->where('ticket_id', $nodeTicketId)->count() === 1, 'revocation created no extra admission');
+echo "\n";
+
+// =============================================================================
+// CASE AA - Concurrent delivery of a node batch is idempotent
+// =============================================================================
+echo "CASE AA: concurrent admission batch delivery\n";
+$syncEvent = Event::create([
+    'organizer_id' => $organizer->id, 'venue_id' => $venue->id, 'title' => 'Sync race', 'slug' => "sync-race-{$suffix}",
+    'capacity' => 2, 'registration_opens_at' => now()->subDay(), 'registration_closes_at' => now()->addDay(),
+    'starts_at' => now(), 'ends_at' => now()->addDay(), 'status' => Event::STATUS_PUBLISHED,
+]);
+$syncGate = AccessPoint::create(['event_id' => $syncEvent->id, 'name' => 'Sync Gate', 'code' => 'SYNC', 'is_active' => true]);
+$syncStaff = User::create(['name' => 'Sync Staff', 'email' => "sync-staff-{$suffix}@example.test", 'role' => User::ROLE_STAFF, 'password' => Hash::make('password')]);
+EventStaff::create(['event_id' => $syncEvent->id, 'user_id' => $syncStaff->id, 'access_point_id' => $syncGate->id]);
+$syncStudent = User::create(['name' => 'Sync Student', 'email' => "sync-student-{$suffix}@example.test", 'student_id' => "SYNC-{$suffix}", 'role' => User::ROLE_STUDENT, 'password' => Hash::make('password')]);
+$syncTicket = (new RegisterForEvent)->execute($syncStudent, $syncEvent->id)['ticket'];
+$syncEvent->update(['registration_closed_at' => now()]);
+config(['ingress.mode' => 'cloud']);
+$syncSnapshotId = app(PrepareEventSnapshot::class)->execute($syncEvent->id)['id'];
+$syncSnapshot = DB::table('event_snapshots')->where('id', $syncSnapshotId)->first();
+$syncSecret = base64_encode(random_bytes(32));
+DB::table('event_nodes')->insert(['id' => 'sync-race-node', 'key_ciphertext' => Crypt::encryptString($syncSecret), 'created_at' => now(), 'updated_at' => now()]);
+DB::table('event_snapshots')->where('id', $syncSnapshotId)->update(['target_node_id' => 'sync-race-node']);
+DB::table('cloud_event_authorities')->insert(['event_id' => $syncEvent->id, 'snapshot_id' => $syncSnapshotId, 'node_id' => 'sync-race-node', 'grant' => 'test', 'issued_at' => now()]);
+$syncPayload = [
+    'schema_version' => 1, 'batch_id' => (string) Str::uuid(), 'node_id' => 'sync-race-node',
+    'event_id' => $syncEvent->id, 'snapshot_id' => $syncSnapshotId, 'version' => (int) $syncSnapshot->version,
+    'snapshot_sha256' => $syncSnapshot->sha256,
+    'admissions' => [['admission_id' => 1, 'ticket_id' => $syncTicket->id, 'gate_id' => $syncGate->id, 'staff_id' => $syncStaff->id,
+        'scan_id' => "sync-scan-{$suffix}", 'credential_version' => 1, 'admitted_at' => now()->utc()->startOfSecond()->toISOString()]],
+];
+$syncEnvelope = app(AdmissionSyncEnvelope::class);
+$syncPackage = $syncEnvelope->seal(json_encode($syncPayload, JSON_THROW_ON_ERROR), $syncSecret);
+$syncResults = $runConcurrently([
+    ['receive_admissions', ['node_id' => 'sync-race-node', 'package' => $syncPackage]],
+    ['receive_admissions', ['node_id' => 'sync-race-node', 'package' => $syncPackage]],
+], $childScript, $testDatabase);
+$assert(($syncResults[0]['ok'] ?? false) && ($syncResults[1]['ok'] ?? false), 'both batch deliveries succeeded');
+$assert(! empty($syncResults[0]['receipt']) && $syncResults[0]['receipt'] === ($syncResults[1]['receipt'] ?? null), 'both deliveries returned the same receipt');
+$assert(DB::table('admissions')->where('ticket_id', $syncTicket->id)->count() === 1, 'cloud stored exactly one admission');
+$assert(DB::table('cloud_synced_admissions')->where('node_id', 'sync-race-node')->count() === 1, 'one node admission mapping exists');
+echo "\n";
+
+// =============================================================================
+// CASE AB - Rebatched retries of one admission remain idempotent
+// =============================================================================
+echo "CASE AB: concurrent rebatching of an already synchronized admission\n";
+$syncPayload['batch_id'] = (string) Str::uuid();
+$syncPackageA = $syncEnvelope->seal(json_encode($syncPayload, JSON_THROW_ON_ERROR), $syncSecret);
+$syncPayload['batch_id'] = (string) Str::uuid();
+$syncPackageB = $syncEnvelope->seal(json_encode($syncPayload, JSON_THROW_ON_ERROR), $syncSecret);
+$rebatched = $runConcurrently([
+    ['receive_admissions', ['node_id' => 'sync-race-node', 'package' => $syncPackageA]],
+    ['receive_admissions', ['node_id' => 'sync-race-node', 'package' => $syncPackageB]],
+], $childScript, $testDatabase);
+$assert(($rebatched[0]['ok'] ?? false) && ($rebatched[1]['ok'] ?? false), 'both matching rebatched retries succeeded');
+$assert(DB::table('admissions')->where('ticket_id', $syncTicket->id)->count() === 1, 'rebatching did not duplicate the admission');
+echo "\n";
+
+// =============================================================================
+// CASE AC - Concurrent node batch preparation keeps one immutable batch
+// =============================================================================
+echo "CASE AC: concurrent node admission batch preparation\n";
+$batchJob = ['node_id' => 'race-node', 'secret' => $nodeSecret, 'public_key' => $authorityPublic, 'event_id' => $nodePayload['event']['id']];
+$batchResults = $runConcurrently([
+    ['prepare_admissions', $batchJob],
+    ['prepare_admissions', $batchJob],
+], $childScript, $testDatabase);
+$assert(($batchResults[0]['ok'] ?? false) && ($batchResults[1]['ok'] ?? false), 'both batch preparations succeeded');
+$assert(! empty($batchResults[0]['batch_id']) && $batchResults[0]['batch_id'] === ($batchResults[1]['batch_id'] ?? null), 'both workers reused one batch ID');
+$assert(! empty($batchResults[0]['package_hash']) && $batchResults[0]['package_hash'] === ($batchResults[1]['package_hash'] ?? null), 'both workers returned the same encrypted package');
+$assert(DB::table('node_admission_batches')->where('event_id', $nodeEventId)->count() === 1, 'one pending batch exists');
 echo "\n";
 
 // =============================================================================

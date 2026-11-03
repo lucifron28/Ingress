@@ -2,13 +2,18 @@
 
 namespace Tests\Feature;
 
+use App\Actions\AcknowledgeAdmissionBatch;
 use App\Actions\ActivateEventAuthority;
+use App\Actions\AdmissionSyncEnvelope;
 use App\Actions\AuthorityGrant;
 use App\Actions\ExportSnapshot;
 use App\Actions\ImportReceivedSnapshot;
 use App\Actions\IssueImportReceipt;
+use App\Actions\PrepareAdmissionBatch;
+use App\Actions\ReceiveAdmissionBatch;
 use App\Actions\ReceiveSnapshot;
 use App\Actions\SnapshotEnvelope;
+use App\Http\Controllers\Api\V1\AdmissionSyncController;
 use App\Http\Controllers\Web\OrganizerEventController;
 use App\Models\Event;
 use App\Models\Ticket;
@@ -20,6 +25,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
@@ -71,12 +77,17 @@ class SnapshotTransferTest extends TestCase
             ]);
         }
         $qr = $this->actingAs($student)->postJson("/api/v1/events/{$event->id}/registration")->assertCreated()->json('qr_payload');
+        $secondQr = null;
+        if ($withStaff) {
+            $second = User::factory()->create(['name' => 'Second Attendee', 'role' => User::ROLE_STUDENT]);
+            $secondQr = $this->actingAs($second)->postJson("/api/v1/events/{$event->id}/registration")->assertCreated()->json('qr_payload');
+        }
         $this->actingAs($owner)->post("/organizer/events/{$event->id}/close-registration")->assertRedirect();
         $this->post("/organizer/events/{$event->id}/prepare-snapshot")->assertRedirect();
         $this->assertSame(0, Artisan::call('ingress:register-node', ['node_id' => 'node-1']));
         $this->assertSame(1, preg_match('/INGRESS_NODE_SYNC_KEY=([A-Za-z0-9+\/=]+)/', Artisan::output(), $match));
 
-        return [$event, $owner, $qr, $match[1], $cloudStaffId];
+        return [$event, $owner, $qr, $match[1], $cloudStaffId, $secondQr];
     }
 
     public function test_encrypted_transfer_and_signed_receipt_across_separate_databases(): void
@@ -240,7 +251,7 @@ class SnapshotTransferTest extends TestCase
 
     public function test_authority_grant_freezes_cloud_and_activates_only_the_imported_node(): void
     {
-        [$event, $owner, $qr, $secret, $cloudStaffId] = $this->cloudEvent(true);
+        [$event, $owner, $qr, $secret, $cloudStaffId, $secondQr] = $this->cloudEvent(true);
         $keypair = sodium_crypto_sign_keypair();
         config([
             'ingress.authority_private_key' => base64_encode(sodium_crypto_sign_secretkey($keypair)),
@@ -284,7 +295,6 @@ class SnapshotTransferTest extends TestCase
             $this->assertSame($grant, $this->post("/organizer/events/{$event->id}/authority-transfer")->assertOk()->getContent());
             $this->post("/organizer/events/{$event->id}/discard-snapshot")->assertSessionHasErrors('event');
             $this->post("/organizer/events/{$event->id}/cancel")->assertSessionHasErrors('event');
-            $this->assertSame(0, Artisan::call('ingress:revoke-node', ['node_id' => 'node-1']));
             $this->assertDatabaseHas('events', ['id' => $event->id, 'status' => 'published']);
             $this->assertDatabaseCount('cloud_event_authorities', 1);
             DB::setDefaultConnection('authority_node');
@@ -358,6 +368,83 @@ class SnapshotTransferTest extends TestCase
             $this->withToken($staffToken)->postJson("/api/v1/staff/events/{$localId}/admissions", $scan)
                 ->assertOk()->assertJsonPath('status', 'admitted');
             $this->assertDatabaseCount('admissions', 1);
+            $batch = app(PrepareAdmissionBatch::class)->execute($event->id);
+            $this->assertNotNull($batch);
+            $this->assertSame($batch, app(PrepareAdmissionBatch::class)->execute($event->id));
+            $secondScan = ['access_point_id' => $gateId, 'qr_payload' => $secondQr, 'client_scan_id' => 'second-scan'];
+            $this->withToken($staffToken)->postJson("/api/v1/staff/events/{$localId}/admissions", $secondScan)
+                ->assertOk()->assertJsonPath('status', 'admitted');
+            $this->assertSame($batch, app(PrepareAdmissionBatch::class)->execute($event->id));
+            config(['ingress.cloud_sync_url' => 'http://cloud.example/api/v1']);
+            $httpSequence = Http::sequence()->push([], 302, ['Location' => 'https://other.example/']);
+            Http::fake(['cloud.example/*' => $httpSequence]);
+            $this->assertSame(1, Artisan::call('ingress:sync-admissions', ['event_id' => (string) $event->id]));
+            Http::assertNothingSent();
+            config(['ingress.cloud_sync_url' => 'https://cloud.example/api/v1']);
+            $this->assertSame(1, Artisan::call('ingress:sync-admissions', ['event_id' => (string) $event->id]));
+            Http::assertSent(fn ($request) => $request->url() === 'https://cloud.example/api/v1/node-sync/admissions'
+                && $request->hasHeader('X-Ingress-Node', 'node-1') && ! $request->hasHeader('Authorization'));
+            $this->assertSame($batch, app(PrepareAdmissionBatch::class)->execute($event->id));
+            $bad = json_decode(app(AdmissionSyncEnvelope::class)->open($batch['package'], $secret), true, 16, JSON_THROW_ON_ERROR);
+            $invalid = $bad['admissions'][0];
+            $invalid['admission_id']++;
+            $invalid['ticket_id'] = 999999;
+            $invalid['scan_id'] = 'bad-scan';
+            $bad['admissions'][] = $invalid;
+            $badPackage = app(AdmissionSyncEnvelope::class)->seal(json_encode($bad, JSON_THROW_ON_ERROR), $secret);
+            DB::setDefaultConnection($cloudConnection);
+            Crypt::swap($cloudEncrypter);
+            config(['ingress.mode' => 'cloud', 'ingress.node_id' => null, 'ingress.node_sync_key' => null]);
+            $headers = ['HTTP_X_INGRESS_NODE' => 'node-1', 'CONTENT_TYPE' => 'application/octet-stream', 'HTTP_ACCEPT' => 'application/json'];
+            $this->call('POST', '/api/v1/node-sync/admissions', [], [], [], $headers, $badPackage)->assertStatus(422);
+            $this->assertDatabaseCount('admissions', 0);
+            $this->call('POST', '/api/v1/node-sync/admissions', [], [], [], $headers, substr($batch['package'], 0, -1).'!')->assertStatus(422);
+            $wrongHeaders = $headers;
+            $wrongHeaders['HTTP_X_INGRESS_NODE'] = 'node-2';
+            $this->call('POST', '/api/v1/node-sync/admissions', [], [], [], $wrongHeaders, $batch['package'])->assertStatus(422);
+            $cloudResponse = $this->call('POST', '/api/v1/node-sync/admissions', [], [], [], $headers, $batch['package'])->assertOk();
+            $this->assertDatabaseCount('admissions', 1);
+            $cloudReceipt = $cloudResponse->json('receipt');
+            $this->call('POST', '/api/v1/node-sync/admissions', [], [], [], $headers, $batch['package'])
+                ->assertOk()->assertJsonPath('receipt', $cloudReceipt);
+            $this->assertDatabaseCount('admissions', 1);
+            $this->call('POST', '/api/v1/node-sync/admissions', [], [], [], $headers, $badPackage)->assertStatus(422);
+            $this->assertDatabaseCount('admissions', 1);
+            DB::setDefaultConnection('authority_node');
+            Crypt::swap($nodeEncrypter);
+            config(['ingress.mode' => 'node', 'ingress.node_id' => 'node-1', 'ingress.node_sync_key' => $secret]);
+            try {
+                app(AcknowledgeAdmissionBatch::class)->execute($event->id, $batch['batch_id'], str_repeat('0', 64));
+                $this->fail('A forged receipt was accepted.');
+            } catch (ValidationException) {
+                $this->assertSame($batch, app(PrepareAdmissionBatch::class)->execute($event->id));
+            }
+            $httpSequence->push(['batch_id' => $batch['batch_id'], 'receipt' => $cloudReceipt], 200)->push([], 503);
+            $this->assertSame(1, Artisan::call('ingress:sync-admissions', ['event_id' => (string) $event->id]));
+            $this->assertDatabaseCount('node_synced_admissions', 1);
+            $nextBatch = app(PrepareAdmissionBatch::class)->execute($event->id);
+            $this->assertNotNull($nextBatch);
+            $this->assertNotSame($batch['batch_id'], $nextBatch['batch_id']);
+            $this->assertSame(1, $nextBatch['count']);
+            DB::setDefaultConnection($cloudConnection);
+            Crypt::swap($cloudEncrypter);
+            config(['ingress.mode' => 'cloud', 'ingress.node_id' => null, 'ingress.node_sync_key' => null]);
+            $nextReceipt = $this->call('POST', '/api/v1/node-sync/admissions', [], [], [], $headers, $nextBatch['package'])->assertOk()->json('receipt');
+            $this->assertDatabaseCount('admissions', 2);
+            DB::setDefaultConnection('authority_node');
+            Crypt::swap($nodeEncrypter);
+            config(['ingress.mode' => 'node', 'ingress.node_id' => 'node-1', 'ingress.node_sync_key' => $secret]);
+            app(AcknowledgeAdmissionBatch::class)->execute($event->id, $nextBatch['batch_id'], $nextReceipt);
+            $this->assertDatabaseCount('node_synced_admissions', 2);
+            $this->assertNull(app(PrepareAdmissionBatch::class)->execute($event->id));
+            DB::setDefaultConnection($cloudConnection);
+            Crypt::swap($cloudEncrypter);
+            config(['ingress.mode' => 'cloud', 'ingress.node_id' => null, 'ingress.node_sync_key' => null]);
+            $this->assertSame(0, Artisan::call('ingress:revoke-node', ['node_id' => 'node-1']));
+            $this->call('POST', '/api/v1/node-sync/admissions', [], [], [], $headers, $batch['package'])->assertStatus(422);
+            DB::setDefaultConnection('authority_node');
+            Crypt::swap($nodeEncrypter);
+            config(['ingress.mode' => 'node', 'ingress.node_id' => 'node-1', 'ingress.node_sync_key' => $secret]);
             $new = $this->sampleSnapshot(2, $event->id);
             $newJson = json_encode($new, JSON_THROW_ON_ERROR);
             try {
@@ -510,6 +597,18 @@ class SnapshotTransferTest extends TestCase
         $this->post("/organizer/events/{$event->id}/snapshot/receipt", ['receipt' => $receipt])->assertSessionHasErrors('transfer');
         $this->assertDatabaseCount('event_snapshot_receipts', 1);
         $this->assertDatabaseCount('event_snapshot_import_receipts', 0);
+    }
+
+    public function test_sync_requires_https_outside_local_or_testing(): void
+    {
+        $this->app->detectEnvironment(fn () => 'production');
+        $request = Request::create('http://example.test/api/v1/node-sync/admissions', 'POST');
+        try {
+            app(AdmissionSyncController::class)->receive($request, app(ReceiveAdmissionBatch::class));
+            $this->fail('Unencrypted synchronization was accepted.');
+        } catch (HttpException $exception) {
+            $this->assertSame(403, $exception->getStatusCode());
+        }
     }
 
     public function test_export_requires_https_outside_local_or_testing(): void
