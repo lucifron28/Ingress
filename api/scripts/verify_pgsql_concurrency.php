@@ -863,6 +863,50 @@ $assert(DB::table('runtime_identity')->count() === 1, 'exactly one database iden
 echo "\n";
 
 // =============================================================================
+// CASE I - Registration waits for an in-flight cutoff
+// =============================================================================
+echo "CASE I: a held registration cutoff blocks an in-flight registration\n";
+$cutoffEvent = Event::create([
+    'organizer_id' => $organizer->id, 'venue_id' => $venue->id,
+    'title' => 'Registration cutoff race', 'slug' => "cutoff-race-{$suffix}",
+    'capacity' => 10, 'registration_opens_at' => now()->subHour(),
+    'registration_closes_at' => now()->addDay(), 'starts_at' => now(),
+    'ends_at' => now()->addDay(), 'status' => Event::STATUS_PUBLISHED,
+]);
+$cutoffStudent = User::create([
+    'name' => 'Cutoff Race Student', 'email' => "cutoff.{$suffix}@mseuf.edu.ph",
+    'student_id' => "CUTOFF-{$suffix}", 'role' => User::ROLE_STUDENT,
+    'password' => Hash::make('password'),
+]);
+$cutoffConnection = $rawConnection($testDatabase);
+$cutoffConnection->beginTransaction();
+$cutoffConnection->prepare('update events set registration_closed_at = now() where id = ?')
+    ->execute([$cutoffEvent->id]);
+[$cutoffProcess, $cutoffPipes] = $spawnWorker('seat', [
+    'user_id' => $cutoffStudent->id, 'event_id' => $cutoffEvent->id,
+], $testDatabase, $childScript);
+$cutoffWorkerReady = trim((string) fgets($cutoffPipes[1])) === 'READY';
+fwrite($cutoffPipes[0], 'GO'.PHP_EOL);
+fflush($cutoffPipes[0]);
+$cutoffDeadline = microtime(true) + 20.0;
+$cutoffBlocked = 0;
+while (microtime(true) < $cutoffDeadline) {
+    $cutoffBlocked = $blockedBackends($cutoffConnection, $testDatabase);
+    if ($cutoffBlocked > 0) {
+        break;
+    }
+    usleep(50_000);
+}
+$cutoffConnection->commit();
+$cutoffResult = $collectWorker($cutoffProcess, $cutoffPipes);
+echo '  worker: '.json_encode($cutoffResult).PHP_EOL;
+$assert($cutoffWorkerReady, 'the registration worker reached the barrier');
+$assert($cutoffBlocked > 0, 'registration waited for the cutoff event lock');
+$assert(($cutoffResult['reason'] ?? null) === 'validation_error', 'registration rejected the committed cutoff');
+$assert(Registration::where('event_id', $cutoffEvent->id)->count() === 0, 'no registration was issued after cutoff');
+echo "\n";
+
+// =============================================================================
 // Summary
 // =============================================================================
 if ($failures === []) {
