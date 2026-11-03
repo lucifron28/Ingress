@@ -12,6 +12,7 @@
 
 use App\Actions\AdmitTicket;
 use App\Actions\ExportSnapshot;
+use App\Actions\ImportReceivedSnapshot;
 use App\Actions\PrepareEventSnapshot;
 use App\Actions\ReceiveSnapshot;
 use App\Actions\RegisterForEvent;
@@ -117,6 +118,10 @@ try {
         config(['ingress.mode' => 'node', 'ingress.node_id' => $payload['node_id'], 'ingress.node_sync_key' => $payload['secret']]);
         $receipt = app(ReceiveSnapshot::class)->execute($payload['sealed']);
         $emit(['ok' => true, 'receipt_hash' => hash('sha256', $receipt)]);
+    } elseif ($mode === 'import') {
+        config(['ingress.mode' => 'node', 'ingress.node_id' => $payload['node_id']]);
+        $eventId = app(ImportReceivedSnapshot::class)->execute($payload['event_id']);
+        $emit(['ok' => true, 'event_id' => $eventId]);
     } elseif ($mode === 'snapshot') {
         config(['ingress.mode' => 'cloud']);
         $snapshot = app(PrepareEventSnapshot::class)->execute($payload['event_id']);
