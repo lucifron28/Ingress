@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Actions\ExportSnapshot;
 use App\Actions\ImportReceivedSnapshot;
+use App\Actions\IssueImportReceipt;
 use App\Actions\ReceiveSnapshot;
 use App\Actions\SnapshotEnvelope;
 use App\Http\Controllers\Web\OrganizerEventController;
@@ -98,7 +99,17 @@ class SnapshotTransferTest extends TestCase
             $stored = DB::table('received_snapshots')->first();
             $this->assertStringNotContainsString('Private Attendee', $stored->payload_ciphertext);
             $this->assertStringContainsString('Private Attendee', Crypt::decryptString($stored->payload_ciphertext));
+            try {
+                app(IssueImportReceipt::class)->execute($event->id);
+                $this->fail('A staged snapshot must not produce an import receipt.');
+            } catch (ValidationException) {
+                $this->assertDatabaseCount('node_event_imports', 0);
+            }
             $importedId = app(ImportReceivedSnapshot::class)->execute($event->id);
+            $importReceipt = app(IssueImportReceipt::class)->execute($event->id);
+            $this->assertSame($importReceipt, app(IssueImportReceipt::class)->execute($event->id));
+            $this->assertSame(0, Artisan::call('ingress:import-snapshot', ['event_id' => (string) $event->id]));
+            $this->assertStringContainsString($importReceipt, Artisan::output());
             $this->assertDatabaseHas('events', ['id' => $importedId, 'title' => $event->title]);
             $ticket = Ticket::firstOrFail();
             $this->assertTrue($ticket->verifySecret(explode(':', $qr)[3]));
@@ -119,16 +130,31 @@ class SnapshotTransferTest extends TestCase
             Crypt::swap($cloudEncrypter);
             config(['ingress.mode' => 'cloud', 'ingress.node_id' => null, 'ingress.node_sync_key' => null]);
         }
+        $this->actingAs($owner)->post("/organizer/events/{$event->id}/snapshot/import-receipt", ['receipt' => $importReceipt])
+            ->assertSessionHasErrors('transfer');
+        $this->post("/organizer/events/{$event->id}/snapshot/import-receipt", ['receipt' => $receipt])
+            ->assertSessionHasErrors('transfer');
+        $this->post("/organizer/events/{$event->id}/snapshot/receipt", ['receipt' => $importReceipt])
+            ->assertSessionHasErrors('transfer');
         $this->actingAs($owner)->post("/organizer/events/{$event->id}/snapshot/receipt", ['receipt' => $receipt])->assertRedirect();
         $this->post("/organizer/events/{$event->id}/snapshot/receipt", ['receipt' => $receipt])->assertRedirect();
         $this->assertDatabaseCount('event_snapshot_receipts', 1);
         $this->assertDatabaseHas('event_snapshot_receipts', ['node_id' => 'node-1']);
+        $tamperedImport = substr($importReceipt, 0, -1).(substr($importReceipt, -1) === 'a' ? 'b' : 'a');
+        $this->post("/organizer/events/{$event->id}/snapshot/import-receipt", ['receipt' => $tamperedImport])->assertSessionHasErrors('transfer');
+        $this->assertDatabaseCount('event_snapshot_import_receipts', 0);
+        $this->post("/organizer/events/{$event->id}/snapshot/import-receipt", ['receipt' => $importReceipt])->assertSessionHasNoErrors();
+        $this->post("/organizer/events/{$event->id}/snapshot/import-receipt", ['receipt' => $importReceipt])->assertSessionHasNoErrors();
+        $this->assertDatabaseCount('event_snapshot_import_receipts', 1);
+        $this->get("/organizer/events/{$event->id}")->assertSee('Import confirmed by node node-1.');
         $this->get("/organizer/events/{$event->id}")->assertOk()->assertSee('Received by node node-1.');
         $tampered = substr($receipt, 0, -1).(substr($receipt, -1) === 'a' ? 'b' : 'a');
         $this->post("/organizer/events/{$event->id}/snapshot/receipt", ['receipt' => $tampered])
             ->assertSessionHasErrors('transfer');
         $this->assertDatabaseCount('event_snapshot_receipts', 1);
         $this->post("/organizer/events/{$event->id}/discard-snapshot")->assertRedirect();
+        $this->post("/organizer/events/{$event->id}/snapshot/import-receipt", ['receipt' => $importReceipt])->assertSessionHasErrors('transfer');
+        $this->get("/organizer/events/{$event->id}")->assertDontSee('Import confirmed by node node-1.');
         $this->post("/organizer/events/{$event->id}/snapshot/receipt", ['receipt' => $receipt])
             ->assertSessionHasErrors('transfer');
         $this->post("/organizer/events/{$event->id}/prepare-snapshot")->assertRedirect();
@@ -177,6 +203,12 @@ class SnapshotTransferTest extends TestCase
             Crypt::swap($nodeEncrypter);
             config(['ingress.mode' => 'node', 'ingress.node_id' => 'node-1', 'ingress.node_sync_key' => $secret]);
             app(ReceiveSnapshot::class)->execute($second);
+            try {
+                app(IssueImportReceipt::class)->execute($event->id);
+                $this->fail('A stale import must not produce a receipt.');
+            } catch (ValidationException) {
+                $this->assertTrue(true);
+            }
             $this->assertSame($localId, app(ImportReceivedSnapshot::class)->execute($event->id));
             $this->assertDatabaseHas('access_points', ['event_id' => $localId, 'name' => 'New Gate']);
             $this->assertDatabaseHas('node_event_imports', ['cloud_event_id' => $event->id, 'version' => 2]);
@@ -284,6 +316,7 @@ class SnapshotTransferTest extends TestCase
         $other = User::factory()->create(['role' => User::ROLE_ORGANIZER]);
         $this->actingAs($other)->post("/organizer/events/{$event->id}/snapshot/export", ['node_id' => 'node-1'])->assertForbidden();
         $this->post("/organizer/events/{$event->id}/snapshot/receipt", ['receipt' => 'invalid'])->assertForbidden();
+        $this->post("/organizer/events/{$event->id}/snapshot/import-receipt", ['receipt' => 'invalid'])->assertForbidden();
         $this->assertNull(DB::table('event_snapshots')->where('event_id', $event->id)->value('target_node_id'));
         $this->assertDatabaseCount('event_snapshot_receipts', 0);
     }
@@ -315,9 +348,16 @@ class SnapshotTransferTest extends TestCase
             'node_id' => 'node-1', 'snapshot_id' => $snapshot->id, 'event_id' => $event->id,
             'version' => (int) $snapshot->version, 'sha256' => $snapshot->sha256,
         ], $secret);
+        $importReceipt = app(SnapshotEnvelope::class)->importReceipt([
+            'node_id' => 'node-1', 'snapshot_id' => $snapshot->id, 'event_id' => $event->id,
+            'version' => (int) $snapshot->version, 'sha256' => $snapshot->sha256,
+        ], $secret);
+        $this->post("/organizer/events/{$event->id}/snapshot/receipt", ['receipt' => $receipt])->assertSessionHasNoErrors();
         $this->assertSame(0, Artisan::call('ingress:revoke-node', ['node_id' => 'node-1']));
+        $this->post("/organizer/events/{$event->id}/snapshot/import-receipt", ['receipt' => $importReceipt])->assertSessionHasErrors('transfer');
         $this->post("/organizer/events/{$event->id}/snapshot/receipt", ['receipt' => $receipt])->assertSessionHasErrors('transfer');
-        $this->assertDatabaseCount('event_snapshot_receipts', 0);
+        $this->assertDatabaseCount('event_snapshot_receipts', 1);
+        $this->assertDatabaseCount('event_snapshot_import_receipts', 0);
     }
 
     public function test_export_requires_https_outside_local_or_testing(): void

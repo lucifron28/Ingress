@@ -78,18 +78,38 @@ class SnapshotEnvelope
 
     public function receipt(array $metadata, string $secret): string
     {
+        return $this->signReceipt($metadata, $secret, 'ingress snapshot receipt v1');
+    }
+
+    public function importReceipt(array $metadata, string $secret): string
+    {
+        return $this->signReceipt($metadata, $secret, 'ingress snapshot import receipt v1');
+    }
+
+    private function signReceipt(array $metadata, string $secret, string $purpose): string
+    {
         $encoded = rtrim(strtr(base64_encode(json_encode($metadata, JSON_THROW_ON_ERROR)), '+/', '-_'), '=');
-        $mac = hash_hmac('sha256', $encoded, $this->key($secret, 'ingress snapshot receipt v1'));
+        $mac = hash_hmac('sha256', $encoded, $this->key($secret, $purpose));
 
         return $encoded.'.'.$mac;
     }
 
     public function verifyReceipt(string $receipt, string $secret): array
     {
+        return $this->verifySignedReceipt($receipt, $secret, 'ingress snapshot receipt v1');
+    }
+
+    public function verifyImportReceipt(string $receipt, string $secret): array
+    {
+        return $this->verifySignedReceipt($receipt, $secret, 'ingress snapshot import receipt v1');
+    }
+
+    private function verifySignedReceipt(string $receipt, string $secret, string $purpose): array
+    {
         if (strlen($receipt) > 4096 || ! preg_match('/^([A-Za-z0-9_-]+)\.([a-f0-9]{64})$/', $receipt, $matches)) {
             $this->invalid();
         }
-        $expected = hash_hmac('sha256', $matches[1], $this->key($secret, 'ingress snapshot receipt v1'));
+        $expected = hash_hmac('sha256', $matches[1], $this->key($secret, $purpose));
         if (! hash_equals($expected, $matches[2])) {
             $this->invalid();
         }
