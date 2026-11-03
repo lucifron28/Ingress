@@ -33,7 +33,7 @@ class ActivateEventNode extends Command
 
             return self::FAILURE;
         }
-        $this->info("Authority recorded for node event {$eventId}. Scanner endpoints are not enabled yet.");
+        $this->info("Authority recorded for node event {$eventId}. Assigned staff can scan while connected to this node.");
 
         return self::SUCCESS;
     }

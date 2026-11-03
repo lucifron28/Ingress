@@ -29,7 +29,7 @@ class ImportEventSnapshot extends Command
 
             return self::FAILURE;
         }
-        $this->info("Imported cloud event {$id} as node event {$localId}. Admission remains disabled.");
+        $this->info("Imported cloud event {$id} as node event {$localId}. Admission requires activated node authority.");
         $this->line('Return this import receipt to the cloud organizer:');
         $this->line($receipt);
 

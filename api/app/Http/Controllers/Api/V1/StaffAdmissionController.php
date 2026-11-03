@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Actions\AdmitTicket;
+use App\Actions\NodeAdmissionAccess;
 use App\Http\Controllers\Controller;
 use App\Models\Event;
 use Illuminate\Http\JsonResponse;
@@ -17,7 +18,12 @@ class StaffAdmissionController extends Controller
     {
         $user = $request->user();
 
-        if ($user->isAdmin()) {
+        if (config('ingress.mode') === 'node') {
+            $events = Event::with(['venue', 'accessPoints', 'staffAssignments'])
+                ->whereHas('staffAssignments', fn ($query) => $query->where('user_id', $user->id))
+                ->published()->orderBy('starts_at', 'asc')->get()
+                ->filter(fn ($event) => app(NodeAdmissionAccess::class)->allows($user, $event->id))->values();
+        } elseif ($user->isAdmin()) {
             $events = Event::with(['venue', 'accessPoints'])
                 ->published()
                 ->orderBy('starts_at', 'asc')
@@ -35,7 +41,7 @@ class StaffAdmissionController extends Controller
 
         return response()->json([
             'events' => $events->map(function ($event) use ($user) {
-                $isSuper = $user->isAdmin() || $event->organizer_id === $user->id;
+                $isSuper = config('ingress.mode') !== 'node' && ($user->isAdmin() || $event->organizer_id === $user->id);
                 $assignment = $event->staffAssignments?->firstWhere('user_id', $user->id);
 
                 $gates = $event->accessPoints->where('is_active', true);
@@ -68,9 +74,12 @@ class StaffAdmissionController extends Controller
     public function accessPoints(Request $request, Event $event): JsonResponse
     {
         $user = $request->user();
-        $isSuper = $user->isAdmin() || $event->organizer_id === $user->id;
+        $isSuper = config('ingress.mode') !== 'node' && ($user->isAdmin() || $event->organizer_id === $user->id);
         $assignment = $event->staffAssignments()->where('user_id', $user->id)->first();
 
+        if (config('ingress.mode') === 'node' && ! app(NodeAdmissionAccess::class)->allows($user, $event->id)) {
+            return response()->json(['message' => 'Node authority or staff session is unavailable.'], 403);
+        }
         if (! $isSuper && ! $assignment) {
             return response()->json([
                 'message' => 'Unauthorized. You are not assigned to this event.',

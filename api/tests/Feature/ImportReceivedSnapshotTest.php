@@ -62,7 +62,7 @@ class ImportReceivedSnapshotTest extends TestCase
         $payload = $this->payload();
         $this->stage($payload);
         $this->assertSame(0, Artisan::call('ingress:import-snapshot', ['event_id' => '10']));
-        $this->assertStringContainsString('Admission remains disabled', Artisan::output());
+        $this->assertStringContainsString('Admission requires activated node authority', Artisan::output());
         $import = DB::table('node_event_imports')->where('cloud_event_id', 10)->first();
         $this->assertNotNull($import);
         $this->assertNotSame(10, $import->event_id);
@@ -74,7 +74,7 @@ class ImportReceivedSnapshotTest extends TestCase
         $this->assertSame((int) $import->event_id, app(ImportReceivedSnapshot::class)->execute(10));
         $this->assertDatabaseCount('events', 1);
         $this->assertDatabaseCount('tickets', 1);
-        $this->actingAs(User::where('email', 'staff@example.test')->firstOrFail())->postJson("/api/v1/staff/events/{$import->event_id}/admissions/preview", [])->assertStatus(503);
+        $this->actingAs(User::where('email', 'staff@example.test')->firstOrFail())->postJson("/api/v1/staff/events/{$import->event_id}/admissions/preview", [])->assertUnauthorized();
     }
 
     public function test_shared_users_and_venues_are_reused_across_events(): void

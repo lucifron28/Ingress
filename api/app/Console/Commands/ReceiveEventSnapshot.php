@@ -26,7 +26,7 @@ class ReceiveEventSnapshot extends Command
             return self::FAILURE;
         }
         $receipt = $receiver->execute($contents);
-        $this->line('Snapshot staged. Admission is not ready. Return this receipt to the cloud organizer:');
+        $this->line('Snapshot staged. Return this receipt to the cloud organizer:');
         $this->line($receipt);
 
         return self::SUCCESS;

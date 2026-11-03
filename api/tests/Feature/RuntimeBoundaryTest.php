@@ -48,7 +48,7 @@ class RuntimeBoundaryTest extends TestCase
 
         $this->actingAs($student)->postJson("/api/v1/events/{$event->id}/registration")->assertStatus(503);
         $this->actingAs($organizer)->post("/organizer/events/{$event->id}/cancel")->assertStatus(503);
-        $this->actingAs($organizer)->postJson("/api/v1/staff/events/{$event->id}/admissions", [])->assertStatus(503);
+        $this->actingAs($organizer)->postJson("/api/v1/staff/events/{$event->id}/admissions", [])->assertUnauthorized();
         $this->assertDatabaseCount('registrations', 0);
         $this->assertDatabaseCount('admissions', 0);
         $this->assertSame(Event::STATUS_PUBLISHED, $event->fresh()->status);

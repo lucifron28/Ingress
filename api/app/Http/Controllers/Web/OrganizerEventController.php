@@ -272,7 +272,7 @@ class OrganizerEventController extends Controller
         $action->execute($event->id);
 
         return redirect()->route('organizer.events.show', $event)
-            ->with('success', 'Snapshot prepared. Admission is not ready yet.');
+            ->with('success', 'Snapshot prepared. Activate node authority before admission.');
     }
 
     /**
@@ -304,7 +304,7 @@ class OrganizerEventController extends Controller
         $action->execute($event->id, $validated['receipt']);
 
         return redirect()->route('organizer.events.show', $event)
-            ->with('success', 'Snapshot received by the node. Admission is not ready yet.');
+            ->with('success', 'Snapshot received by the node.');
     }
 
     /**
@@ -318,7 +318,7 @@ class OrganizerEventController extends Controller
         $action->execute($event->id, $validated['receipt']);
 
         return redirect()->route('organizer.events.show', $event)
-            ->with('success', 'Snapshot import confirmed. Admission is not ready yet.');
+            ->with('success', 'Snapshot import confirmed.');
     }
 
     /**

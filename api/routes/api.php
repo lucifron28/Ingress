@@ -34,7 +34,7 @@ Route::prefix('v1')->group(function () {
         Route::get('/tickets/{ticket}', [TicketController::class, 'show']);
 
         // Staff Admission & Multi-Gate Scanning
-        Route::prefix('staff')->middleware('runtime:legacy')->group(function () {
+        Route::prefix('staff')->middleware('runtime:legacy,node')->group(function () {
             Route::get('/events', [StaffAdmissionController::class, 'assignedEvents']);
             Route::get('/events/{event}/access-points', [StaffAdmissionController::class, 'accessPoints']);
             Route::post('/events/{event}/admissions/preview', [StaffAdmissionController::class, 'preview']);

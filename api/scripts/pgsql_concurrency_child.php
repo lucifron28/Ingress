@@ -30,6 +30,7 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use Laravel\Sanctum\PersonalAccessToken;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 require __DIR__.'/../vendor/autoload.php';
@@ -111,6 +112,12 @@ try {
             'status' => $result['status'],
             'attempted_admission_insert' => $attemptedAdmissionInsert,
         ]);
+    } elseif ($mode === 'node_scan') {
+        config(['ingress.mode' => 'node', 'ingress.node_id' => $payload['node_id'], 'ingress.authority_public_key' => $payload['public_key']]);
+        $staff = User::findOrFail($payload['staff_user_id']);
+        $staff->withAccessToken(PersonalAccessToken::findOrFail($payload['token_id']));
+        $result = app(AdmitTicket::class)->execute($staff, $payload['event_id'], $payload['access_point_id'], $payload['qr_payload'], $payload['client_scan_id']);
+        $emit(['ok' => $result['http_code'] === 200, 'http_code' => $result['http_code'], 'status' => $result['status']]);
     } elseif ($mode === 'register_node') {
         config(['ingress.mode' => 'cloud']);
         $exitCode = Artisan::call('ingress:register-node', ['node_id' => $payload['node_id']]);
