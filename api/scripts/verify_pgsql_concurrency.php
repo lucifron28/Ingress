@@ -1292,6 +1292,35 @@ $assert(DB::table('personal_access_tokens')->where('tokenable_id', $localUser)->
 echo "\n";
 
 // =============================================================================
+// CASE W - Receipt issuance waits for a newly staged snapshot
+// =============================================================================
+echo "CASE W: an import receipt waits for a newer snapshot head\n";
+$receiptConnection = $rawConnection($testDatabase);
+$receiptConnection->beginTransaction();
+$receiptConnection->prepare('update received_event_heads set version = 2 where event_id = ?')->execute([$authPayload['event']['id']]);
+[$receiptProcess, $receiptPipes] = $spawnWorker('import_receipt', [
+    'node_id' => 'race-node', 'secret' => $nodeSecret, 'event_id' => $authPayload['event']['id'],
+], $testDatabase, $childScript);
+$receiptReady = trim((string) fgets($receiptPipes[1])) === 'READY';
+fwrite($receiptPipes[0], 'GO'.PHP_EOL);
+fflush($receiptPipes[0]);
+$receiptDeadline = microtime(true) + 20.0;
+$receiptBlocked = 0;
+while (microtime(true) < $receiptDeadline) {
+    $receiptBlocked = $blockedBackends($receiptConnection, $testDatabase);
+    if ($receiptBlocked > 0) {
+        break;
+    }
+    usleep(50_000);
+}
+$receiptConnection->commit();
+$receiptResult = $collectWorker($receiptProcess, $receiptPipes);
+$assert($receiptReady, 'import receipt worker reached the barrier');
+$assert($receiptBlocked > 0, 'receipt issuance waited for the snapshot head');
+$assert(($receiptResult['reason'] ?? null) === 'validation_error', 'the stale import could not produce a receipt');
+echo "\n";
+
+// =============================================================================
 // Summary
 // =============================================================================
 if ($failures === []) {

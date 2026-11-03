@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Actions\ImportReceivedSnapshot;
+use App\Actions\IssueImportReceipt;
 use Illuminate\Console\Command;
 use Illuminate\Validation\ValidationException;
 
@@ -12,7 +13,7 @@ class ImportEventSnapshot extends Command
 
     protected $description = 'Import or refresh the current staged cloud event without enabling admission';
 
-    public function handle(ImportReceivedSnapshot $import): int
+    public function handle(ImportReceivedSnapshot $import, IssueImportReceipt $receipts): int
     {
         $id = $this->argument('event_id');
         if (! is_string($id) || ! preg_match('/\A[1-9][0-9]*\z/', $id) || (string) (int) $id !== $id) {
@@ -22,12 +23,15 @@ class ImportEventSnapshot extends Command
         }
         try {
             $localId = $import->execute((int) $id);
+            $receipt = $receipts->execute((int) $id);
         } catch (ValidationException) {
-            $this->error('Snapshot import failed. Check the staged version and node data.');
+            $this->error('Snapshot import or receipt generation failed. Check the staged version and node data.');
 
             return self::FAILURE;
         }
         $this->info("Imported cloud event {$id} as node event {$localId}. Admission remains disabled.");
+        $this->line('Return this import receipt to the cloud organizer:');
+        $this->line($receipt);
 
         return self::SUCCESS;
     }

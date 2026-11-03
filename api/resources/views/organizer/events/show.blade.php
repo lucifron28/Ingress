@@ -88,6 +88,9 @@
             @if ($receiptNodeId)
                 <p>Received by node {{ $receiptNodeId }}. Admission is not ready.</p>
             @endif
+            @if ($importReceiptNodeId)
+                <p>Import confirmed by node {{ $importReceiptNodeId }}. Admission remains disabled.</p>
+            @endif
             <form method="POST" action="{{ route('organizer.events.snapshot.export', $event) }}">
                 @csrf
                 <label for="node-id">Node ID</label>
@@ -99,6 +102,12 @@
                 <label for="snapshot-receipt">Node receipt</label>
                 <textarea id="snapshot-receipt" name="receipt" required maxlength="4096" class="form-input"></textarea>
                 <button type="submit" class="btn-secondary">Confirm Receipt</button>
+            </form>
+            <form method="POST" action="{{ route('organizer.events.snapshot.import-receipt', $event) }}" style="margin-top: 1rem;">
+                @csrf
+                <label for="import-receipt">Node import receipt</label>
+                <textarea id="import-receipt" name="receipt" required maxlength="4096" class="form-input"></textarea>
+                <button type="submit" class="btn-secondary">Confirm Import</button>
             </form>
         </div>
     @endif

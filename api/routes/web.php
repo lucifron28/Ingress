@@ -30,6 +30,7 @@ Route::middleware(['auth', 'organizer', 'runtime:legacy,cloud'])->prefix('organi
     Route::post('/events/{event}/publish', [OrganizerEventController::class, 'publish'])->name('events.publish');
     Route::post('/events/{event}/snapshot/export', [OrganizerEventController::class, 'exportSnapshot'])->middleware('runtime:cloud')->name('events.snapshot.export');
     Route::post('/events/{event}/snapshot/receipt', [OrganizerEventController::class, 'confirmSnapshotReceipt'])->middleware('runtime:cloud')->name('events.snapshot.receipt');
+    Route::post('/events/{event}/snapshot/import-receipt', [OrganizerEventController::class, 'confirmImportReceipt'])->middleware('runtime:cloud')->name('events.snapshot.import-receipt');
     Route::post('/events/{event}/discard-snapshot', [OrganizerEventController::class, 'discardSnapshot'])->middleware('runtime:cloud')->name('events.snapshot.discard');
     Route::post('/events/{event}/prepare-snapshot', [OrganizerEventController::class, 'prepareSnapshot'])->middleware('runtime:cloud')->name('events.snapshot.prepare');
     Route::post('/events/{event}/close-registration', [OrganizerEventController::class, 'closeRegistration'])->name('events.registration.close');

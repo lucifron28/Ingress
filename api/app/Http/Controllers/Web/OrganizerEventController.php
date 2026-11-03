@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Web;
 
+use App\Actions\ConfirmImportReceipt;
 use App\Actions\ConfirmSnapshotReceipt;
 use App\Actions\ExportSnapshot;
 use App\Actions\PrepareEventSnapshot;
@@ -141,6 +142,7 @@ class OrganizerEventController extends Controller
         $event->load(['venue', 'accessPoints', 'staffAssignments.user', 'staffAssignments.accessPoint']);
         $staffUsers = User::where('role', User::ROLE_STAFF)->orderBy('name')->get();
         $receiptNodeId = null;
+        $importReceiptNodeId = null;
         if (config('ingress.mode') === 'cloud' && $event->snapshot_prepared_at !== null && Auth::user()->can('update', $event)) {
             $receiptNodeId = DB::table('event_snapshots')
                 ->join('event_snapshot_receipts', 'event_snapshots.id', '=', 'event_snapshot_receipts.snapshot_id')
@@ -152,7 +154,16 @@ class OrganizerEventController extends Controller
                 ->whereNull('event_snapshots.invalidated_at')->value('event_snapshot_receipts.node_id');
         }
 
-        return view('organizer.events.show', compact('event', 'staffUsers', 'receiptNodeId'));
+        if ($receiptNodeId !== null) {
+            $importReceiptNodeId = DB::table('event_snapshots')
+                ->join('event_snapshot_import_receipts', 'event_snapshots.id', '=', 'event_snapshot_import_receipts.snapshot_id')
+                ->whereColumn('event_snapshot_import_receipts.node_id', 'event_snapshots.target_node_id')
+                ->whereColumn('event_snapshot_import_receipts.sha256', 'event_snapshots.sha256')
+                ->where('event_snapshots.event_id', $event->id)->where('event_snapshots.version', $event->snapshot_version)
+                ->whereNull('event_snapshots.invalidated_at')->value('event_snapshot_import_receipts.node_id');
+        }
+
+        return view('organizer.events.show', compact('event', 'staffUsers', 'receiptNodeId', 'importReceiptNodeId'));
     }
 
     /**
@@ -292,6 +303,20 @@ class OrganizerEventController extends Controller
 
         return redirect()->route('organizer.events.show', $event)
             ->with('success', 'Snapshot received by the node. Admission is not ready yet.');
+    }
+
+    /**
+     * Record an authenticated import receipt without enabling admission.
+     */
+    public function confirmImportReceipt(Request $request, Event $event, ConfirmImportReceipt $action): RedirectResponse
+    {
+        Gate::authorize('update', $event);
+        abort_if(! $request->secure() && ! app()->environment(['local', 'testing']), 403, 'HTTPS is required.');
+        $validated = $request->validate(['receipt' => ['required', 'string', 'max:4096']]);
+        $action->execute($event->id, $validated['receipt']);
+
+        return redirect()->route('organizer.events.show', $event)
+            ->with('success', 'Snapshot import confirmed. Admission is not ready yet.');
     }
 
     /**

@@ -13,6 +13,7 @@
 use App\Actions\AdmitTicket;
 use App\Actions\ExportSnapshot;
 use App\Actions\ImportReceivedSnapshot;
+use App\Actions\IssueImportReceipt;
 use App\Actions\NodeStaffAccess;
 use App\Actions\PrepareEventSnapshot;
 use App\Actions\ReceiveSnapshot;
@@ -125,6 +126,10 @@ try {
         config(['ingress.mode' => 'node', 'ingress.node_id' => $payload['node_id']]);
         $eventId = app(ImportReceivedSnapshot::class)->execute($payload['event_id']);
         $emit(['ok' => true, 'event_id' => $eventId]);
+    } elseif ($mode === 'import_receipt') {
+        config(['ingress.mode' => 'node', 'ingress.node_id' => $payload['node_id'], 'ingress.node_sync_key' => $payload['secret']]);
+        $receipt = app(IssueImportReceipt::class)->execute($payload['event_id']);
+        $emit(['ok' => true, 'receipt_hash' => hash('sha256', $receipt)]);
     } elseif ($mode === 'snapshot') {
         config(['ingress.mode' => 'cloud']);
         $snapshot = app(PrepareEventSnapshot::class)->execute($payload['event_id']);
