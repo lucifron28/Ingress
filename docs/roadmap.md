@@ -5,14 +5,14 @@ Status is relative to `main` at `9242a4d`. A checked item requires a merged chan
 ## Baseline
 
 - [x] The MVP has a single LAN server, authenticated event registration, opaque tickets, read-only scan preview, and explicit admission confirmation. CI includes backend, mobile, TypeScript, and PostgreSQL concurrency jobs.
-- [ ] Verify the complete MVP workflow on real devices and document results. PR #15 adds unverified self-registration and must not be treated as institutional verification.
-- [ ] Correct the institutional verification design and keep this roadmap current as phases merge.
+- [ ] Real-device MVP workflow verification is deferred to the project owner after implementation. PR #15 adds unverified self-registration and must not be treated as institutional verification.
+- [x] Correct the institutional verification design ([PR #16](https://github.com/lucifron28/Ingress/pull/16)). Continue updating this roadmap as phases merge.
 - [ ] Review and remediate applicable mobile dependency advisories. `npm audit --omit=dev` reported 19 advisories on 2026-11-03, including 6 high severity; applicability and fixes need review.
 
 ## Dependency order
 
 1. [ ] Stabilize the MVP and verify the end-to-end LAN workflow, including failure and restart behavior.
-2. [ ] Define and enforce separate cloud and Event Node runtimes, databases, and event authority. Preserve existing admission invariants.
+2. [ ] Define and enforce separate cloud and Event Node runtimes, databases, and event authority. Runtime database binding and fail-closed route guards are implemented; snapshot handoff, safe migration of existing databases, and node admission remain pending. Preserve existing admission invariants.
 3. [ ] Add registration cutoff, finalization, versioned snapshots, verified transfer, and split-brain prevention. Test interrupted transfers and recovery.
 4. [ ] Add secure offline student ticket caching and session restoration. Cached tickets provide display only, not admission or registration authority.
 5. [ ] Add Event Node staff authentication, scanner pairing, and staff-only manual LAN configuration.

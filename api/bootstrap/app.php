@@ -1,5 +1,9 @@
 <?php
 
+use App\Http\Middleware\EnsureOrganizer;
+use App\Http\Middleware\EnsureRuntimeDatabase;
+use App\Http\Middleware\EnsureStaff;
+use App\Http\Middleware\RequireRuntime;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -14,9 +18,12 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->web(prepend: [EnsureRuntimeDatabase::class]);
+        $middleware->api(prepend: [EnsureRuntimeDatabase::class]);
         $middleware->alias([
-            'organizer' => \App\Http\Middleware\EnsureOrganizer::class,
-            'staff' => \App\Http\Middleware\EnsureStaff::class,
+            'organizer' => EnsureOrganizer::class,
+            'staff' => EnsureStaff::class,
+            'runtime' => RequireRuntime::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

@@ -68,14 +68,22 @@ $admin = new PDO($adminDsn, $baseConnection['username'], $baseConnection['passwo
     PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
 ]);
 
-$exists = $admin->query("SELECT 1 FROM pg_database WHERE datname = '{$testDatabase}'")->fetchColumn();
+$existsQuery = $admin->prepare('SELECT 1 FROM pg_database WHERE datname = ?');
+$existsQuery->execute([$testDatabase]);
+$exists = $existsQuery->fetchColumn();
 
-if (! $exists) {
-    $admin->exec(sprintf('CREATE DATABASE "%s"', $testDatabase));
-    echo "  created.\n";
-} else {
-    echo "  already exists.\n";
+if ($exists) {
+    fwrite(STDERR, "Refusing to reset existing database '{$testDatabase}'. Choose an unused INGRESS_CONCURRENCY_DB.\n");
+    exit(1);
 }
+
+if (! preg_match('/^[a-z][a-z0-9_]{0,62}$/', $testDatabase)) {
+    fwrite(STDERR, "Invalid INGRESS_CONCURRENCY_DB name.\n");
+    exit(1);
+}
+
+$admin->exec(sprintf('CREATE DATABASE "%s"', $testDatabase));
+echo "  created.\n";
 
 config(['database.connections.pgsql.database' => $testDatabase]);
 DB::purge('pgsql');
@@ -836,6 +844,22 @@ $assert($authWorkerReady, 'the authorization-race worker reached the barrier');
 $assert($observedAuthBlocked > 0, 'the admission blocked on the event_staff row rather than using a stale authorization snapshot');
 $assert(($authResult['status'] ?? null) === 'gate_mismatch', 'the admission saw the committed reassignment and was rejected');
 $assert($authAdmissions === 0, 'a reassigned gate recorded no admission');
+echo "\n";
+
+// =============================================================================
+// CASE H - Competing runtimes cannot bind the same database
+// =============================================================================
+echo "CASE H: cloud and node compete to bind the same database\n";
+DB::table('runtime_identity')->delete();
+$runtimeResults = $runConcurrently([
+    ['runtime', ['runtime' => 'cloud']],
+    ['runtime', ['runtime' => 'node', 'node_id' => 'node-1']],
+], $childScript, $testDatabase);
+echo '  workers: '.json_encode($runtimeResults).PHP_EOL;
+$runtimeCodes = array_column($runtimeResults, 'http_code');
+sort($runtimeCodes);
+$assert($runtimeCodes === [200, 503], 'only one runtime may bind the database');
+$assert(DB::table('runtime_identity')->count() === 1, 'exactly one database identity exists');
 echo "\n";
 
 // =============================================================================
