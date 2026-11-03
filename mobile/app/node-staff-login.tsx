@@ -62,7 +62,7 @@ export default function NodeStaffLoginScreen() {
         <View style={styles.card}>
           <Text style={styles.title}>Staff scanner sign in</Text>
           <Text style={styles.body}>Enter the HTTPS Event Node address and the local credential provided by your event operator. Confirm the address with the operator before signing in.</Text>
-          <Text style={styles.notice}>Node admission is not ready yet. This sign-in does not enable scanning.</Text>
+          <Text style={styles.notice}>Scanning requires an activated event and a connection to the venue node.</Text>
           {saved && <Pressable accessibilityRole="button" style={styles.secondary} disabled={busy} onPress={resume}><Text style={styles.secondaryText}>Continue as {saved.user.name}</Text></Pressable>}
           <Text style={styles.label}>Event Node API address</Text>
           <TextInput accessibilityLabel="Event Node API address" style={styles.input} value={url} onChangeText={setUrl} autoCapitalize="none" autoCorrect={false} keyboardType="url" placeholder="https://node.example/api/v1" editable={!busy} />

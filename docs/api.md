@@ -1,6 +1,7 @@
 # Ingress REST API Documentation (v1)
 
-**Base URL**: `http://<LAN_SERVER_IP>:8000/api/v1`  
+**Base URL**: `https://<LAN_SERVER_HOST>/api/v1` for production Event Nodes
+
 **Authentication**: Bearer Token via HTTP Header (`Authorization: Bearer <token>`)  
 **Standard Headers**:
 - `Accept: application/json`
@@ -20,7 +21,7 @@ The email contains a 30-minute, single-use link. Opening it displays a form; the
 
 `POST /auth/node-staff/login` is available only on an Event Node. Send `email`, the node-issued `password`, and an optional `device_name`. The node checks the local credential and a current imported staff assignment, then returns a bearer token with the `node:staff` ability and a 12-hour expiration. It returns a generic credential error for an invalid password or assignment and rate-limits attempts. HTTPS is required outside local and testing environments. The response has `Cache-Control: no-store`.
 
-Node tokens currently support `GET /me` and `POST /auth/logout`. Event and scanner operations remain unavailable until the authority handoff is implemented. The ordinary `/auth/login` endpoint remains available on cloud and legacy runtimes, not nodes. The staff member's account role is not changed by a node assignment.
+Node tokens support `GET /me`, `POST /auth/logout`, and the `/staff` event, gate, preview, and admission endpoints. Each node scan requires an activated signed grant, a current event assignment, the assigned gate, and a valid node token. Preview is read-only; only confirmation records an admission. A missing or invalid authority returns `403` with status `node_authority_unavailable`. Admissions remain on the node until reconciliation is implemented. The ordinary `/auth/login` endpoint remains available on cloud and legacy runtimes, not nodes. The staff member's account role is not changed by a node assignment.
 
 ### 1.1 Mobile Login
 Issues a personal access token for mobile attendees and event staff.
