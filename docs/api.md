@@ -134,6 +134,7 @@ Returns upcoming published campus events available for discovery and registratio
       "is_registration_open": true,
       "registration_opens_at": "2026-09-30T00:00:00.000000Z",
       "registration_closes_at": "2026-10-08T00:00:00.000000Z",
+      "registration_closed_at": null,
       "starts_at": "2026-10-03T09:00:00.000000Z",
       "ends_at": "2026-10-03T17:00:00.000000Z",
       "status": "published",
@@ -177,7 +178,7 @@ Retrieves single event details including user registration status.
 ## 3. Registration & Ticket Endpoints
 
 ### 3.1 Register for Event
-Transactionally reserves a seat with pessimistic row lock and issues a digital ticket.
+Transactionally reserves a seat with a row lock and issues a digital ticket. Registration is rejected after the scheduled deadline, after the event ends, or after an organizer closes registration. `registration_closed_at` is the organizer-initiated cutoff timestamp and is null when no manual cutoff has been recorded. A manual cutoff does not revoke existing tickets or transfer admission authority.
 
 - **Method**: `POST`
 - **Endpoint**: `/events/{id}/registration`
