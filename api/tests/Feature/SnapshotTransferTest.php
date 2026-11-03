@@ -25,6 +25,22 @@ class SnapshotTransferTest extends TestCase
 {
     use RefreshDatabase;
 
+    private function sampleSnapshot(int $version, int $eventId): array
+    {
+        return [
+            'schema_version' => 1, 'snapshot_id' => (string) Str::uuid(), 'version' => $version,
+            'event' => [
+                'id' => $eventId, 'title' => 'Event', 'slug' => 'event', 'description' => null,
+                'capacity' => 20, 'status' => 'published', 'starts_at' => now()->toISOString(),
+                'ends_at' => now()->addDay()->toISOString(), 'registration_opens_at' => now()->subDay()->toISOString(),
+                'registration_closes_at' => now()->addDay()->toISOString(), 'registration_closed_at' => null,
+                'venue' => ['id' => 1, 'name' => 'Hall', 'code' => 'HALL', 'location' => null],
+                'organizer' => ['id' => 1, 'name' => 'Owner', 'email' => 'owner@example.test', 'role' => 'organizer'],
+            ],
+            'access_points' => [], 'staff' => [], 'registrations' => [],
+        ];
+    }
+
     private function cloudEvent(): array
     {
         config(['ingress.mode' => 'cloud']);
@@ -118,8 +134,7 @@ class SnapshotTransferTest extends TestCase
     {
         $envelope = app(SnapshotEnvelope::class);
         $secret = base64_encode(random_bytes(32));
-        $json = json_encode(['schema_version' => 1, 'snapshot_id' => (string) Str::uuid(),
-            'version' => 1, 'event' => ['id' => 1], 'registrations' => [], 'staff' => [], 'access_points' => []], JSON_THROW_ON_ERROR);
+        $json = json_encode($this->sampleSnapshot(1, 1), JSON_THROW_ON_ERROR);
         $sealed = $envelope->seal('node-1', $secret, $json);
         $altered = json_decode(base64_decode($sealed, true), true, 512, JSON_THROW_ON_ERROR);
         $altered['value'][0] = $altered['value'][0] === 'A' ? 'B' : 'A';
@@ -141,8 +156,7 @@ class SnapshotTransferTest extends TestCase
         $package = tempnam(sys_get_temp_dir(), 'ingress-package-');
         $originalConnection = DB::getDefaultConnection();
         $secret = base64_encode(random_bytes(32));
-        $json = json_encode(['schema_version' => 1, 'snapshot_id' => (string) Str::uuid(),
-            'version' => 1, 'event' => ['id' => 99], 'registrations' => [], 'staff' => [], 'access_points' => []], JSON_THROW_ON_ERROR);
+        $json = json_encode($this->sampleSnapshot(1, 99), JSON_THROW_ON_ERROR);
         $sealed = app(SnapshotEnvelope::class)->seal('node-restart', $secret, $json);
         try {
             file_put_contents($package, $sealed);
@@ -174,8 +188,7 @@ class SnapshotTransferTest extends TestCase
         config(['ingress.mode' => 'node', 'ingress.node_id' => 'node-1', 'ingress.node_sync_key' => $secret]);
         $envelope = app(SnapshotEnvelope::class);
         $message = function (int $version) use ($envelope, $secret): string {
-            $json = json_encode(['schema_version' => 1, 'snapshot_id' => (string) Str::uuid(),
-                'version' => $version, 'event' => ['id' => 123], 'registrations' => [], 'staff' => [], 'access_points' => []], JSON_THROW_ON_ERROR);
+            $json = json_encode($this->sampleSnapshot($version, 123), JSON_THROW_ON_ERROR);
 
             return $envelope->seal('node-1', $secret, $json);
         };

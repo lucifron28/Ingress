@@ -43,6 +43,24 @@ class PrepareEventSnapshotTest extends TestCase
         $this->assertNull($event->fresh()->snapshot_prepared_at);
     }
 
+    public function test_existing_admissions_prevent_preparation(): void
+    {
+        $event = $this->createEvent();
+        $owner = User::findOrFail($event->organizer_id);
+        $student = User::factory()->create(['role' => User::ROLE_STUDENT]);
+        $gate = AccessPoint::create(['event_id' => $event->id, 'name' => 'Gate', 'code' => 'G1', 'is_active' => true]);
+        $ticketId = $this->actingAs($student)->postJson("/api/v1/events/{$event->id}/registration")->assertCreated()->json('ticket.id');
+        DB::table('admissions')->insert([
+            'ticket_id' => $ticketId, 'access_point_id' => $gate->id, 'scanned_by_user_id' => $owner->id,
+            'client_scan_id' => 'historical-scan', 'credential_version' => 1, 'admitted_at' => now(),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $this->actingAs($owner)->post("/organizer/events/{$event->id}/close-registration");
+        $this->post("/organizer/events/{$event->id}/prepare-snapshot")->assertSessionHasErrors('event');
+        $this->assertDatabaseCount('event_snapshots', 0);
+        $this->assertNull($event->fresh()->snapshot_prepared_at);
+    }
+
     public function test_legacy_runtime_cannot_prepare_a_snapshot(): void
     {
         $event = $this->createEvent();

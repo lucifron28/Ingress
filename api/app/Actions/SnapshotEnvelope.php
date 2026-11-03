@@ -4,12 +4,13 @@ namespace App\Actions;
 
 use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Encryption\Encrypter;
-use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use JsonException;
 
 class SnapshotEnvelope
 {
+    public function __construct(private ValidateSnapshotPayload $validator) {}
+
     private function key(string $secret, string $purpose): string
     {
         $raw = base64_decode($secret, true);
@@ -28,20 +29,7 @@ class SnapshotEnvelope
     /** @return array{node_id: string, snapshot_id: string, event_id: int, version: int, sha256: string} */
     private function metadata(string $nodeId, string $json): array
     {
-        try {
-            $payload = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
-        } catch (JsonException) {
-            $this->invalid();
-        }
-        if (! is_array($payload) || ($payload['schema_version'] ?? null) !== 1
-            || ! is_string($payload['snapshot_id'] ?? null) || ! Str::isUuid($payload['snapshot_id'])
-            || ! is_int($payload['version'] ?? null) || $payload['version'] < 1
-            || ! is_array($payload['event'] ?? null)
-            || ! is_int($payload['event']['id'] ?? null) || $payload['event']['id'] < 1
-            || ! is_array($payload['registrations'] ?? null) || ! is_array($payload['staff'] ?? null)
-            || ! is_array($payload['access_points'] ?? null)) {
-            $this->invalid();
-        }
+        $payload = $this->validator->execute($json);
 
         return ['node_id' => $nodeId, 'snapshot_id' => $payload['snapshot_id'],
             'event_id' => $payload['event']['id'], 'version' => $payload['version'], 'sha256' => hash('sha256', $json)];

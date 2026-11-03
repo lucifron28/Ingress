@@ -2,6 +2,7 @@
 
 namespace App\Actions;
 
+use App\Models\Admission;
 use App\Models\Event;
 use App\Models\Registration;
 use Illuminate\Support\Facades\Crypt;
@@ -11,7 +12,7 @@ use Illuminate\Validation\ValidationException;
 
 class PrepareEventSnapshot
 {
-    public function __construct(private ReadPreparedSnapshot $reader) {}
+    public function __construct(private ReadPreparedSnapshot $reader, private ValidateSnapshotPayload $validator) {}
 
     /** @return array{id: string, version: int, sha256: string} */
     public function execute(int $eventId): array
@@ -25,6 +26,10 @@ class PrepareEventSnapshot
 
             if (! $event->isPublished()) {
                 throw ValidationException::withMessages(['event' => 'Only published events can be prepared.']);
+            }
+
+            if (Admission::whereHas('ticket.registration', fn ($query) => $query->where('event_id', $event->id))->exists()) {
+                throw ValidationException::withMessages(['event' => 'Events with existing admissions cannot be prepared until admission history can be transferred.']);
             }
 
             if ($event->snapshot_prepared_at !== null) {
@@ -87,6 +92,7 @@ class PrepareEventSnapshot
                 ])->all(),
             ];
             $json = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+            $this->validator->execute($json);
             $checksum = hash('sha256', $json);
             $preparedAt = now();
             DB::table('event_snapshots')->insert([

@@ -2,9 +2,11 @@
 
 namespace App\Actions;
 
+use App\Models\Admission;
 use App\Models\Event;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 use RuntimeException;
 
 class ReadPreparedSnapshot
@@ -12,6 +14,9 @@ class ReadPreparedSnapshot
     /** @return array{record: object, json: string} */
     public function execute(Event $event): array
     {
+        if (Admission::whereHas('ticket.registration', fn ($query) => $query->where('event_id', $event->id))->exists()) {
+            throw ValidationException::withMessages(['event' => 'Events with existing admissions cannot be transferred.']);
+        }
         $record = DB::table('event_snapshots')->where('event_id', $event->id)
             ->where('version', $event->snapshot_version)->whereNull('invalidated_at')->first();
         if ($event->snapshot_prepared_at === null || ! $record) {
