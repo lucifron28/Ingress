@@ -36,6 +36,10 @@ class AdmitTicket
         int $accessPointId,
         string $qrPayload
     ): array {
+        if (config('ingress.mode') === 'cloud' || (config('ingress.mode') === 'node'
+            && ! app(NodeAdmissionAccess::class)->allows($staff, $eventId))) {
+            return $this->nodeUnavailable();
+        }
         $context = $this->validateTicketContext($staff, $eventId, $accessPointId, $qrPayload);
 
         if (! $context['valid']) {
@@ -109,6 +113,10 @@ class AdmitTicket
         string $qrPayload,
         string $clientScanId
     ): array {
+        if (config('ingress.mode') === 'cloud' || (config('ingress.mode') === 'node'
+            && ! app(NodeAdmissionAccess::class)->allows($staff, $eventId))) {
+            return $this->nodeUnavailable();
+        }
         $context = $this->validateTicketContext($staff, $eventId, $accessPointId, $qrPayload);
 
         if (! $context['valid']) {
@@ -123,7 +131,7 @@ class AdmitTicket
             ->where('client_scan_id', $clientScanId)
             ->first();
 
-        if ($existingById) {
+        if ($existingById && config('ingress.mode') !== 'node') {
             $isMatchingTicket = (int) $existingById->ticket_id === (int) $ticket->id;
             $isMatchingGate = (int) $existingById->access_point_id === (int) $accessPoint->id;
             $isMatchingEvent = (int) $existingById->accessPoint?->event_id === (int) $event->id;
@@ -162,6 +170,9 @@ class AdmitTicket
 
         try {
             return DB::transaction(function () use ($staff, $ticket, $accessPoint, $event, $clientScanId, $scannedSecret, $accessPointId) {
+                if (config('ingress.mode') === 'node' && ! app(NodeAdmissionAccess::class)->allows($staff, $event->id, true)) {
+                    return $this->nodeUnavailable();
+                }
                 // Lock event before ticket. Shared event locks keep different-ticket scans
                 // concurrent while forcing cancellation and event updates to wait.
                 $lockedEvent = Event::whereKey($event->getKey())->sharedLock()->first();
@@ -182,6 +193,13 @@ class AdmitTicket
                         'message' => 'Event Completed',
                         'detail' => 'This event is no longer admitting attendees.',
                     ];
+                }
+
+                if (config('ingress.mode') === 'node') {
+                    $nodeAuth = $this->verifyAuthoritativeAuthorization($staff, $lockedEvent, $accessPointId);
+                    if (! $nodeAuth['valid']) {
+                        return $nodeAuth['error'];
+                    }
                 }
 
                 // Serialize scans that target the same ticket.
@@ -319,6 +337,11 @@ class AdmitTicket
         }
     }
 
+    private function nodeUnavailable(): array
+    {
+        return ['http_code' => 403, 'status' => 'node_authority_unavailable',
+            'message' => 'Admission Unavailable', 'detail' => 'Node authority or staff session is unavailable.'];
+    }
 
     /**
      * Authoritatively re-verifies and locks staff and gate authorization rows.
@@ -339,7 +362,7 @@ class AdmitTicket
         Event $lockedEvent,
         int $accessPointId
     ): array {
-        $isSuperUser = $staff->isAdmin() || (int) $lockedEvent->organizer_id === (int) $staff->id;
+        $isSuperUser = config('ingress.mode') !== 'node' && ($staff->isAdmin() || (int) $lockedEvent->organizer_id === (int) $staff->id);
         $staffAssignment = null;
 
         if (! $isSuperUser) {
@@ -468,7 +491,7 @@ class AdmitTicket
             ];
         }
 
-        $isSuperUser = $staff->isAdmin() || $event->organizer_id === $staff->id;
+        $isSuperUser = config('ingress.mode') !== 'node' && ($staff->isAdmin() || $event->organizer_id === $staff->id);
         $staffAssignment = EventStaff::where('event_id', $event->id)->where('user_id', $staff->id)->first();
 
         if (! $isSuperUser && ! $staffAssignment) {

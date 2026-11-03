@@ -86,7 +86,9 @@ class NodeStaffAuthTest extends TestCase
         $this->withToken($token)->getJson('/api/v1/me')->assertOk()->assertJsonPath('user.id', $staff->id);
         $this->withToken($token)->getJson('/api/v1/events')->assertStatus(503);
         $eventId = DB::table('node_event_imports')->where('cloud_event_id', 10)->value('event_id');
-        $this->withToken($token)->postJson("/api/v1/staff/events/{$eventId}/admissions/preview")->assertStatus(503);
+        $this->withToken($token)->postJson("/api/v1/staff/events/{$eventId}/admissions/preview", [
+            'access_point_id' => 1, 'qr_payload' => 'invalid',
+        ])->assertForbidden()->assertJsonPath('status', 'node_authority_unavailable');
         $this->withToken($token)->postJson('/api/v1/auth/logout')->assertOk();
         $this->assertDatabaseCount('personal_access_tokens', 0);
         app('auth')->forgetGuards();

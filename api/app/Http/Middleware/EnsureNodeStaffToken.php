@@ -21,7 +21,7 @@ class EnsureNodeStaffToken
         if (! app()->environment(['local', 'testing']) && ! $request->secure()) {
             abort(403, 'HTTPS is required.');
         }
-        if (! $request->is('api/v1/me', 'api/v1/auth/logout')) {
+        if (! $request->is('api/v1/me', 'api/v1/auth/logout', 'api/v1/staff/*')) {
             abort(503, 'Node admission is not ready.');
         }
         $user = $request->user();

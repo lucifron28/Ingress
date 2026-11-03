@@ -106,7 +106,7 @@ class PrepareEventSnapshotTest extends TestCase
         $this->assertDatabaseCount('event_snapshots', 1);
         $this->assertSame(1, $event->fresh()->snapshot_version);
         $page = $this->get("/organizer/events/{$event->id}")->assertOk();
-        $page->assertSee('Admission is not ready yet')->assertDontSee($staff->getAuthPassword());
+        $page->assertSee('Node admission requires an activated authority grant')->assertDontSee($staff->getAuthPassword());
     }
 
     public function test_prepared_event_rejects_changes_and_discard_creates_new_version(): void

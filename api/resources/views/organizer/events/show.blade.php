@@ -79,23 +79,23 @@
 
 <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem; margin-bottom: 2rem;">
     @if ($event->snapshot_prepared_at)
-        <p class="card" style="grid-column: 1 / -1;">Snapshot prepared. Event changes are locked. Admission is not ready yet.</p>
+        <p class="card" style="grid-column: 1 / -1;">Snapshot prepared. Event changes are locked. Node admission requires an activated authority grant.</p>
     @endif
     @if (config('ingress.mode') === 'cloud' && $event->snapshot_prepared_at && auth()->user()->can('update', $event))
         <div class="card" style="grid-column: 1 / -1;">
             <h2>Send snapshot to Event Node</h2>
-            <p>Download the encrypted package and import it on the named node. Return the node's receipt here. Admission remains unavailable.</p>
+            <p>Download the encrypted package and import it on the named node. Return the node's receipts here. Activate the authority grant on the node before admission.</p>
             @if ($receiptNodeId)
-                <p>Received by node {{ $receiptNodeId }}. Admission is not ready.</p>
+                <p>Received by node {{ $receiptNodeId }}.</p>
             @endif
             @if ($importReceiptNodeId)
-                <p>Import confirmed by node {{ $importReceiptNodeId }}. Admission remains disabled.</p>
+                <p>Import confirmed by node {{ $importReceiptNodeId }}.</p>
             @endif
             @if ($authority)
-                <p>Authority was transferred to node {{ $authority->node_id }}. Cloud cancellation and snapshot changes are locked. Scanner endpoints are not enabled yet.</p>
+                <p>Authority was transferred to node {{ $authority->node_id }}. Cloud cancellation and snapshot changes are locked. Activate the grant on the node before scanning.</p>
             @endif
             @if ($importReceiptNodeId || $authority)
-                <form method="POST" action="{{ route('organizer.events.authority.transfer', $event) }}" onsubmit="return confirm('This locks cloud cancellation and snapshot changes. Recovery is not available, and node scanners are not enabled yet. Continue?');">
+                <form method="POST" action="{{ route('organizer.events.authority.transfer', $event) }}" onsubmit="return confirm('This locks cloud cancellation and snapshot changes. Recovery is not available. Activate this grant on the node before scanning. Continue?');">
                     @csrf
                     <button type="submit" class="btn-secondary">{{ $authority ? 'Download Authority Grant Again' : 'Transfer Authority and Download Grant' }}</button>
                 </form>

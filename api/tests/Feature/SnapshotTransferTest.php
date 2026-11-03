@@ -46,7 +46,7 @@ class SnapshotTransferTest extends TestCase
         ];
     }
 
-    private function cloudEvent(): array
+    private function cloudEvent(bool $withStaff = false): array
     {
         config(['ingress.mode' => 'cloud']);
         $owner = User::factory()->create(['role' => User::ROLE_ORGANIZER]);
@@ -57,13 +57,26 @@ class SnapshotTransferTest extends TestCase
             'capacity' => 20, 'registration_opens_at' => now()->subDay(), 'registration_closes_at' => now()->addDay(),
             'starts_at' => now(), 'ends_at' => now()->addDay(), 'status' => Event::STATUS_PUBLISHED,
         ]);
+        $cloudStaffId = null;
+        if ($withStaff) {
+            $staff = User::factory()->create(['role' => User::ROLE_STAFF, 'email' => 'node-operator@example.test']);
+            $cloudStaffId = $staff->id;
+            $gateId = DB::table('access_points')->insertGetId([
+                'event_id' => $event->id, 'name' => 'Gate', 'code' => 'MAIN', 'is_active' => true,
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+            DB::table('event_staff')->insert([
+                'event_id' => $event->id, 'user_id' => $staff->id, 'access_point_id' => $gateId,
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+        }
         $qr = $this->actingAs($student)->postJson("/api/v1/events/{$event->id}/registration")->assertCreated()->json('qr_payload');
         $this->actingAs($owner)->post("/organizer/events/{$event->id}/close-registration")->assertRedirect();
         $this->post("/organizer/events/{$event->id}/prepare-snapshot")->assertRedirect();
         $this->assertSame(0, Artisan::call('ingress:register-node', ['node_id' => 'node-1']));
         $this->assertSame(1, preg_match('/INGRESS_NODE_SYNC_KEY=([A-Za-z0-9+\/=]+)/', Artisan::output(), $match));
 
-        return [$event, $owner, $qr, $match[1]];
+        return [$event, $owner, $qr, $match[1], $cloudStaffId];
     }
 
     public function test_encrypted_transfer_and_signed_receipt_across_separate_databases(): void
@@ -227,7 +240,7 @@ class SnapshotTransferTest extends TestCase
 
     public function test_authority_grant_freezes_cloud_and_activates_only_the_imported_node(): void
     {
-        [$event, $owner, $qr, $secret] = $this->cloudEvent();
+        [$event, $owner, $qr, $secret, $cloudStaffId] = $this->cloudEvent(true);
         $keypair = sodium_crypto_sign_keypair();
         config([
             'ingress.authority_private_key' => base64_encode(sodium_crypto_sign_secretkey($keypair)),
@@ -331,6 +344,20 @@ class SnapshotTransferTest extends TestCase
             }
             $this->assertSame($localId, app(ImportReceivedSnapshot::class)->execute($event->id));
             $this->assertDatabaseCount('node_event_authorities', 1);
+            $this->assertSame(0, Artisan::call('ingress:provision-node-staff', ['cloud_user_id' => (string) $cloudStaffId]));
+            preg_match('/NODE_STAFF_PASSWORD=([a-f0-9]{32})/', Artisan::output(), $password);
+            app('auth')->forgetGuards();
+            $staffToken = $this->postJson('/api/v1/auth/node-staff/login', [
+                'email' => 'node-operator@example.test', 'password' => $password[1],
+            ])->assertOk()->json('token');
+            $gateId = DB::table('event_staff')->where('event_id', $localId)->value('access_point_id');
+            $scan = ['access_point_id' => $gateId, 'qr_payload' => $qr, 'client_scan_id' => 'integrated-scan'];
+            $this->withToken($staffToken)->postJson("/api/v1/staff/events/{$localId}/admissions/preview", $scan)
+                ->assertOk()->assertJsonPath('status', 'valid');
+            $this->assertDatabaseCount('admissions', 0);
+            $this->withToken($staffToken)->postJson("/api/v1/staff/events/{$localId}/admissions", $scan)
+                ->assertOk()->assertJsonPath('status', 'admitted');
+            $this->assertDatabaseCount('admissions', 1);
             $new = $this->sampleSnapshot(2, $event->id);
             $newJson = json_encode($new, JSON_THROW_ON_ERROR);
             try {

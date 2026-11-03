@@ -22,6 +22,7 @@
  * touches demonstration data.
  */
 
+use App\Actions\ActivateEventAuthority;
 use App\Actions\AuthorityGrant;
 use App\Actions\ImportReceivedSnapshot;
 use App\Actions\ManageNodeStaffCredential;
@@ -1397,6 +1398,88 @@ $assert($authorityReady, 'authority worker reached the barrier');
 $assert($authorityBlocked > 0, 'authority activation waited for the snapshot head');
 $assert(($authorityResult['reason'] ?? null) === 'validation_error', 'activation rejected the stale import');
 $assert(DB::table('node_event_authorities')->where('cloud_event_id', $authPayload['event']['id'])->count() === 0, 'no authority was activated');
+echo "\n";
+
+// =============================================================================
+// CASE Y - Two node scanners admit the same ticket
+// =============================================================================
+echo "CASE Y: two node scanners race for one ticket\n";
+$nodePayload = $racePayload;
+$nodePayload['snapshot_id'] = (string) Str::uuid();
+$nodePayload['version'] = 1;
+$nodePayload['event']['id'] += 600000;
+$nodePayload['event']['slug'] = "node-admission-{$suffix}";
+$nodePayload['event']['organizer']['id'] += 600000;
+$nodePayload['event']['organizer']['email'] = "node-owner-{$suffix}@example.test";
+$nodePayload['event']['venue']['id'] += 600000;
+$nodePayload['event']['venue']['code'] = "NODE{$suffix}";
+$nodePayload['access_points'][0]['id'] += 600000;
+$nodePayload['staff'][0]['id'] += 600000;
+$nodePayload['staff'][0]['access_point_id'] = $nodePayload['access_points'][0]['id'];
+$nodePayload['staff'][0]['user']['id'] += 600000;
+$nodePayload['staff'][0]['user']['email'] = "node-scan-staff-{$suffix}@example.test";
+$nodePayload['registrations'][0]['id'] += 600000;
+$nodePayload['registrations'][0]['attendee']['id'] += 600000;
+$nodePayload['registrations'][0]['attendee']['email'] = "node-scan-attendee-{$suffix}@example.test";
+$nodePayload['registrations'][0]['ticket']['id'] += 600000;
+$nodePayload['registrations'][0]['ticket']['public_id'] = "node-scan-{$suffix}";
+$nodeQrSecret = str_repeat('a', 64);
+$nodePayload['registrations'][0]['ticket']['qr_hash'] = hash('sha256', $nodeQrSecret);
+$nodeJson = json_encode($nodePayload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+app(ReceiveSnapshot::class)->execute(app(SnapshotEnvelope::class)->seal('race-node', $nodeSecret, $nodeJson));
+$nodeEventId = app(ImportReceivedSnapshot::class)->execute($nodePayload['event']['id']);
+$nodeImport = DB::table('node_event_imports')->where('event_id', $nodeEventId)->first();
+$nodeGrant = app(AuthorityGrant::class)->sign([
+    'protocol' => 1, 'node_id' => 'race-node', 'snapshot_id' => $nodeImport->snapshot_id,
+    'event_id' => (int) $nodeImport->cloud_event_id, 'version' => (int) $nodeImport->version, 'sha256' => $nodeImport->sha256,
+]);
+app(ActivateEventAuthority::class)->execute($nodeGrant);
+app(ManageNodeStaffCredential::class)->provision($nodePayload['staff'][0]['user']['id']);
+$nodeStaffId = DB::table('node_import_ids')->where('kind', 'user')->where('cloud_id', $nodePayload['staff'][0]['user']['id'])->value('local_id');
+$nodeGateId = DB::table('node_import_ids')->where('kind', 'gate')->where('cloud_id', $nodePayload['access_points'][0]['id'])->value('local_id');
+$nodeToken = User::findOrFail($nodeStaffId)->createToken('race', ['node:staff'], now()->addHours(1))->accessToken;
+$nodeJob = [
+    'node_id' => 'race-node', 'public_key' => $authorityPublic, 'staff_user_id' => $nodeStaffId,
+    'token_id' => $nodeToken->id, 'event_id' => $nodeEventId, 'access_point_id' => $nodeGateId,
+    'qr_payload' => "ingress:v1:node-scan-{$suffix}:{$nodeQrSecret}",
+];
+$nodeResults = $runConcurrently([
+    ['node_scan', $nodeJob + ['client_scan_id' => "node-a-{$suffix}"]],
+    ['node_scan', $nodeJob + ['client_scan_id' => "node-b-{$suffix}"]],
+], $childScript, $testDatabase);
+$assert(count(array_filter($nodeResults, fn ($result) => ($result['status'] ?? null) === 'admitted')) === 1, 'one node scanner admitted the ticket');
+$assert(count(array_filter($nodeResults, fn ($result) => ($result['status'] ?? null) === 'already_admitted')) === 1, 'the other node scanner rejected the duplicate');
+$nodeTicketId = DB::table('node_import_ids')->where('kind', 'ticket')->where('cloud_id', $nodePayload['registrations'][0]['ticket']['id'])->value('local_id');
+$assert(DB::table('admissions')->where('ticket_id', $nodeTicketId)->count() === 1, 'the node recorded one admission');
+echo "\n";
+
+// =============================================================================
+// CASE Z - A revoked token cannot replay while its revocation is in flight
+// =============================================================================
+echo "CASE Z: node admission waits for staff token revocation\n";
+$nodeRevocation = $rawConnection($testDatabase);
+$nodeRevocation->beginTransaction();
+$nodeRevocation->query('select id from runtime_identity where id = 1 for update');
+$nodeRevocation->prepare('delete from personal_access_tokens where id = ?')->execute([$nodeToken->id]);
+[$nodeProcess, $nodePipes] = $spawnWorker('node_scan', $nodeJob + ['client_scan_id' => "node-a-{$suffix}"], $testDatabase, $childScript);
+$nodeReady = trim((string) fgets($nodePipes[1])) === 'READY';
+fwrite($nodePipes[0], 'GO'.PHP_EOL);
+fflush($nodePipes[0]);
+$nodeDeadline = microtime(true) + 20.0;
+$nodeBlocked = 0;
+while (microtime(true) < $nodeDeadline) {
+    $nodeBlocked = $blockedBackends($nodeRevocation, $testDatabase);
+    if ($nodeBlocked > 0) {
+        break;
+    }
+    usleep(50_000);
+}
+$nodeRevocation->commit();
+$revokedNodeResult = $collectWorker($nodeProcess, $nodePipes);
+$assert($nodeReady, 'node scan worker reached the barrier');
+$assert($nodeBlocked > 0, 'node scan waited for credential revocation');
+$assert(($revokedNodeResult['status'] ?? null) === 'node_authority_unavailable', 'the revoked token could not replay a scan');
+$assert(DB::table('admissions')->where('ticket_id', $nodeTicketId)->count() === 1, 'revocation created no extra admission');
 echo "\n";
 
 // =============================================================================
