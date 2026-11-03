@@ -406,7 +406,7 @@ Ingress is primarily for MSEUF events. Verified students are recurring instituti
 A single email-only model for everyone would make students repeatedly verify identity for every event and would weaken the link between a ticket and the university student record. A universal account requirement for outsiders would create unnecessary friction for invited guests, alumni, parents, partner-school visitors, and paid external attendees.
 
 ### Decision
-Keep normal self-service accounts focused on verified MSEUF students. Student activation must match a preloaded institutional directory record and verify the institutional email before the server creates the student account.
+Keep normal self-service accounts focused on MSEUF students. The planned registration flow verifies control of an `@student.mseuf.edu.ph` address through a single-use email link before account completion. Directory ingestion is not required. Email verification alone does not establish ownership of a student number or current enrollment.
 
 External attendees may receive tickets through either:
 
