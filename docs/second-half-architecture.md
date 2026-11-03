@@ -86,7 +86,7 @@ Student authentication is internet/cloud based.
 
 ### Institutional student account activation
 
-Normal self-service accounts are intended for verified MSEUF students. Ingress should activate a student account only when the supplied student number and institutional email match the same preloaded institutional directory record. The verification challenge is delivered to that institutional email, and the server assigns the student role. Public users never choose a privileged role.
+Normal self-service accounts are intended for MSEUF students. The planned flow sends a single-use verification link to an `@student.mseuf.edu.ph` address and completes the account only after the recipient proves control of that address. The server assigns the student role; public users never choose a privileged role. Directory ingestion is not required for this flow. Email control does not by itself prove that a student number belongs to the account holder or that enrollment is current; those claims require a separate institutional source.
 
 This keeps the recurring student experience account-based while preserving the MSEUF-first scope of the system. Faculty, staff, and organizers who need privileged access are provisioned through authorized administrative workflows rather than public signup.
 
@@ -450,23 +450,9 @@ Exact migrations are implementation work, but the target model will likely need:
 
 Existing anti-passback and `credential_version` concepts should be reused instead of introducing a separate admission engine for walk-ins.
 
-## 17. Suggested second-half implementation order
+## 17. Implementation order
 
-1. Finish and merge verified MSEUF student account activation and institutional directory ingestion.
-2. Split student cloud API configuration from staff Event Node API configuration.
-3. Remove Event Node/IP settings from the student experience.
-4. Add student cached-session restoration and offline cached ticket wallet.
-5. Add event registration deadline and admission-finalization state.
-6. Add cloud-to-Event-Node finalized snapshot synchronization.
-7. Add Event Node staff authentication/assignment availability without public internet.
-8. Add scanner QR pairing with staff-only manual URL fallback.
-9. Add walk-in registration, capacity enforcement, printable pass, and fallback code.
-10. Add guest/alumni email tickets and the attendee abstraction needed for people without MSEUF accounts.
-11. Add event-configurable identity verification and optional photo capture.
-12. Add entry, exit, current-presence, and event-configurable re-entry tracking.
-13. Add ticket transfer with recipient acceptance, ownership change, credential rotation, and audit history.
-14. Add Event Node to cloud reconciliation for movements, admissions, walk-ins, and guest tickets.
-15. Add failure/retry tests for synchronization, walk-in capacity, guest issuance, presence transitions, transfer rotation, and finalized-event rules.
+See [the roadmap](roadmap.md) for the dependency order and current status.
 
 ## 18. Guest and alumni email tickets
 

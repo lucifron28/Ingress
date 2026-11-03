@@ -80,7 +80,7 @@ Dashboard updates in real-time
 
 ### Planned Second Half
 
-- Verified MSEUF student institutional account self-activation and directory ingestion.
+- Institutional student registration using a single-use email verification link; directory ingestion is not required.
 - Cloud / Event Node split and post-event synchronization/reconciliation.
 - Offline cached student ticket wallet.
 - Scanner QR pairing to Event Node.
@@ -356,6 +356,7 @@ eas build -p android --profile preview
 
 - [System Architecture Specification](docs/architecture.md)
 - [Second-Half Target Architecture](docs/second-half-architecture.md)
+- [Implementation Roadmap](docs/roadmap.md)
 - [REST API Reference](docs/api.md)
 - [Classroom LAN Defense Guide](docs/lan-demo.md)
 - [Architecture Decision Records (ADRs)](docs/design-decisions.md)
