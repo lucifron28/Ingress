@@ -5,10 +5,14 @@ use App\Http\Controllers\Api\V1\EventController;
 use App\Http\Controllers\Api\V1\RegistrationController;
 use App\Http\Controllers\Api\V1\StaffAdmissionController;
 use App\Http\Controllers\Api\V1\TicketController;
+use App\Http\Controllers\StudentEmailVerificationController;
 use Illuminate\Support\Facades\Route;
 
 Route::prefix('v1')->group(function () {
     // Public Authentication
+    Route::post('/auth/student-verification', [StudentEmailVerificationController::class, 'requestLink'])
+        ->middleware(['runtime:cloud', 'throttle:student-email']);
+
     Route::post('/auth/login', [AuthController::class, 'login'])
         ->middleware('throttle:login');
 

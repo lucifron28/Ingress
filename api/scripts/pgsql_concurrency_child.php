@@ -16,6 +16,7 @@ use App\Actions\ImportReceivedSnapshot;
 use App\Actions\PrepareEventSnapshot;
 use App\Actions\ReceiveSnapshot;
 use App\Actions\RegisterForEvent;
+use App\Http\Controllers\StudentEmailVerificationController;
 use App\Http\Middleware\EnsureRuntimeDatabase;
 use App\Models\User;
 use Illuminate\Contracts\Console\Kernel;
@@ -126,6 +127,14 @@ try {
         config(['ingress.mode' => 'cloud']);
         $snapshot = app(PrepareEventSnapshot::class)->execute($payload['event_id']);
         $emit(['ok' => true, 'id' => $snapshot['id'], 'version' => $snapshot['version']]);
+    } elseif ($mode === 'student_complete') {
+        config(['ingress.mode' => 'cloud']);
+        $request = Request::create('/student/complete', 'POST', [
+            'token' => $payload['token'], 'name' => 'Race Student', 'student_id' => $payload['student_id'],
+            'password' => 'long-race-password', 'password_confirmation' => 'long-race-password',
+        ]);
+        $response = app(StudentEmailVerificationController::class)->complete($request);
+        $emit(['ok' => $response->getStatusCode() === 200, 'http_code' => $response->getStatusCode()]);
     } elseif ($mode === 'runtime') {
         $app->detectEnvironment(fn () => 'production');
         config(['ingress.mode' => $payload['runtime'], 'ingress.node_id' => $payload['node_id'] ?? null]);

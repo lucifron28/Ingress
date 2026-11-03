@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\StudentEmailVerificationController;
 use App\Http\Controllers\Web\AuthController;
 use App\Http\Controllers\Web\OrganizerAttendanceController;
 use App\Http\Controllers\Web\OrganizerEventController;
@@ -8,6 +9,9 @@ use Illuminate\Support\Facades\Route;
 Route::get('/', function () {
     return redirect()->route('login');
 });
+
+Route::get('/student/complete', [StudentEmailVerificationController::class, 'show'])->middleware('runtime:cloud');
+Route::post('/student/complete', [StudentEmailVerificationController::class, 'complete'])->middleware(['runtime:cloud', 'throttle:student-complete']);
 
 Route::get('/login', [AuthController::class, 'showLoginForm'])->name('login');
 Route::post('/login', [AuthController::class, 'login'])
