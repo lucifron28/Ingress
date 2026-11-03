@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useAuth } from '../../../src/context/AuthContext';
 import { apiRequest } from '../../../src/services/api-client';
+import { TicketWallet, WalletTicket } from '../../../src/services/auth-storage';
 import { EventItem } from './index';
 
 interface EventDetailResponse {
@@ -25,7 +26,7 @@ interface EventDetailResponse {
 
 export default function EventDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { user } = useAuth();
+  const { user, token, serverUrl } = useAuth();
   const [event, setEvent] = useState<EventDetailResponse['event'] | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isRegistering, setIsRegistering] = useState(false);
@@ -60,9 +61,23 @@ export default function EventDetailScreen() {
         { method: 'POST' }
       );
 
+      let savedOffline = false;
+      if (user && token) {
+        try {
+          const walletRequest = TicketWallet.beginRequest();
+          const wallet = await apiRequest<{ data: WalletTicket[] }>('/me/tickets');
+          const saved = await TicketWallet.replace({ userId: user.id, token, serverUrl }, wallet.data, walletRequest);
+          savedOffline = saved && wallet.data.some((ticket) => ticket.id === res.ticket.id && ticket.status === 'active' && !!ticket.qr_payload);
+        } catch {
+          // Registration succeeded even if the wallet could not be refreshed.
+        }
+      }
+
       Alert.alert(
         'Registration Confirmed',
-        'Your ticket has been issued! You can now present your digital QR ticket at event entry.',
+        savedOffline
+          ? 'Your ticket is saved on this device for offline display.'
+          : 'Your ticket was issued. Open your ticket wallet while connected to save an offline copy.',
         [
           {
             text: 'View Ticket',

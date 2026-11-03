@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -9,55 +9,54 @@ import {
   View,
 } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
-import { apiRequest } from '../../../src/services/api-client';
+import { loadWalletTicket } from '../../../src/services/wallet-sync';
 
-interface TicketDetail {
-  id: number;
-  public_id: string;
-  status: string;
-  issued_at: string;
-  qr_payload?: string | null; // Opaque payload: ingress:v1:<public_id>:<secret>
-  event: {
-    id: number;
-    title: string;
-    venue?: {
-      name: string;
-      location: string;
-    };
-    starts_at: string;
-    ends_at: string;
-  };
-  attendee: {
-    name: string;
-    student_id: string | null;
-    email: string;
-  };
-}
+import { useAuth } from '../../../src/context/AuthContext';
+import { WalletTicket } from '../../../src/services/auth-storage';
+
+type TicketDetail = WalletTicket;
 
 export default function TicketDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const { user, token, serverUrl } = useAuth();
+  const [offlineSince, setOfflineSince] = useState<string | null>(null);
+  const requestId = useRef(0);
   const [ticket, setTicket] = useState<TicketDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const fetchTicket = async () => {
+    const request = ++requestId.current;
+    const scope = user && token ? { userId: user.id, token, serverUrl } : null;
+    if (!scope || !id) return;
     try {
       setErrorMessage(null);
-      const res = await apiRequest<{ ticket: TicketDetail }>(`/tickets/${id}`);
-      setTicket(res.ticket);
+      const result = await loadWalletTicket(scope, id);
+      if (request !== requestId.current) return;
+      setTicket(result.ticket);
+      setOfflineSince(result.offlineSince);
     } catch (err: unknown) {
-      const errorObj = err as { message?: string };
-      setErrorMessage(errorObj?.message || 'Could not load digital ticket.');
+      if (request !== requestId.current) return;
+      const errorObj = err as { status?: number; message?: string };
+      setTicket(null);
+      setOfflineSince(null);
+      setErrorMessage(errorObj?.status === 0 ? 'No saved copy of this ticket is available.' : errorObj?.message || 'Could not load digital ticket.');
     } finally {
-      setIsLoading(false);
+      if (request === requestId.current) setIsLoading(false);
     }
   };
 
   useEffect(() => {
-    if (id) {
+    if (id && user && token) {
+      setIsLoading(true);
       fetchTicket();
+    } else {
+      setTicket(null);
+      setOfflineSince(null);
+      setIsLoading(false);
     }
-  }, [id]);
+    return () => { requestId.current++; };
+  }, [id, user?.id, token, serverUrl]);
 
   const formatDate = (isoString?: string) => {
     if (!isoString) return 'TBA';
@@ -98,6 +97,9 @@ export default function TicketDetailScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+      {offlineSince && (
+        <Text style={styles.errorText}>Offline copy saved {new Date(offlineSince).toLocaleString()}. Ticket status may have changed; event staff will verify it.</Text>
+      )}
       <View style={styles.ticketCanvas}>
         {/* Ticket Header */}
         <View style={styles.ticketHeader}>
@@ -105,9 +107,9 @@ export default function TicketDetailScreen() {
             <View style={styles.mseufBadge}>
               <Text style={styles.mseufBadgeText}>MSEUF INGRESS</Text>
             </View>
-            <View style={ticket.status === 'active' ? styles.statusActive : styles.statusRevoked}>
-              <Text style={ticket.status === 'active' ? styles.statusActiveText : styles.statusRevokedText}>
-                {ticket.status.toUpperCase()}
+            <View style={ticket.status === 'active' && ticket.event.status !== 'cancelled' ? styles.statusActive : styles.statusRevoked}>
+              <Text style={ticket.status === 'active' && ticket.event.status !== 'cancelled' ? styles.statusActiveText : styles.statusRevokedText}>
+                {ticket.event.status === 'cancelled' ? 'EVENT CANCELLED' : ticket.status.toUpperCase()}
               </Text>
             </View>
           </View>
@@ -116,7 +118,7 @@ export default function TicketDetailScreen() {
         </View>
 
         {/* High-Contrast Opaque QR Canvas (Active Tickets Only) */}
-        {ticket.status === 'active' ? (
+        {ticket.status === 'active' && ticket.event.status !== 'cancelled' ? (
           ticket.qr_payload ? (
             <View style={styles.qrSection}>
               <View style={styles.qrContainer}>
@@ -152,7 +154,7 @@ export default function TicketDetailScreen() {
             </View>
             <Text style={styles.revokedTitle}>This ticket is no longer valid.</Text>
             <Text style={styles.revokedSubtitle}>
-              This ticket has been revoked or invalidated by event administration. It cannot be presented for admission.
+              {ticket.event.status === 'cancelled' ? 'This event has been cancelled.' : 'This ticket has been revoked or invalidated by event administration.'} It cannot be presented for admission.
             </Text>
             <Text style={styles.refCode}>Ticket Ref: {ticket.public_id}</Text>
           </View>

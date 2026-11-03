@@ -64,6 +64,12 @@ export class ApiError extends Error {
   }
 }
 
+let unauthorizedHandler: ((token: string) => Promise<void>) | null = null;
+
+export function setUnauthorizedHandler(handler: ((token: string) => Promise<void>) | null): void {
+  unauthorizedHandler = handler;
+}
+
 export async function getActiveApiUrl(): Promise<string> {
   const saved = await AuthStorage.getServerUrl();
   return (saved && saved.trim().length > 0) ? saved.trim().replace(/\/+$/, '') : DEFAULT_API_URL;
@@ -102,6 +108,9 @@ export async function apiRequest<T = unknown>(
     const data: unknown = await response.json().catch(() => null);
 
     if (!response.ok) {
+      if (response.status === 401 && token && path !== '/auth/login' && unauthorizedHandler) {
+        try { await unauthorizedHandler(token); } catch { /* Preserve the server error. */ }
+      }
       const errorPayload = (data && typeof data === 'object') ? (data as ApiErrorData) : undefined;
       const message = errorPayload?.message || `Request failed with status ${response.status}`;
       throw new ApiError(message, response.status, errorPayload, errorPayload?.errors);
