@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Web;
 
+use App\Actions\PrepareEventSnapshot;
 use App\Http\Controllers\Controller;
 use App\Models\AccessPoint;
 use App\Models\Event;
@@ -173,6 +174,7 @@ class OrganizerEventController extends Controller
         // Use the registration lock boundary so capacity cannot drop below a concurrent signup.
         DB::transaction(function () use ($event, $validated) {
             $lockedEvent = Event::whereKey($event->getKey())->lockForUpdate()->firstOrFail();
+            $lockedEvent->assertSnapshotNotPrepared();
 
             $confirmed = Registration::where('event_id', $lockedEvent->id)
                 ->where('status', Registration::STATUS_CONFIRMED)
@@ -198,7 +200,11 @@ class OrganizerEventController extends Controller
     {
         Gate::authorize('publish', $event);
 
-        $event->update(['status' => Event::STATUS_PUBLISHED]);
+        DB::transaction(function () use ($event) {
+            $lockedEvent = Event::whereKey($event->getKey())->lockForUpdate()->firstOrFail();
+            $lockedEvent->assertSnapshotNotPrepared();
+            $lockedEvent->update(['status' => Event::STATUS_PUBLISHED]);
+        });
 
         return redirect()->route('organizer.events.show', $event)
             ->with('success', "Event '{$event->title}' is now published and visible to attendees.");
@@ -221,6 +227,7 @@ class OrganizerEventController extends Controller
             }
 
             if ($lockedEvent->registration_closed_at === null) {
+                $lockedEvent->assertSnapshotNotPrepared();
                 $lockedEvent->update(['registration_closed_at' => now()]);
             }
         });
@@ -230,13 +237,57 @@ class OrganizerEventController extends Controller
     }
 
     /**
+     * Prepare an encrypted snapshot without handing off admission authority.
+     */
+    public function prepareSnapshot(Event $event, PrepareEventSnapshot $action): RedirectResponse
+    {
+        Gate::authorize('update', $event);
+        $action->execute($event->id);
+
+        return redirect()->route('organizer.events.show', $event)
+            ->with('success', 'Snapshot prepared. Admission is not ready yet.');
+    }
+
+    /**
+     * Discard a snapshot before transfer is implemented.
+     */
+    public function discardSnapshot(Event $event): RedirectResponse
+    {
+        Gate::authorize('update', $event);
+
+        DB::transaction(function () use ($event) {
+            $lockedEvent = Event::whereKey($event->getKey())->lockForUpdate()->firstOrFail();
+            if ($lockedEvent->snapshot_prepared_at !== null) {
+                DB::table('event_snapshots')->where('event_id', $lockedEvent->id)
+                    ->where('version', $lockedEvent->snapshot_version)->whereNull('invalidated_at')
+                    ->update(['invalidated_at' => now(), 'updated_at' => now()]);
+                $lockedEvent->snapshot_prepared_at = null;
+                $lockedEvent->save();
+            }
+        });
+
+        return redirect()->route('organizer.events.show', $event)
+            ->with('success', 'Snapshot discarded. Event details can be changed.');
+    }
+
+    /**
      * Cancel event.
      */
     public function cancel(Event $event): RedirectResponse
     {
         Gate::authorize('cancel', $event);
 
-        $event->update(['status' => Event::STATUS_CANCELLED]);
+        DB::transaction(function () use ($event) {
+            $lockedEvent = Event::whereKey($event->getKey())->lockForUpdate()->firstOrFail();
+            if ($lockedEvent->snapshot_prepared_at !== null) {
+                DB::table('event_snapshots')->where('event_id', $lockedEvent->id)
+                    ->where('version', $lockedEvent->snapshot_version)->whereNull('invalidated_at')
+                    ->update(['invalidated_at' => now(), 'updated_at' => now()]);
+            }
+            $lockedEvent->status = Event::STATUS_CANCELLED;
+            $lockedEvent->snapshot_prepared_at = null;
+            $lockedEvent->save();
+        });
 
         return redirect()->route('organizer.events.show', $event)
             ->with('success', "Event '{$event->title}' has been cancelled.");
@@ -256,15 +307,23 @@ class OrganizerEventController extends Controller
 
         $code = strtoupper($validated['code']);
 
-        if ($event->accessPoints()->where('code', $code)->exists()) {
+        $created = DB::transaction(function () use ($event, $code, $validated) {
+            $lockedEvent = Event::whereKey($event->getKey())->lockForUpdate()->firstOrFail();
+            $lockedEvent->assertSnapshotNotPrepared();
+            if ($lockedEvent->accessPoints()->where('code', $code)->exists()) {
+                return false;
+            }
+
+            $lockedEvent->accessPoints()->create([
+                'name' => $validated['name'], 'code' => $code, 'is_active' => true,
+            ]);
+
+            return true;
+        });
+
+        if (! $created) {
             return back()->with('error', "Access point with code '{$code}' already exists.");
         }
-
-        $event->accessPoints()->create([
-            'name' => $validated['name'],
-            'code' => $code,
-            'is_active' => true,
-        ]);
 
         return back()->with('success', "Access point '{$validated['name']}' added.");
     }
@@ -287,10 +346,14 @@ class OrganizerEventController extends Controller
             ],
         ]);
 
-        EventStaff::updateOrCreate(
-            ['event_id' => $event->id, 'user_id' => $validated['user_id']],
-            ['access_point_id' => $validated['access_point_id'] ?? null]
-        );
+        DB::transaction(function () use ($event, $validated) {
+            $lockedEvent = Event::whereKey($event->getKey())->lockForUpdate()->firstOrFail();
+            $lockedEvent->assertSnapshotNotPrepared();
+            EventStaff::updateOrCreate(
+                ['event_id' => $lockedEvent->id, 'user_id' => $validated['user_id']],
+                ['access_point_id' => $validated['access_point_id'] ?? null]
+            );
+        });
 
         return back()->with('success', 'Staff member assigned successfully.');
     }
