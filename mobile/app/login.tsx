@@ -123,6 +123,10 @@ export default function LoginScreen() {
             <Text style={{ color: '#800000', fontWeight: '700' }}>Create a student account</Text>
           </Pressable>
 
+          <Pressable accessibilityRole="button" onPress={() => router.push('/node-staff-login')} style={{ minHeight: 48, justifyContent: 'center', alignItems: 'center' }}>
+            <Text style={{ color: '#800000', fontWeight: '700' }}>Staff scanner sign in</Text>
+          </Pressable>
+
           {/* Quick Demo Credentials — development and classroom builds only */}
           {DEMO_MODE && (
             <View style={styles.demoSection}>
@@ -158,7 +162,7 @@ export default function LoginScreen() {
             </View>
           )}
 
-          {/* LAN Server Indicator & Configuration Link */}
+          {DEMO_MODE && (
           <View style={styles.lanContainer}>
             <View style={styles.lanStatusRow}>
               <View style={styles.lanDot} />
@@ -168,6 +172,7 @@ export default function LoginScreen() {
               <Text style={styles.lanLink}>Change Server IP</Text>
             </Pressable>
           </View>
+          )}
         </View>
       </ScrollView>
     </KeyboardAvoidingView>

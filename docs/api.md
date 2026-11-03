@@ -601,3 +601,7 @@ Steps 2, 8–11, 12, and 13 are re-evaluated authoritatively **inside** the admi
 Steps 1–11 outside the transaction serve as a fast pre-check path.
 
 Step 13 verifies that no prior admission exists for the ticket across all entrances and credential versions, preventing duplicate admission. Credential versions are stored on admission records to preserve issuance history and scope idempotency replays.
+
+### Staff assignment navigation hint
+
+The authenticated user resource includes `is_event_staff`, indicating whether the user currently has an event staff assignment. Clients may use it to show staff navigation. It is not an authorization grant; the node checks the assignment when issuing and using a node staff token.

@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { apiRequest, DEFAULT_API_URL, setUnauthorizedHandler } from '../services/api-client';
 import { AuthStorage } from '../services/auth-storage';
+import { useNodeStaff } from './NodeStaffContext';
 
 export interface UserProfile {
   id: number;
@@ -9,6 +10,7 @@ export interface UserProfile {
   email: string;
   role: 'student' | 'staff' | 'organizer' | 'admin';
   student_id: string | null;
+  is_event_staff?: boolean;
   created_at?: string;
 }
 
@@ -35,6 +37,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const node = useNodeStaff();
   const [user, setUser] = useState<UserProfile | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [serverUrl, setServerUrl] = useState<string>(DEFAULT_API_URL);
@@ -46,11 +49,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (await AuthStorage.getToken()) return;
         setToken(null);
         setUser(null);
-        router.replace('/login');
+        if (!node.active) router.replace('/login');
       }
     });
     return () => setUnauthorizedHandler(null);
-  }, []);
+  }, [node.active]);
 
   useEffect(() => {
     async function restoreSession() {

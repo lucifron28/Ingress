@@ -563,3 +563,9 @@ The second-half architecture does not require:
 - automatic peer-to-peer scanner synchronization.
 
 The design intentionally keeps one local admission authority so duplicate admission is rejected before a second person enters.
+
+## Node staff mobile session
+
+Staff can enter a trusted HTTPS node API address and authenticate with a node-local credential. The address and token are stored in native secure storage only after successful authentication; passwords are not persisted. Requests omit cookies and reject redirects. A saved session must be resumed against the node on the venue LAN. Node and cloud sessions are independent, so node sign-out does not remove the cloud ticket wallet. If the node is unreachable at sign-out, the local token is removed but its server token can remain valid until expiry.
+
+The user profile staff-assignment flag controls navigation only; node authentication checks the current assignment. Older cached profiles without the flag can still reach the sign-in form. The general server settings screen is available only in demo builds. QR pairing, node identity confirmation, authority handoff, and node scanning are not implemented yet.

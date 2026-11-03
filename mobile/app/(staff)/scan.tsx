@@ -13,6 +13,8 @@ import {
   View,
 } from 'react-native';
 import { ApiError, apiRequest } from '../../src/services/api-client';
+import { nodeRequest } from '../../src/services/node-session';
+import { useNodeStaff } from '../../src/context/NodeStaffContext';
 
 interface ScanFeedback {
   type: 'valid' | 'duplicate' | 'conflict' | 'invalid' | 'unavailable';
@@ -33,6 +35,8 @@ interface PendingPreview {
   profilePhotoUrl?: string | null;
 }
 export default function ScannerScreen() {
+  const node = useNodeStaff();
+  const request = node.active ? nodeRequest : apiRequest;
   const { eventId, eventTitle, accessPointId, accessPointName } = useLocalSearchParams<{
     eventId: string;
     eventTitle: string;
@@ -160,7 +164,7 @@ export default function ScannerScreen() {
 
     try {
       // Step 1: Read-only preview validation. Does NOT consume the ticket or create an Admission.
-      const res = await apiRequest<{
+      const res = await request<{
         status: string;
         message: string;
         detail: string;
@@ -215,7 +219,7 @@ export default function ScannerScreen() {
 
     try {
       // Step 2: Confirmed admission transaction. Atomically validates under lock and creates Admission.
-      const res = await apiRequest<{
+      const res = await request<{
         status: string;
         message: string;
         detail: string;
