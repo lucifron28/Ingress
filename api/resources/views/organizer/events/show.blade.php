@@ -39,12 +39,12 @@
             @endif
 
             @if (config('ingress.mode') === 'cloud' && $event->isPublished() && auth()->user()->can('update', $event))
-                @if ($event->snapshot_prepared_at)
+                @if ($event->snapshot_prepared_at && ! $authority)
                     <form method="POST" action="{{ route('organizer.events.snapshot.discard', $event) }}" onsubmit="return confirm('Discard this snapshot to change event details?');">
                         @csrf
                         <button type="submit" class="btn-secondary">Discard Snapshot</button>
                     </form>
-                @else
+                @elseif (! $event->snapshot_prepared_at)
                     <form method="POST" action="{{ route('organizer.events.snapshot.prepare', $event) }}">
                         @csrf
                         <button type="submit" class="btn-secondary">Prepare Snapshot</button>
@@ -59,7 +59,7 @@
                 </form>
             @endif
 
-            @if ($event->isPublished())
+            @if ($event->isPublished() && ! $authority)
                 <form method="POST" action="{{ route('organizer.events.cancel', $event) }}" onsubmit="return confirm('Are you sure you want to cancel this event?');">
                     @csrf
                     <button type="submit" class="btn-danger">
@@ -90,6 +90,15 @@
             @endif
             @if ($importReceiptNodeId)
                 <p>Import confirmed by node {{ $importReceiptNodeId }}. Admission remains disabled.</p>
+            @endif
+            @if ($authority)
+                <p>Authority was transferred to node {{ $authority->node_id }}. Cloud cancellation and snapshot changes are locked. Scanner endpoints are not enabled yet.</p>
+            @endif
+            @if ($importReceiptNodeId || $authority)
+                <form method="POST" action="{{ route('organizer.events.authority.transfer', $event) }}" onsubmit="return confirm('This locks cloud cancellation and snapshot changes. Recovery is not available, and node scanners are not enabled yet. Continue?');">
+                    @csrf
+                    <button type="submit" class="btn-secondary">{{ $authority ? 'Download Authority Grant Again' : 'Transfer Authority and Download Grant' }}</button>
+                </form>
             @endif
             <form method="POST" action="{{ route('organizer.events.snapshot.export', $event) }}">
                 @csrf

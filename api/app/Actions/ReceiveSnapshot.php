@@ -25,6 +25,11 @@ class ReceiveSnapshot
             DB::transaction(function () use ($metadata, $opened) {
                 DB::table('received_event_heads')->insertOrIgnore(['event_id' => $metadata['event_id'], 'version' => 0]);
                 $head = DB::table('received_event_heads')->where('event_id', $metadata['event_id'])->lockForUpdate()->first();
+                $authority = DB::table('node_event_authorities')->where('cloud_event_id', $metadata['event_id'])->first();
+                if ($authority && ($authority->snapshot_id !== $metadata['snapshot_id']
+                    || (int) $authority->version !== $metadata['version'] || ! hash_equals($authority->sha256, $metadata['sha256']))) {
+                    throw ValidationException::withMessages(['transfer' => 'This event has active node authority.']);
+                }
                 if ($metadata['version'] < (int) $head->version) {
                     throw ValidationException::withMessages(['transfer' => 'A newer snapshot has already been received.']);
                 }
