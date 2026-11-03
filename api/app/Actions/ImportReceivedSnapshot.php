@@ -85,6 +85,77 @@ class ImportReceivedSnapshot
         return $id;
     }
 
+    private function removePriorImport(object $prior, int $cloudEventId): int
+    {
+        $event = DB::table('events')->where('id', $prior->event_id)->lockForUpdate()->first();
+        $eventLink = DB::table('node_import_ids')->where('kind', 'event')->where('cloud_id', $cloudEventId)->first();
+        if (! $event || ! $eventLink || (int) $eventLink->local_id !== (int) $event->id
+            || $event->status !== 'published' || $event->snapshot_prepared_at === null
+            || (int) $event->snapshot_version !== (int) $prior->version) {
+            $this->invalid();
+        }
+        $old = DB::table('received_snapshots')->where('id', $prior->snapshot_id)
+            ->where('event_id', $cloudEventId)->where('version', $prior->version)->first();
+        if (! $old || (int) $old->schema_version !== 1 || ! hash_equals($prior->sha256, $old->sha256)) {
+            $this->invalid();
+        }
+        $json = Crypt::decryptString($old->payload_ciphertext);
+        if (! hash_equals($prior->sha256, hash('sha256', $json))) {
+            $this->invalid();
+        }
+        $payload = $this->validator->execute($json);
+        if ($payload['snapshot_id'] !== $prior->snapshot_id || $payload['version'] !== (int) $prior->version
+            || $payload['event']['id'] !== $cloudEventId) {
+            $this->invalid();
+        }
+        $eventId = (int) $event->id;
+        $hasTicketAdmission = DB::table('admissions')->join('tickets', 'tickets.id', '=', 'admissions.ticket_id')
+            ->join('registrations', 'registrations.id', '=', 'tickets.registration_id')
+            ->where('registrations.event_id', $eventId)->exists();
+        $hasGateAdmission = DB::table('admissions')->join('access_points', 'access_points.id', '=', 'admissions.access_point_id')
+            ->where('access_points.event_id', $eventId)->exists();
+        if ($hasTicketAdmission || $hasGateAdmission) {
+            $this->invalid();
+        }
+        $expected = [
+            'gate' => array_column($payload['access_points'], 'id'),
+            'staff' => array_column($payload['staff'], 'id'),
+            'registration' => array_column($payload['registrations'], 'id'),
+            'ticket' => array_values(array_map(fn ($registration) => $registration['ticket']['id'],
+                array_filter($payload['registrations'], fn ($registration) => $registration['ticket'] !== null))),
+        ];
+        $actual = [
+            'gate' => DB::table('access_points')->where('event_id', $eventId)->pluck('id')->all(),
+            'staff' => DB::table('event_staff')->where('event_id', $eventId)->pluck('id')->all(),
+            'registration' => DB::table('registrations')->where('event_id', $eventId)->pluck('id')->all(),
+            'ticket' => DB::table('tickets')->join('registrations', 'registrations.id', '=', 'tickets.registration_id')
+                ->where('registrations.event_id', $eventId)->pluck('tickets.id')->all(),
+        ];
+        foreach ($expected as $kind => $cloudIds) {
+            $localIds = DB::table('node_import_ids')->where('kind', $kind)->whereIntegerInRaw('cloud_id', $cloudIds)->pluck('local_id')->all();
+            $localIds = array_map('intval', $localIds);
+            $actualIds = array_map('intval', $actual[$kind]);
+            sort($localIds);
+            sort($actualIds);
+            if (count($localIds) !== count($cloudIds) || $localIds !== $actualIds) {
+                $this->invalid();
+            }
+        }
+        if (DB::table('event_staff')->whereIntegerInRaw('access_point_id', $actual['gate'])
+            ->where('event_id', '!=', $eventId)->exists()) {
+            $this->invalid();
+        }
+        foreach ($expected as $kind => $cloudIds) {
+            DB::table('node_import_ids')->where('kind', $kind)->whereIntegerInRaw('cloud_id', $cloudIds)->delete();
+        }
+        DB::table('tickets')->whereIntegerInRaw('id', $actual['ticket'])->delete();
+        DB::table('registrations')->where('event_id', $eventId)->delete();
+        DB::table('event_staff')->where('event_id', $eventId)->delete();
+        DB::table('access_points')->where('event_id', $eventId)->delete();
+
+        return $eventId;
+    }
+
     public function execute(int $cloudEventId): int
     {
         if (config('ingress.mode') !== 'node' || $cloudEventId < 1) {
@@ -93,6 +164,7 @@ class ImportReceivedSnapshot
         $this->runtime->execute();
         try {
             return DB::transaction(function () use ($cloudEventId) {
+                // ponytail: serialize imports while users and venues are shared; partition locks if import throughput becomes a bottleneck.
                 DB::table('runtime_identity')->where('id', 1)->lockForUpdate()->first();
                 $head = DB::table('received_event_heads')->where('event_id', $cloudEventId)->lockForUpdate()->first();
                 if (! $head || $head->version < 1) {
@@ -111,28 +183,33 @@ class ImportReceivedSnapshot
                     $this->invalid();
                 }
                 $prior = DB::table('node_event_imports')->where('cloud_event_id', $cloudEventId)->first();
-                if ($prior) {
-                    if ($prior->snapshot_id !== $record->id || (int) $prior->version !== (int) $record->version || ! hash_equals($prior->sha256, $record->sha256)) {
-                        $this->invalid();
-                    }
-
+                if ($prior && $prior->snapshot_id === $record->id && (int) $prior->version === (int) $record->version
+                    && hash_equals($prior->sha256, $record->sha256)) {
                     return (int) $prior->event_id;
                 }
+                if ($prior && (int) $record->version <= (int) $prior->version) {
+                    $this->invalid();
+                }
+                $eventId = $prior ? $this->removePriorImport($prior, $cloudEventId) : null;
                 $event = $payload['event'];
                 $password = Hash::make(Str::random(64));
                 $organizer = $this->user($event['organizer'], $password);
                 $venue = $this->venue($event['venue']);
-                $eventId = DB::table('events')->insertGetId([
+                $eventData = [
                     'organizer_id' => $organizer, 'venue_id' => $venue, 'title' => $event['title'], 'slug' => $event['slug'],
                     'description' => $event['description'], 'capacity' => $event['capacity'], 'status' => $event['status'],
                     'starts_at' => $this->time($event['starts_at']), 'ends_at' => $this->time($event['ends_at']),
                     'registration_opens_at' => $this->time($event['registration_opens_at']),
                     'registration_closes_at' => $this->time($event['registration_closes_at']),
                     'registration_closed_at' => $this->time($event['registration_closed_at']),
-                    'snapshot_version' => $payload['version'], 'snapshot_prepared_at' => now(),
-                    'created_at' => now(), 'updated_at' => now(),
-                ]);
-                $this->link('event', $cloudEventId, $eventId);
+                    'snapshot_version' => $payload['version'], 'snapshot_prepared_at' => now(), 'updated_at' => now(),
+                ];
+                if ($eventId === null) {
+                    $eventId = DB::table('events')->insertGetId($eventData + ['created_at' => now()]);
+                    $this->link('event', $cloudEventId, $eventId);
+                } else {
+                    DB::table('events')->where('id', $eventId)->update($eventData);
+                }
                 $gates = [];
                 foreach ($payload['access_points'] as $gate) {
                     $id = DB::table('access_points')->insertGetId([
@@ -170,8 +247,8 @@ class ImportReceivedSnapshot
                         $this->link('ticket', $ticket['id'], $ticketId);
                     }
                 }
-                DB::table('node_event_imports')->insert([
-                    'cloud_event_id' => $cloudEventId, 'event_id' => $eventId, 'snapshot_id' => $record->id,
+                DB::table('node_event_imports')->updateOrInsert(['cloud_event_id' => $cloudEventId], [
+                    'event_id' => $eventId, 'snapshot_id' => $record->id,
                     'version' => $record->version, 'sha256' => $record->sha256, 'imported_at' => now(),
                 ]);
 

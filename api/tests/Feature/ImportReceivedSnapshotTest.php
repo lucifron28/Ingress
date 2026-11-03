@@ -11,7 +11,6 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
-use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
 class ImportReceivedSnapshotTest extends TestCase
@@ -112,18 +111,121 @@ class ImportReceivedSnapshotTest extends TestCase
         $this->assertDatabaseCount('node_import_ids', 0);
     }
 
-    public function test_newer_snapshot_cannot_replace_an_imported_event(): void
+    public function test_newer_snapshot_replaces_the_import_without_changing_the_event_id(): void
+    {
+        $old = $this->payload();
+        $this->stage($old);
+        $eventId = app(ImportReceivedSnapshot::class)->execute(10);
+        $oldGate = DB::table('node_import_ids')->where('kind', 'gate')->value('local_id');
+        $new = $this->payload(10, 2);
+        $new['event']['title'] = 'Updated event';
+        $new['access_points'][0]['name'] = 'Updated gate';
+        $new['staff'] = [];
+        $new['registrations'][0]['ticket']['qr_hash'] = hash('sha256', 'rotated-secret');
+        $this->stage($new);
+        $this->assertSame($eventId, app(ImportReceivedSnapshot::class)->execute(10));
+        $this->assertSame($eventId, app(ImportReceivedSnapshot::class)->execute(10));
+        $this->assertDatabaseHas('node_event_imports', ['cloud_event_id' => 10, 'event_id' => $eventId, 'version' => 2]);
+        $this->assertDatabaseHas('events', ['id' => $eventId, 'title' => 'Updated event', 'snapshot_version' => 2]);
+        $this->assertDatabaseHas('access_points', ['event_id' => $eventId, 'name' => 'Updated gate']);
+        $this->assertDatabaseMissing('access_points', ['id' => $oldGate]);
+        $this->assertDatabaseHas('tickets', ['qr_hash' => hash('sha256', 'rotated-secret')]);
+        $this->assertDatabaseCount('event_staff', 0);
+        $this->assertDatabaseCount('events', 1);
+        $this->assertDatabaseCount('tickets', 1);
+    }
+
+    public function test_refresh_leaves_other_events_and_shared_users_unchanged(): void
+    {
+        $this->stage($this->payload(10));
+        $this->stage($this->payload(11));
+        app(ImportReceivedSnapshot::class)->execute(10);
+        $other = app(ImportReceivedSnapshot::class)->execute(11);
+        $otherStaff = DB::table('event_staff')->where('event_id', $other)->first();
+        $otherRegistration = DB::table('registrations')->where('event_id', $other)->first();
+        $this->stage($this->payload(10, 2));
+        app(ImportReceivedSnapshot::class)->execute(10);
+        $this->assertDatabaseHas('event_staff', ['id' => $otherStaff->id, 'event_id' => $other]);
+        $this->assertDatabaseHas('registrations', ['id' => $otherRegistration->id, 'event_id' => $other]);
+        $this->assertDatabaseCount('users', 3);
+        $this->assertDatabaseCount('venues', 1);
+        $this->assertDatabaseCount('events', 2);
+    }
+
+    public function test_refresh_rejects_an_event_with_existing_admissions(): void
     {
         $this->stage($this->payload());
         $eventId = app(ImportReceivedSnapshot::class)->execute(10);
+        $ticket = DB::table('tickets')->first();
+        $gate = DB::table('access_points')->first();
+        $staff = DB::table('event_staff')->first();
+        DB::table('admissions')->insert([
+            'ticket_id' => $ticket->id, 'access_point_id' => $gate->id, 'scanned_by_user_id' => $staff->user_id,
+            'client_scan_id' => 'existing-scan', 'credential_version' => 1, 'admitted_at' => now(),
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $new = $this->payload(10, 2);
+        $new['registrations'] = [];
+        $this->stage($new);
+        $this->assertSame(1, Artisan::call('ingress:import-snapshot', ['event_id' => '10']));
+        $this->assertDatabaseHas('admissions', ['client_scan_id' => 'existing-scan', 'ticket_id' => $ticket->id]);
+        $this->assertDatabaseHas('node_event_imports', ['cloud_event_id' => 10, 'event_id' => $eventId, 'version' => 1]);
+        $this->assertDatabaseHas('tickets', ['id' => $ticket->id]);
+    }
+
+    public function test_refresh_rejects_untracked_local_records(): void
+    {
+        $this->stage($this->payload());
+        $eventId = app(ImportReceivedSnapshot::class)->execute(10);
+        $local = User::factory()->create();
+        DB::table('registrations')->insert([
+            'event_id' => $eventId, 'user_id' => $local->id, 'status' => 'confirmed',
+            'created_at' => now(), 'updated_at' => now(),
+        ]);
         $this->stage($this->payload(10, 2));
-        try {
-            app(ImportReceivedSnapshot::class)->execute(10);
-            $this->fail('A newer snapshot replaced the imported event.');
-        } catch (ValidationException) {
-            $this->assertDatabaseHas('node_event_imports', ['cloud_event_id' => 10, 'event_id' => $eventId, 'version' => 1]);
-            $this->assertDatabaseCount('events', 1);
-            $this->assertDatabaseCount('tickets', 1);
-        }
+        $this->assertSame(1, Artisan::call('ingress:import-snapshot', ['event_id' => '10']));
+        $this->assertDatabaseCount('registrations', 2);
+        $this->assertDatabaseHas('node_event_imports', ['cloud_event_id' => 10, 'version' => 1]);
+    }
+
+    public function test_refresh_rejects_a_gate_used_by_another_event(): void
+    {
+        $this->stage($this->payload(10));
+        $this->stage($this->payload(11));
+        $first = app(ImportReceivedSnapshot::class)->execute(10);
+        $second = app(ImportReceivedSnapshot::class)->execute(11);
+        $gate = DB::table('access_points')->where('event_id', $first)->value('id');
+        DB::table('event_staff')->where('event_id', $second)->update(['access_point_id' => $gate]);
+        $this->stage($this->payload(10, 2));
+        $this->assertSame(1, Artisan::call('ingress:import-snapshot', ['event_id' => '10']));
+        $this->assertDatabaseHas('event_staff', ['event_id' => $second, 'access_point_id' => $gate]);
+        $this->assertDatabaseHas('node_event_imports', ['cloud_event_id' => 10, 'version' => 1]);
+    }
+
+    public function test_refresh_rolls_back_if_new_identity_conflicts(): void
+    {
+        $this->stage($this->payload());
+        $eventId = app(ImportReceivedSnapshot::class)->execute(10);
+        $oldTicket = DB::table('tickets')->first();
+        $new = $this->payload(10, 2);
+        $new['event']['title'] = 'Updated event';
+        $new['registrations'][0]['attendee']['name'] = 'Changed identity';
+        $this->stage($new);
+        $this->assertSame(1, Artisan::call('ingress:import-snapshot', ['event_id' => '10']));
+        $this->assertDatabaseHas('events', ['id' => $eventId, 'title' => 'Event', 'snapshot_version' => 1]);
+        $this->assertDatabaseHas('tickets', ['id' => $oldTicket->id, 'qr_hash' => $oldTicket->qr_hash]);
+        $this->assertDatabaseHas('node_event_imports', ['cloud_event_id' => 10, 'version' => 1]);
+        $this->assertDatabaseCount('event_staff', 1);
+    }
+
+    public function test_refresh_rejects_corrupt_previous_snapshot(): void
+    {
+        $this->stage($this->payload());
+        $eventId = app(ImportReceivedSnapshot::class)->execute(10);
+        DB::table('received_snapshots')->where('event_id', 10)->where('version', 1)->update(['payload_ciphertext' => Crypt::encryptString('changed')]);
+        $this->stage($this->payload(10, 2));
+        $this->assertSame(1, Artisan::call('ingress:import-snapshot', ['event_id' => '10']));
+        $this->assertDatabaseHas('events', ['id' => $eventId, 'snapshot_version' => 1]);
+        $this->assertDatabaseCount('tickets', 1);
     }
 }

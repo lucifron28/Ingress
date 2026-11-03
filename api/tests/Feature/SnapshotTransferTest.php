@@ -138,6 +138,59 @@ class SnapshotTransferTest extends TestCase
         $this->assertDatabaseCount('event_snapshot_receipts', 1);
     }
 
+    public function test_cloud_snapshot_can_be_reprepared_and_refreshed_on_a_separate_node(): void
+    {
+        [$event, $owner, $qr, $secret] = $this->cloudEvent();
+        $first = $this->actingAs($owner)->post("/organizer/events/{$event->id}/snapshot/export", ['node_id' => 'node-1'])->assertOk()->getContent();
+        $cloudConnection = DB::getDefaultConnection();
+        $cloudEncrypter = Crypt::getFacadeRoot();
+        $nodeEncrypter = new Encrypter(random_bytes(32), 'AES-256-CBC');
+        $nodeDatabase = getenv('INGRESS_TEST_NODE_DB');
+        if (is_string($nodeDatabase) && DB::connection()->getDriverName() === 'pgsql') {
+            $this->assertMatchesRegularExpression('/^ingress_test_node_[a-z0-9_]+$/', $nodeDatabase);
+            $nodeConfig = config('database.connections.'.$cloudConnection);
+            $nodeConfig['database'] = $nodeDatabase;
+            $nodeConfig['url'] = null;
+        } else {
+            $nodeConfig = ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '', 'foreign_key_constraints' => true];
+        }
+        config(['database.connections.refresh_node' => $nodeConfig]);
+        DB::setDefaultConnection('refresh_node');
+        Artisan::call('migrate', ['--database' => 'refresh_node', '--force' => true]);
+        DB::connection('refresh_node')->beginTransaction();
+        try {
+            Crypt::swap($nodeEncrypter);
+            config(['ingress.mode' => 'node', 'ingress.node_id' => 'node-1', 'ingress.node_sync_key' => $secret]);
+            app(ReceiveSnapshot::class)->execute($first);
+            $localId = app(ImportReceivedSnapshot::class)->execute($event->id);
+            $this->assertDatabaseCount('access_points', 0);
+
+            DB::setDefaultConnection($cloudConnection);
+            Crypt::swap($cloudEncrypter);
+            config(['ingress.mode' => 'cloud', 'ingress.node_id' => null, 'ingress.node_sync_key' => null]);
+            $this->actingAs($owner)->post("/organizer/events/{$event->id}/discard-snapshot")->assertRedirect();
+            $this->post("/organizer/events/{$event->id}/access-points", ['name' => 'New Gate', 'code' => 'NEW'])->assertSessionHas('success');
+            $this->post("/organizer/events/{$event->id}/prepare-snapshot")->assertRedirect();
+            $second = $this->post("/organizer/events/{$event->id}/snapshot/export", ['node_id' => 'node-1'])->assertOk()->getContent();
+
+            DB::setDefaultConnection('refresh_node');
+            Crypt::swap($nodeEncrypter);
+            config(['ingress.mode' => 'node', 'ingress.node_id' => 'node-1', 'ingress.node_sync_key' => $secret]);
+            app(ReceiveSnapshot::class)->execute($second);
+            $this->assertSame($localId, app(ImportReceivedSnapshot::class)->execute($event->id));
+            $this->assertDatabaseHas('access_points', ['event_id' => $localId, 'name' => 'New Gate']);
+            $this->assertDatabaseHas('node_event_imports', ['cloud_event_id' => $event->id, 'version' => 2]);
+            $this->assertTrue(Ticket::firstOrFail()->verifySecret(explode(':', $qr)[3]));
+            $this->assertDatabaseCount('admissions', 0);
+        } finally {
+            DB::connection('refresh_node')->rollBack();
+            DB::setDefaultConnection($cloudConnection);
+            DB::disconnect('refresh_node');
+            Crypt::swap($cloudEncrypter);
+            config(['ingress.mode' => 'cloud', 'ingress.node_id' => null, 'ingress.node_sync_key' => null]);
+        }
+    }
+
     public function test_envelope_rejects_wrong_key_wrong_node_and_tampering(): void
     {
         $envelope = app(SnapshotEnvelope::class);
