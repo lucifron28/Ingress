@@ -119,6 +119,10 @@ export default function LoginScreen() {
           </Pressable>
 
 
+          <Pressable accessibilityRole="button" onPress={() => router.push('/student-register')} style={{ minHeight: 48, justifyContent: 'center', alignItems: 'center', marginTop: 8 }}>
+            <Text style={{ color: '#800000', fontWeight: '700' }}>Create a student account</Text>
+          </Pressable>
+
           {/* Quick Demo Credentials — development and classroom builds only */}
           {DEMO_MODE && (
             <View style={styles.demoSection}>
