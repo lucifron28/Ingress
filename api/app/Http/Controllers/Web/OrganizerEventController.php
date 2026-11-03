@@ -205,6 +205,31 @@ class OrganizerEventController extends Controller
     }
 
     /**
+     * Close registration without transferring admission authority.
+     */
+    public function closeRegistration(Event $event): RedirectResponse
+    {
+        Gate::authorize('update', $event);
+
+        DB::transaction(function () use ($event) {
+            $lockedEvent = Event::whereKey($event->getKey())->lockForUpdate()->firstOrFail();
+
+            if (! $lockedEvent->isPublished()) {
+                throw ValidationException::withMessages([
+                    'registration' => 'Only published events can close registration.',
+                ]);
+            }
+
+            if ($lockedEvent->registration_closed_at === null) {
+                $lockedEvent->update(['registration_closed_at' => now()]);
+            }
+        });
+
+        return redirect()->route('organizer.events.show', $event)
+            ->with('success', 'Registration is closed.');
+    }
+
+    /**
      * Cancel event.
      */
     public function cancel(Event $event): RedirectResponse

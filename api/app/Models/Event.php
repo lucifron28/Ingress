@@ -15,8 +15,11 @@ class Event extends Model
     use HasFactory;
 
     public const STATUS_DRAFT = 'draft';
+
     public const STATUS_PUBLISHED = 'published';
+
     public const STATUS_CANCELLED = 'cancelled';
+
     public const STATUS_COMPLETED = 'completed';
 
     protected $fillable = [
@@ -28,6 +31,7 @@ class Event extends Model
         'capacity',
         'registration_opens_at',
         'registration_closes_at',
+        'registration_closed_at',
         'starts_at',
         'ends_at',
         'status',
@@ -40,6 +44,7 @@ class Event extends Model
             'capacity' => 'integer',
             'registration_opens_at' => 'datetime',
             'registration_closes_at' => 'datetime',
+            'registration_closed_at' => 'datetime',
             'starts_at' => 'datetime',
             'ends_at' => 'datetime',
         ];
@@ -94,12 +99,14 @@ class Event extends Model
 
     public function isRegistrationOpen(): bool
     {
-        if (! $this->isPublished()) {
+        if (! $this->isPublished() || $this->registration_closed_at !== null) {
             return false;
         }
 
         $now = Carbon::now();
-        return $now->betweenIncluded($this->registration_opens_at, $this->registration_closes_at);
+
+        return $now->betweenIncluded($this->registration_opens_at, $this->registration_closes_at)
+            && $now->lte($this->ends_at);
     }
 
     public function getConfirmedRegistrationsCount(): int
