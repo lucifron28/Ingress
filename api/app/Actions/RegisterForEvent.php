@@ -37,7 +37,7 @@ class RegisterForEvent
                 ]);
             }
 
-            if ($event->registration_closed_at !== null) {
+            if ($event->registration_closed_at !== null || $event->snapshot_prepared_at !== null) {
                 throw ValidationException::withMessages([
                     'registration' => ['Registration for this event has already closed.'],
                 ]);

@@ -11,6 +11,7 @@
  */
 
 use App\Actions\AdmitTicket;
+use App\Actions\PrepareEventSnapshot;
 use App\Actions\RegisterForEvent;
 use App\Http\Middleware\EnsureRuntimeDatabase;
 use App\Models\User;
@@ -96,6 +97,10 @@ try {
             'status' => $result['status'],
             'attempted_admission_insert' => $attemptedAdmissionInsert,
         ]);
+    } elseif ($mode === 'snapshot') {
+        config(['ingress.mode' => 'cloud']);
+        $snapshot = (new PrepareEventSnapshot)->execute($payload['event_id']);
+        $emit(['ok' => true, 'id' => $snapshot['id'], 'version' => $snapshot['version']]);
     } elseif ($mode === 'runtime') {
         $app->detectEnvironment(fn () => 'production');
         config(['ingress.mode' => $payload['runtime'], 'ingress.node_id' => $payload['node_id'] ?? null]);

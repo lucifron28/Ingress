@@ -275,7 +275,7 @@ php artisan test --filter=RegistrationTest
 
 #### PostgreSQL concurrency verification (separate)
 
-Nine guarantees are verified against the real PostgreSQL server using genuinely overlapping
+Eleven guarantees are verified against the real PostgreSQL server using genuinely overlapping
 transactions released through a two-process barrier:
 
 1. two simultaneous registrations competing for the final seat
@@ -293,6 +293,8 @@ transactions released through a two-process barrier:
    cannot race through admission
 8. cloud and node runtimes racing to bind the same database — exactly one runtime is accepted
 9. a registration waiting on a held cutoff — registration observes the cutoff and is rejected
+10. concurrent preparation requests return one snapshot version
+11. snapshot preparation waits for an event and gate update and captures the committed data
 ```bash
 cd api
 php scripts/verify_pgsql_concurrency.php

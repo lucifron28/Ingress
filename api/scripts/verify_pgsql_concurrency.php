@@ -33,6 +33,7 @@ use App\Models\User;
 use App\Models\Venue;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -904,6 +905,67 @@ $assert($cutoffWorkerReady, 'the registration worker reached the barrier');
 $assert($cutoffBlocked > 0, 'registration waited for the cutoff event lock');
 $assert(($cutoffResult['reason'] ?? null) === 'validation_error', 'registration rejected the committed cutoff');
 $assert(Registration::where('event_id', $cutoffEvent->id)->count() === 0, 'no registration was issued after cutoff');
+echo "\n";
+
+// =============================================================================
+// CASE J - Concurrent preparation produces one version
+// =============================================================================
+echo "CASE J: concurrent snapshot preparation returns one version\n";
+$snapshotEvent = Event::create([
+    'organizer_id' => $organizer->id, 'venue_id' => $venue->id,
+    'title' => 'Snapshot race', 'slug' => "snapshot-race-{$suffix}",
+    'capacity' => 10, 'registration_opens_at' => now()->subDay(),
+    'registration_closes_at' => now()->addDay(), 'registration_closed_at' => now(),
+    'starts_at' => now(), 'ends_at' => now()->addDay(), 'status' => Event::STATUS_PUBLISHED,
+]);
+$snapshotResults = $runConcurrently([
+    ['snapshot', ['event_id' => $snapshotEvent->id]],
+    ['snapshot', ['event_id' => $snapshotEvent->id]],
+], $childScript, $testDatabase);
+echo '  workers: '.json_encode($snapshotResults).PHP_EOL;
+$assert(($snapshotResults[0]['ok'] ?? false) && ($snapshotResults[1]['ok'] ?? false), 'both preparation requests completed');
+$assert(! empty($snapshotResults[0]['id']) && ($snapshotResults[0]['id'] ?? null) === ($snapshotResults[1]['id'] ?? null), 'both requests returned the same snapshot');
+$assert(DB::table('event_snapshots')->where('event_id', $snapshotEvent->id)->count() === 1, 'only one snapshot version was stored');
+echo "\n";
+
+// =============================================================================
+// CASE K - Preparation waits for an event and gate update
+// =============================================================================
+echo "CASE K: snapshot waits for a concurrent event and gate update\n";
+$gateSnapshotEvent = Event::create([
+    'organizer_id' => $organizer->id, 'venue_id' => $venue->id,
+    'title' => 'Before update', 'slug' => "snapshot-gate-race-{$suffix}",
+    'capacity' => 10, 'registration_opens_at' => now()->subDay(),
+    'registration_closes_at' => now()->addDay(), 'registration_closed_at' => now(),
+    'starts_at' => now(), 'ends_at' => now()->addDay(), 'status' => Event::STATUS_PUBLISHED,
+]);
+$gateConnection = $rawConnection($testDatabase);
+$gateConnection->beginTransaction();
+$gateConnection->prepare('update events set title = ? where id = ?')->execute(['After update', $gateSnapshotEvent->id]);
+$gateConnection->prepare('insert into access_points (event_id, name, code, is_active, created_at, updated_at) values (?, ?, ?, true, now(), now())')
+    ->execute([$gateSnapshotEvent->id, 'Committed Gate', 'COMMITTED']);
+[$snapshotProcess, $snapshotPipes] = $spawnWorker('snapshot', ['event_id' => $gateSnapshotEvent->id], $testDatabase, $childScript);
+$snapshotReady = trim((string) fgets($snapshotPipes[1])) === 'READY';
+fwrite($snapshotPipes[0], 'GO'.PHP_EOL);
+fflush($snapshotPipes[0]);
+$snapshotDeadline = microtime(true) + 20.0;
+$snapshotBlocked = 0;
+while (microtime(true) < $snapshotDeadline) {
+    $snapshotBlocked = $blockedBackends($gateConnection, $testDatabase);
+    if ($snapshotBlocked > 0) {
+        break;
+    }
+    usleep(50_000);
+}
+$gateConnection->commit();
+$snapshotResult = $collectWorker($snapshotProcess, $snapshotPipes);
+$snapshotRow = DB::table('event_snapshots')->where('event_id', $gateSnapshotEvent->id)->first();
+$snapshotPayload = $snapshotRow ? json_decode(Crypt::decryptString($snapshotRow->payload_ciphertext), true) : [];
+$assert($snapshotReady, 'the snapshot worker reached the barrier');
+$assert($snapshotBlocked > 0, 'snapshot preparation waited for the event lock');
+$assert(($snapshotResult['ok'] ?? false) === true, 'snapshot preparation completed after the update');
+$assert(($snapshotPayload['event']['title'] ?? null) === 'After update', 'snapshot includes the committed event update');
+$assert(($snapshotPayload['access_points'][0]['code'] ?? null) === 'COMMITTED', 'snapshot includes the committed gate');
 echo "\n";
 
 // =============================================================================

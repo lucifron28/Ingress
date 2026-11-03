@@ -24,6 +24,8 @@ Route::middleware(['auth', 'organizer', 'runtime:legacy,cloud'])->prefix('organi
     Route::get('/events/{event}/edit', [OrganizerEventController::class, 'edit'])->name('events.edit');
     Route::put('/events/{event}', [OrganizerEventController::class, 'update'])->name('events.update');
     Route::post('/events/{event}/publish', [OrganizerEventController::class, 'publish'])->name('events.publish');
+    Route::post('/events/{event}/discard-snapshot', [OrganizerEventController::class, 'discardSnapshot'])->middleware('runtime:cloud')->name('events.snapshot.discard');
+    Route::post('/events/{event}/prepare-snapshot', [OrganizerEventController::class, 'prepareSnapshot'])->middleware('runtime:cloud')->name('events.snapshot.prepare');
     Route::post('/events/{event}/close-registration', [OrganizerEventController::class, 'closeRegistration'])->name('events.registration.close');
     Route::post('/events/{event}/cancel', [OrganizerEventController::class, 'cancel'])->name('events.cancel');
 

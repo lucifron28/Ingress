@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Validation\ValidationException;
 
 class Event extends Model
 {
@@ -45,6 +46,8 @@ class Event extends Model
             'registration_opens_at' => 'datetime',
             'registration_closes_at' => 'datetime',
             'registration_closed_at' => 'datetime',
+            'snapshot_version' => 'integer',
+            'snapshot_prepared_at' => 'datetime',
             'starts_at' => 'datetime',
             'ends_at' => 'datetime',
         ];
@@ -99,7 +102,7 @@ class Event extends Model
 
     public function isRegistrationOpen(): bool
     {
-        if (! $this->isPublished() || $this->registration_closed_at !== null) {
+        if (! $this->isPublished() || $this->registration_closed_at !== null || $this->snapshot_prepared_at !== null) {
             return false;
         }
 
@@ -107,6 +110,15 @@ class Event extends Model
 
         return $now->betweenIncluded($this->registration_opens_at, $this->registration_closes_at)
             && $now->lte($this->ends_at);
+    }
+
+    public function assertSnapshotNotPrepared(): void
+    {
+        if ($this->snapshot_prepared_at !== null) {
+            throw ValidationException::withMessages([
+                'event' => 'This event has a prepared snapshot and cannot be changed.',
+            ]);
+        }
     }
 
     public function getConfirmedRegistrationsCount(): int

@@ -1,6 +1,11 @@
 @extends('layouts.app')
 
 @section('content')
+@if ($errors->has('event') || $errors->has('registration'))
+    <div role="alert" style="background: #fef2f2; color: #991b1b; padding: 1rem; margin-bottom: 1rem;">
+        {{ $errors->first('event') ?: $errors->first('registration') }}
+    </div>
+@endif
 <div style="margin-bottom: 2rem;">
     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem;">
         <div>
@@ -33,7 +38,21 @@
                 </form>
             @endif
 
-            @if ($event->isPublished() && ! $event->registration_closed_at)
+            @if (config('ingress.mode') === 'cloud' && $event->isPublished() && auth()->user()->can('update', $event))
+                @if ($event->snapshot_prepared_at)
+                    <form method="POST" action="{{ route('organizer.events.snapshot.discard', $event) }}" onsubmit="return confirm('Discard this snapshot to change event details?');">
+                        @csrf
+                        <button type="submit" class="btn-secondary">Discard Snapshot</button>
+                    </form>
+                @else
+                    <form method="POST" action="{{ route('organizer.events.snapshot.prepare', $event) }}">
+                        @csrf
+                        <button type="submit" class="btn-secondary">Prepare Snapshot</button>
+                    </form>
+                @endif
+            @endif
+
+            @if ($event->isPublished() && ! $event->registration_closed_at && ! $event->snapshot_prepared_at)
                 <form method="POST" action="{{ route('organizer.events.registration.close', $event) }}" onsubmit="return confirm('Close registration? It cannot be reopened.');">
                     @csrf
                     <button type="submit" class="btn-secondary">Close Registration</button>
@@ -49,14 +68,19 @@
                 </form>
             @endif
 
-            <a href="{{ route('organizer.events.edit', $event) }}" class="btn-secondary">
-                Edit Details
-            </a>
+            @if (! $event->snapshot_prepared_at)
+                <a href="{{ route('organizer.events.edit', $event) }}" class="btn-secondary">
+                    Edit Details
+                </a>
+            @endif
         </div>
     </div>
 </div>
 
 <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem; margin-bottom: 2rem;">
+    @if ($event->snapshot_prepared_at)
+        <p class="card" style="grid-column: 1 / -1;">Snapshot prepared. Event changes are locked. Admission is not ready yet.</p>
+    @endif
     <!-- Event Details Card -->
     <div class="card">
         <h2 style="font-size: 1.1rem; font-weight: 600; color: var(--neutral-dark); margin-bottom: 1rem; border-bottom: 1px solid var(--neutral-border); padding-bottom: 0.5rem;">
@@ -155,6 +179,7 @@
             </table>
         </div>
 
+        @if (! $event->snapshot_prepared_at)
         <form method="POST" action="{{ route('organizer.events.access-points.store', $event) }}" style="background: #f8fafc; padding: 1rem; border-radius: 4px; border: 1px solid var(--neutral-border);">
             @csrf
             <div style="font-size: 0.8rem; font-weight: 600; margin-bottom: 0.75rem; color: var(--neutral-dark);">Add Custom Access Point</div>
@@ -164,6 +189,7 @@
                 <button type="submit" class="btn-primary" style="white-space: nowrap;">Add Gate</button>
             </div>
         </form>
+        @endif
     </div>
 
     <!-- Event Staff Assignment Card -->
@@ -207,6 +233,7 @@
             </table>
         </div>
 
+        @if (! $event->snapshot_prepared_at)
         <form method="POST" action="{{ route('organizer.events.staff.assign', $event) }}" style="background: #f8fafc; padding: 1rem; border-radius: 4px; border: 1px solid var(--neutral-border);">
             @csrf
             <div style="font-size: 0.8rem; font-weight: 600; margin-bottom: 0.75rem; color: var(--neutral-dark);">Assign Staff Member</div>
@@ -226,6 +253,7 @@
             </div>
             <button type="submit" class="btn-primary" style="width: 100%; justify-content: center;">Assign to Event</button>
         </form>
+        @endif
     </div>
 </div>
 @endsection
