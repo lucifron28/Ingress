@@ -10,6 +10,12 @@
 
 ## 1. Authentication Endpoints
 
+### Student account verification
+
+`POST /auth/student-verification` is available only on the cloud runtime. Submit `{"email":"student@student.mseuf.edu.ph"}`. An eligible request returns `202` with the same generic message whether or not an account already exists. The endpoint accepts only `@student.mseuf.edu.ph`, limits requests by email and IP, and can return `422`, `429`, or `503` for invalid input, throttling, or unsafe production configuration.
+
+The email contains a 30-minute, single-use link. Opening it displays a form; the account is created only when the form is submitted with a name, a self-reported student number, and a confirmed password of at least 12 characters and at most 72 bytes. The server assigns the student role and records email verification. Requesting another link invalidates the previous one. Email control does not verify the student number or enrollment. The URL fragment contains a bearer secret; do not forward or log it.
+
 ### 1.1 Mobile Login
 Issues a personal access token for mobile attendees and event staff.
 

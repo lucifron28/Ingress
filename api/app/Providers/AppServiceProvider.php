@@ -32,6 +32,17 @@ class AppServiceProvider extends ServiceProvider
             );
         }
 
+        RateLimiter::for('student-email', function (Request $request) {
+            $email = $request->input('email');
+            $normalized = is_string($email) ? Str::lower(trim($email)) : '';
+
+            return [
+                Limit::perMinutes(10, 3)->by('student-email:'.hash('sha256', $normalized)),
+                Limit::perMinute(20)->by('student-email-ip:'.$request->ip()),
+            ];
+        });
+        RateLimiter::for('student-complete', fn (Request $request) => Limit::perMinute(10)->by('student-complete:'.$request->ip()));
+
         // Email + IP keeps the limiter account-specific without penalizing the whole campus NAT.
         RateLimiter::for('login', function (Request $request) {
             // Middleware runs before validation, so malformed email input must still produce a safe key.

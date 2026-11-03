@@ -34,7 +34,7 @@ return Application::configure(basePath: dirname(__DIR__))
         // A throttled browser login returns to the form with a readable message
         // instead of a bare 429 page. API clients keep the JSON 429.
         $exceptions->render(function (ThrottleRequestsException $e, Request $request) {
-            if ($request->expectsJson() || $request->is('api/*')) {
+            if ($request->expectsJson() || $request->is('api/*') || ! ($request->isMethod('post') && $request->is('login'))) {
                 return null;
             }
 

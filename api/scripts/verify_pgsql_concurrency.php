@@ -1115,6 +1115,48 @@ $assert(DB::table('node_event_imports')->where('cloud_event_id', $importPayload[
 echo "\n";
 
 // =============================================================================
+// CASE R - A verification link can create at most one account
+// =============================================================================
+echo "CASE R: concurrent use of one student verification link\n";
+$verificationToken = bin2hex(random_bytes(32));
+$verificationEmail = "verify-{$suffix}@student.mseuf.edu.ph";
+DB::table('student_email_verifications')->insert([
+    'email' => $verificationEmail, 'token_hash' => hash('sha256', $verificationToken),
+    'expires_at' => now()->addMinutes(30), 'created_at' => now(), 'updated_at' => now(),
+]);
+$verificationJobs = [
+    ['student_complete', ['token' => $verificationToken, 'student_id' => "R{$suffix}A"]],
+    ['student_complete', ['token' => $verificationToken, 'student_id' => "R{$suffix}B"]],
+];
+$verificationResults = $runConcurrently($verificationJobs, $childScript, $testDatabase);
+echo '  workers: '.json_encode($verificationResults).PHP_EOL;
+$assert(count(array_filter($verificationResults, fn ($result) => ($result['http_code'] ?? null) === 200)) === 1, 'one completion succeeds');
+$assert(count(array_filter($verificationResults, fn ($result) => ($result['http_code'] ?? null) === 422)) === 1, 'the replay is rejected');
+$assert(User::where('email', $verificationEmail)->count() === 1, 'exactly one account exists');
+echo "\n";
+
+// =============================================================================
+// CASE S - Distinct links cannot claim the same student number
+// =============================================================================
+echo "CASE S: concurrent claims for one student number\n";
+$studentNumber = strtoupper("S{$suffix}");
+$claimJobs = [];
+foreach (['one', 'two'] as $claimant) {
+    $token = bin2hex(random_bytes(32));
+    DB::table('student_email_verifications')->insert([
+        'email' => "{$claimant}-{$suffix}@student.mseuf.edu.ph", 'token_hash' => hash('sha256', $token),
+        'expires_at' => now()->addMinutes(30), 'created_at' => now(), 'updated_at' => now(),
+    ]);
+    $claimJobs[] = ['student_complete', ['token' => $token, 'student_id' => $studentNumber]];
+}
+$claimResults = $runConcurrently($claimJobs, $childScript, $testDatabase);
+echo '  workers: '.json_encode($claimResults).PHP_EOL;
+$assert(count(array_filter($claimResults, fn ($result) => ($result['http_code'] ?? null) === 200)) === 1, 'one claim succeeds');
+$assert(count(array_filter($claimResults, fn ($result) => ($result['http_code'] ?? null) === 422)) === 1, 'the conflicting claim is rejected');
+$assert(User::where('student_id', $studentNumber)->count() === 1, 'exactly one student number exists');
+echo "\n";
+
+// =============================================================================
 // Summary
 // =============================================================================
 if ($failures === []) {
