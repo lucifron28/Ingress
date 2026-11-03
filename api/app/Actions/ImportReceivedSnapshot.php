@@ -187,6 +187,9 @@ class ImportReceivedSnapshot
                     && hash_equals($prior->sha256, $record->sha256)) {
                     return (int) $prior->event_id;
                 }
+                if (DB::table('node_event_authorities')->where('cloud_event_id', $cloudEventId)->exists()) {
+                    $this->invalid();
+                }
                 if ($prior && (int) $record->version <= (int) $prior->version) {
                     $this->invalid();
                 }

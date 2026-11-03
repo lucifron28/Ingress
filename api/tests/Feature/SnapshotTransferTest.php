@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Actions\ActivateEventAuthority;
+use App\Actions\AuthorityGrant;
 use App\Actions\ExportSnapshot;
 use App\Actions\ImportReceivedSnapshot;
 use App\Actions\IssueImportReceipt;
@@ -218,6 +220,129 @@ class SnapshotTransferTest extends TestCase
             DB::connection('refresh_node')->rollBack();
             DB::setDefaultConnection($cloudConnection);
             DB::disconnect('refresh_node');
+            Crypt::swap($cloudEncrypter);
+            config(['ingress.mode' => 'cloud', 'ingress.node_id' => null, 'ingress.node_sync_key' => null]);
+        }
+    }
+
+    public function test_authority_grant_freezes_cloud_and_activates_only_the_imported_node(): void
+    {
+        [$event, $owner, $qr, $secret] = $this->cloudEvent();
+        $keypair = sodium_crypto_sign_keypair();
+        config([
+            'ingress.authority_private_key' => base64_encode(sodium_crypto_sign_secretkey($keypair)),
+            'ingress.authority_public_key' => base64_encode(sodium_crypto_sign_publickey($keypair)),
+        ]);
+        $sealed = $this->actingAs($owner)->post("/organizer/events/{$event->id}/snapshot/export", ['node_id' => 'node-1'])->assertOk()->getContent();
+        $this->post("/organizer/events/{$event->id}/authority-transfer")->assertSessionHasErrors('transfer');
+        $this->assertDatabaseCount('cloud_event_authorities', 0);
+        $cloudConnection = DB::getDefaultConnection();
+        $cloudEncrypter = Crypt::getFacadeRoot();
+        $nodeEncrypter = new Encrypter(random_bytes(32), 'AES-256-CBC');
+        $nodeDatabase = getenv('INGRESS_TEST_NODE_DB');
+        if (is_string($nodeDatabase) && DB::connection()->getDriverName() === 'pgsql') {
+            $this->assertMatchesRegularExpression('/^ingress_test_node_[a-z0-9_]+$/', $nodeDatabase);
+            $nodeConfig = config('database.connections.'.$cloudConnection);
+            $nodeConfig['database'] = $nodeDatabase;
+            $nodeConfig['url'] = null;
+        } else {
+            $nodeConfig = ['driver' => 'sqlite', 'database' => ':memory:', 'prefix' => '', 'foreign_key_constraints' => true];
+        }
+        config(['database.connections.authority_node' => $nodeConfig]);
+        DB::setDefaultConnection('authority_node');
+        Artisan::call('migrate', ['--database' => 'authority_node', '--force' => true]);
+        DB::connection('authority_node')->beginTransaction();
+        try {
+            Crypt::swap($nodeEncrypter);
+            config(['ingress.mode' => 'node', 'ingress.node_id' => 'node-1', 'ingress.node_sync_key' => $secret]);
+            $receipt = app(ReceiveSnapshot::class)->execute($sealed);
+            $localId = app(ImportReceivedSnapshot::class)->execute($event->id);
+            $importReceipt = app(IssueImportReceipt::class)->execute($event->id);
+            DB::setDefaultConnection($cloudConnection);
+            Crypt::swap($cloudEncrypter);
+            config(['ingress.mode' => 'cloud', 'ingress.node_id' => null, 'ingress.node_sync_key' => null]);
+            $this->actingAs($owner)->post("/organizer/events/{$event->id}/snapshot/receipt", ['receipt' => $receipt])->assertSessionHasNoErrors();
+            $this->post("/organizer/events/{$event->id}/snapshot/import-receipt", ['receipt' => $importReceipt])->assertSessionHasNoErrors();
+            config(['ingress.authority_public_key' => base64_encode(sodium_crypto_sign_publickey(sodium_crypto_sign_keypair()))]);
+            $this->post("/organizer/events/{$event->id}/authority-transfer")->assertSessionHasErrors('transfer');
+            $this->assertDatabaseCount('cloud_event_authorities', 0);
+            config(['ingress.authority_public_key' => base64_encode(sodium_crypto_sign_publickey($keypair))]);
+            $grant = $this->post("/organizer/events/{$event->id}/authority-transfer")->assertOk()->getContent();
+            $this->assertSame($grant, $this->post("/organizer/events/{$event->id}/authority-transfer")->assertOk()->getContent());
+            $this->post("/organizer/events/{$event->id}/discard-snapshot")->assertSessionHasErrors('event');
+            $this->post("/organizer/events/{$event->id}/cancel")->assertSessionHasErrors('event');
+            $this->assertSame(0, Artisan::call('ingress:revoke-node', ['node_id' => 'node-1']));
+            $this->assertDatabaseHas('events', ['id' => $event->id, 'status' => 'published']);
+            $this->assertDatabaseCount('cloud_event_authorities', 1);
+            DB::setDefaultConnection('authority_node');
+            Crypt::swap($nodeEncrypter);
+            config(['ingress.mode' => 'node', 'ingress.node_id' => 'node-1', 'ingress.node_sync_key' => $secret]);
+            $tampered = substr($grant, 0, 5).'x'.substr($grant, 6);
+            try {
+                app(ActivateEventAuthority::class)->execute($tampered);
+                $this->fail('A tampered grant was accepted.');
+            } catch (ValidationException) {
+                $this->assertDatabaseCount('node_event_authorities', 0);
+            }
+            config(['ingress.authority_public_key' => base64_encode(sodium_crypto_sign_publickey(sodium_crypto_sign_keypair()))]);
+            try {
+                app(ActivateEventAuthority::class)->execute($grant);
+                $this->fail('A grant signed by another cloud was accepted.');
+            } catch (ValidationException) {
+                $this->assertDatabaseCount('node_event_authorities', 0);
+            }
+            config(['ingress.authority_public_key' => base64_encode(sodium_crypto_sign_publickey($keypair))]);
+            $wrongNodeGrant = app(AuthorityGrant::class)->sign([
+                'protocol' => 1, 'node_id' => 'node-2', 'snapshot_id' => DB::table('node_event_imports')->value('snapshot_id'),
+                'event_id' => $event->id, 'version' => 1, 'sha256' => DB::table('node_event_imports')->value('sha256'),
+            ]);
+            try {
+                app(ActivateEventAuthority::class)->execute($wrongNodeGrant);
+                $this->fail('A grant for a different node was accepted.');
+            } catch (ValidationException) {
+                $this->assertDatabaseCount('node_event_authorities', 0);
+            }
+            $testGate = DB::table('access_points')->insertGetId([
+                'event_id' => $localId, 'name' => 'Unexpected gate', 'code' => 'UNEXPECTED', 'is_active' => true,
+                'created_at' => now(), 'updated_at' => now(),
+            ]);
+            DB::table('admissions')->insert([
+                'ticket_id' => Ticket::firstOrFail()->id, 'access_point_id' => $testGate,
+                'scanned_by_user_id' => DB::table('events')->where('id', $localId)->value('organizer_id'),
+                'client_scan_id' => 'unexpected-admission', 'credential_version' => 1,
+                'admitted_at' => now(), 'created_at' => now(), 'updated_at' => now(),
+            ]);
+            try {
+                app(ActivateEventAuthority::class)->execute($grant);
+                $this->fail('An event with prior node admissions was activated.');
+            } catch (ValidationException) {
+                $this->assertDatabaseCount('node_event_authorities', 0);
+            }
+            DB::table('admissions')->where('client_scan_id', 'unexpected-admission')->delete();
+            DB::table('access_points')->where('id', $testGate)->delete();
+            $this->assertSame($localId, app(ActivateEventAuthority::class)->execute($grant));
+            $this->assertSame($localId, app(ActivateEventAuthority::class)->execute($grant));
+            $path = tempnam(sys_get_temp_dir(), 'ingress-grant-');
+            try {
+                file_put_contents($path, $grant);
+                $this->assertSame(0, Artisan::call('ingress:activate-event', ['path' => $path]));
+            } finally {
+                unlink($path);
+            }
+            $this->assertSame($localId, app(ImportReceivedSnapshot::class)->execute($event->id));
+            $this->assertDatabaseCount('node_event_authorities', 1);
+            $new = $this->sampleSnapshot(2, $event->id);
+            $newJson = json_encode($new, JSON_THROW_ON_ERROR);
+            try {
+                app(ReceiveSnapshot::class)->execute(app(SnapshotEnvelope::class)->seal('node-1', $secret, $newJson));
+                $this->fail('An activated event accepted a new snapshot.');
+            } catch (ValidationException) {
+                $this->assertDatabaseCount('received_snapshots', 1);
+            }
+        } finally {
+            DB::connection('authority_node')->rollBack();
+            DB::setDefaultConnection($cloudConnection);
+            DB::disconnect('authority_node');
             Crypt::swap($cloudEncrypter);
             config(['ingress.mode' => 'cloud', 'ingress.node_id' => null, 'ingress.node_sync_key' => null]);
         }

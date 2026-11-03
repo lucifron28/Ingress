@@ -22,6 +22,7 @@
  * touches demonstration data.
  */
 
+use App\Actions\AuthorityGrant;
 use App\Actions\ImportReceivedSnapshot;
 use App\Actions\ManageNodeStaffCredential;
 use App\Actions\ReceiveSnapshot;
@@ -1067,6 +1068,44 @@ $assert(in_array($target, ['target-a', 'target-b'], true), 'snapshot retained th
 echo "\n";
 
 // =============================================================================
+// CASE O2 - Transfer waits for a concurrent cloud cancellation
+// =============================================================================
+echo "CASE O2: authority transfer waits for cloud cancellation\n";
+$transferSnapshot = DB::table('event_snapshots')->where('event_id', $snapshotEvent->id)->first();
+foreach (['event_snapshot_receipts', 'event_snapshot_import_receipts'] as $receiptTable) {
+    DB::table($receiptTable)->insert([
+        'snapshot_id' => $transferSnapshot->id, 'node_id' => $target, 'sha256' => $transferSnapshot->sha256, 'received_at' => now(),
+    ]);
+}
+$cloudKeys = sodium_crypto_sign_keypair();
+$cancelConnection = $rawConnection($testDatabase);
+$cancelConnection->beginTransaction();
+$cancelConnection->prepare("update events set status = 'cancelled' where id = ?")->execute([$snapshotEvent->id]);
+[$transferProcess, $transferPipes] = $spawnWorker('transfer_authority', [
+    'event_id' => $snapshotEvent->id, 'private_key' => base64_encode(sodium_crypto_sign_secretkey($cloudKeys)),
+    'public_key' => base64_encode(sodium_crypto_sign_publickey($cloudKeys)),
+], $testDatabase, $childScript);
+$transferReady = trim((string) fgets($transferPipes[1])) === 'READY';
+fwrite($transferPipes[0], 'GO'.PHP_EOL);
+fflush($transferPipes[0]);
+$transferDeadline = microtime(true) + 20.0;
+$transferBlocked = 0;
+while (microtime(true) < $transferDeadline) {
+    $transferBlocked = $blockedBackends($cancelConnection, $testDatabase);
+    if ($transferBlocked > 0) {
+        break;
+    }
+    usleep(50_000);
+}
+$cancelConnection->commit();
+$transferResult = $collectWorker($transferProcess, $transferPipes);
+$assert($transferReady, 'authority transfer worker reached the barrier');
+$assert($transferBlocked > 0, 'transfer waited for the event lock');
+$assert(($transferResult['reason'] ?? null) === 'validation_error', 'transfer rejected the cancelled event');
+$assert(DB::table('cloud_event_authorities')->where('event_id', $snapshotEvent->id)->count() === 0, 'no authority grant was stored');
+echo "\n";
+
+// =============================================================================
 // CASE P - Reused snapshot identifiers across events fail closed
 // =============================================================================
 echo "CASE P: one snapshot ID is reused across two events\n";
@@ -1318,6 +1357,46 @@ $receiptResult = $collectWorker($receiptProcess, $receiptPipes);
 $assert($receiptReady, 'import receipt worker reached the barrier');
 $assert($receiptBlocked > 0, 'receipt issuance waited for the snapshot head');
 $assert(($receiptResult['reason'] ?? null) === 'validation_error', 'the stale import could not produce a receipt');
+echo "\n";
+
+// =============================================================================
+// CASE X - Activation cannot race past a newer staged snapshot
+// =============================================================================
+echo "CASE X: authority activation waits for a newer snapshot head\n";
+DB::table('received_event_heads')->where('event_id', $authPayload['event']['id'])->update(['version' => 1]);
+$importForGrant = DB::table('node_event_imports')->where('cloud_event_id', $authPayload['event']['id'])->first();
+$authorityKeys = sodium_crypto_sign_keypair();
+$authorityPrivate = base64_encode(sodium_crypto_sign_secretkey($authorityKeys));
+$authorityPublic = base64_encode(sodium_crypto_sign_publickey($authorityKeys));
+config(['ingress.authority_private_key' => $authorityPrivate, 'ingress.authority_public_key' => $authorityPublic]);
+$grant = app(AuthorityGrant::class)->sign([
+    'protocol' => 1, 'node_id' => 'race-node', 'snapshot_id' => $importForGrant->snapshot_id,
+    'event_id' => (int) $importForGrant->cloud_event_id, 'version' => (int) $importForGrant->version, 'sha256' => $importForGrant->sha256,
+]);
+$authorityConnection = $rawConnection($testDatabase);
+$authorityConnection->beginTransaction();
+$authorityConnection->prepare('update received_event_heads set version = 2 where event_id = ?')->execute([$authPayload['event']['id']]);
+[$authorityProcess, $authorityPipes] = $spawnWorker('activate_authority', [
+    'node_id' => 'race-node', 'public_key' => $authorityPublic, 'grant' => $grant,
+], $testDatabase, $childScript);
+$authorityReady = trim((string) fgets($authorityPipes[1])) === 'READY';
+fwrite($authorityPipes[0], 'GO'.PHP_EOL);
+fflush($authorityPipes[0]);
+$authorityDeadline = microtime(true) + 20.0;
+$authorityBlocked = 0;
+while (microtime(true) < $authorityDeadline) {
+    $authorityBlocked = $blockedBackends($authorityConnection, $testDatabase);
+    if ($authorityBlocked > 0) {
+        break;
+    }
+    usleep(50_000);
+}
+$authorityConnection->commit();
+$authorityResult = $collectWorker($authorityProcess, $authorityPipes);
+$assert($authorityReady, 'authority worker reached the barrier');
+$assert($authorityBlocked > 0, 'authority activation waited for the snapshot head');
+$assert(($authorityResult['reason'] ?? null) === 'validation_error', 'activation rejected the stale import');
+$assert(DB::table('node_event_authorities')->where('cloud_event_id', $authPayload['event']['id'])->count() === 0, 'no authority was activated');
 echo "\n";
 
 // =============================================================================

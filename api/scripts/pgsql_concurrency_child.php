@@ -10,6 +10,7 @@
  * Usage: php scripts/pgsql_concurrency_child.php <mode> <base64-json-payload>
  */
 
+use App\Actions\ActivateEventAuthority;
 use App\Actions\AdmitTicket;
 use App\Actions\ExportSnapshot;
 use App\Actions\ImportReceivedSnapshot;
@@ -18,6 +19,7 @@ use App\Actions\NodeStaffAccess;
 use App\Actions\PrepareEventSnapshot;
 use App\Actions\ReceiveSnapshot;
 use App\Actions\RegisterForEvent;
+use App\Actions\TransferEventAuthority;
 use App\Http\Controllers\Api\V1\NodeStaffAuthController;
 use App\Http\Controllers\StudentEmailVerificationController;
 use App\Http\Middleware\EnsureRuntimeDatabase;
@@ -125,6 +127,14 @@ try {
     } elseif ($mode === 'import') {
         config(['ingress.mode' => 'node', 'ingress.node_id' => $payload['node_id']]);
         $eventId = app(ImportReceivedSnapshot::class)->execute($payload['event_id']);
+        $emit(['ok' => true, 'event_id' => $eventId]);
+    } elseif ($mode === 'transfer_authority') {
+        config(['ingress.mode' => 'cloud', 'ingress.authority_private_key' => $payload['private_key'], 'ingress.authority_public_key' => $payload['public_key']]);
+        $grant = app(TransferEventAuthority::class)->execute($payload['event_id']);
+        $emit(['ok' => true, 'grant_hash' => hash('sha256', $grant)]);
+    } elseif ($mode === 'activate_authority') {
+        config(['ingress.mode' => 'node', 'ingress.node_id' => $payload['node_id'], 'ingress.authority_public_key' => $payload['public_key']]);
+        $eventId = app(ActivateEventAuthority::class)->execute($payload['grant']);
         $emit(['ok' => true, 'event_id' => $eventId]);
     } elseif ($mode === 'import_receipt') {
         config(['ingress.mode' => 'node', 'ingress.node_id' => $payload['node_id'], 'ingress.node_sync_key' => $payload['secret']]);

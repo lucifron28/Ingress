@@ -6,6 +6,7 @@ use App\Actions\ConfirmImportReceipt;
 use App\Actions\ConfirmSnapshotReceipt;
 use App\Actions\ExportSnapshot;
 use App\Actions\PrepareEventSnapshot;
+use App\Actions\TransferEventAuthority;
 use App\Http\Controllers\Controller;
 use App\Models\AccessPoint;
 use App\Models\Event;
@@ -143,6 +144,7 @@ class OrganizerEventController extends Controller
         $staffUsers = User::where('role', User::ROLE_STAFF)->orderBy('name')->get();
         $receiptNodeId = null;
         $importReceiptNodeId = null;
+        $authority = DB::table('cloud_event_authorities')->where('event_id', $event->id)->first();
         if (config('ingress.mode') === 'cloud' && $event->snapshot_prepared_at !== null && Auth::user()->can('update', $event)) {
             $receiptNodeId = DB::table('event_snapshots')
                 ->join('event_snapshot_receipts', 'event_snapshots.id', '=', 'event_snapshot_receipts.snapshot_id')
@@ -163,7 +165,7 @@ class OrganizerEventController extends Controller
                 ->whereNull('event_snapshots.invalidated_at')->value('event_snapshot_import_receipts.node_id');
         }
 
-        return view('organizer.events.show', compact('event', 'staffUsers', 'receiptNodeId', 'importReceiptNodeId'));
+        return view('organizer.events.show', compact('event', 'staffUsers', 'receiptNodeId', 'importReceiptNodeId', 'authority'));
     }
 
     /**
@@ -320,6 +322,23 @@ class OrganizerEventController extends Controller
     }
 
     /**
+     * Commit the authority transfer and download its signed grant.
+     */
+    public function transferAuthority(Request $request, Event $event, TransferEventAuthority $action): Response
+    {
+        Gate::authorize('update', $event);
+        abort_if(! $request->secure() && ! app()->environment(['local', 'testing']), 403, 'HTTPS is required.');
+        $grant = $action->execute($event->id);
+
+        return response($grant, 200, [
+            'Content-Type' => 'application/octet-stream',
+            'Content-Disposition' => 'attachment; filename="ingress-authority-grant.txt"',
+            'Cache-Control' => 'no-store, private',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
+    /**
      * Discard a provisional snapshot before any authority handoff.
      */
     public function discardSnapshot(Event $event): RedirectResponse
@@ -328,6 +347,9 @@ class OrganizerEventController extends Controller
 
         DB::transaction(function () use ($event) {
             $lockedEvent = Event::whereKey($event->getKey())->lockForUpdate()->firstOrFail();
+            if (DB::table('cloud_event_authorities')->where('event_id', $lockedEvent->id)->exists()) {
+                throw ValidationException::withMessages(['event' => 'Authority has left the cloud. This event cannot be changed here.']);
+            }
             if ($lockedEvent->snapshot_prepared_at !== null) {
                 DB::table('event_snapshots')->where('event_id', $lockedEvent->id)
                     ->where('version', $lockedEvent->snapshot_version)->whereNull('invalidated_at')
@@ -350,6 +372,9 @@ class OrganizerEventController extends Controller
 
         DB::transaction(function () use ($event) {
             $lockedEvent = Event::whereKey($event->getKey())->lockForUpdate()->firstOrFail();
+            if (DB::table('cloud_event_authorities')->where('event_id', $lockedEvent->id)->exists()) {
+                throw ValidationException::withMessages(['event' => 'Authority has left the cloud. This event cannot be changed here.']);
+            }
             if ($lockedEvent->snapshot_prepared_at !== null) {
                 DB::table('event_snapshots')->where('event_id', $lockedEvent->id)
                     ->where('version', $lockedEvent->snapshot_version)->whereNull('invalidated_at')
