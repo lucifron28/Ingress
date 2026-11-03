@@ -37,6 +37,12 @@ class RegisterForEvent
                 ]);
             }
 
+            if ($event->registration_closed_at !== null) {
+                throw ValidationException::withMessages([
+                    'registration' => ['Registration for this event has already closed.'],
+                ]);
+            }
+
             $now = Carbon::now();
             if ($now->lt($event->registration_opens_at)) {
                 throw ValidationException::withMessages([

@@ -230,7 +230,7 @@ Photo collection is optional, not a default requirement. Events that collect pho
 
 ## 9. Registration deadline and admission finalization
 
-Events have a registration deadline before admission begins.
+Events have a scheduled registration deadline. An organizer can also close registration explicitly on a published event. That cutoff is irreversible through the current UI and does not finalize admission or transfer authority. Existing tickets remain active, and the event can still be cancelled. Planned finalization must close registration before Event Node admission begins.
 
 Before the deadline, students use the cloud to register normally.
 

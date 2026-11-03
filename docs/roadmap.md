@@ -13,7 +13,7 @@ Status is relative to `main` at `9242a4d`. A checked item requires a merged chan
 
 1. [ ] Stabilize the MVP and verify the end-to-end LAN workflow, including failure and restart behavior.
 2. [ ] Define and enforce separate cloud and Event Node runtimes, databases, and event authority. Runtime database binding and fail-closed route guards are implemented; snapshot handoff, safe migration of existing databases, and node admission remain pending. Preserve existing admission invariants.
-3. [ ] Add registration cutoff, finalization, versioned snapshots, verified transfer, and split-brain prevention. Test interrupted transfers and recovery.
+3. [ ] Complete finalization, versioned snapshots, verified transfer, and split-brain prevention. Scheduled and organizer-initiated registration cutoff is implemented. Test interrupted transfers and recovery.
 4. [ ] Add secure offline student ticket caching and session restoration. Cached tickets provide display only, not admission or registration authority.
 5. [ ] Add Event Node staff authentication, scanner pairing, and staff-only manual LAN configuration.
 6. [ ] Add idempotent Event Node to cloud reconciliation, retries, and recovery.

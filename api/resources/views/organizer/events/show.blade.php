@@ -33,6 +33,13 @@
                 </form>
             @endif
 
+            @if ($event->isPublished() && ! $event->registration_closed_at)
+                <form method="POST" action="{{ route('organizer.events.registration.close', $event) }}" onsubmit="return confirm('Close registration? It cannot be reopened.');">
+                    @csrf
+                    <button type="submit" class="btn-secondary">Close Registration</button>
+                </form>
+            @endif
+
             @if ($event->isPublished())
                 <form method="POST" action="{{ route('organizer.events.cancel', $event) }}" onsubmit="return confirm('Are you sure you want to cancel this event?');">
                     @csrf
@@ -62,6 +69,9 @@
                 <div style="font-size: 0.875rem; margin-top: 0.25rem;">
                     {{ $event->registration_opens_at->format('M d, Y h:i A') }}<br>
                     to {{ $event->registration_closes_at->format('M d, Y h:i A') }}
+                    @if ($event->registration_closed_at)
+                        <br><strong>Closed by organizer</strong>
+                    @endif
                 </div>
             </div>
             <div>

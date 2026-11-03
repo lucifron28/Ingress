@@ -51,6 +51,7 @@ class EventResource extends JsonResource
             'is_registration_open' => $this->isRegistrationOpen(),
             'registration_opens_at' => $this->registration_opens_at?->toISOString(),
             'registration_closes_at' => $this->registration_closes_at?->toISOString(),
+            'registration_closed_at' => $this->registration_closed_at?->toISOString(),
             'starts_at' => $this->starts_at?->toISOString(),
             'ends_at' => $this->ends_at?->toISOString(),
             'status' => $this->status,
