@@ -16,12 +16,18 @@
 
 The email contains a 30-minute, single-use link. Opening it displays a form; the account is created only when the form is submitted with a name, a self-reported student number, and a confirmed password of at least 12 characters and at most 72 bytes. The server assigns the student role and records email verification. Requesting another link invalidates the previous one. Email control does not verify the student number or enrollment. The URL fragment contains a bearer secret; do not forward or log it.
 
+### Event Node staff login
+
+`POST /auth/node-staff/login` is available only on an Event Node. Send `email`, the node-issued `password`, and an optional `device_name`. The node checks the local credential and a current imported staff assignment, then returns a bearer token with the `node:staff` ability and a 12-hour expiration. It returns a generic credential error for an invalid password or assignment and rate-limits attempts. HTTPS is required outside local and testing environments. The response has `Cache-Control: no-store`.
+
+Node tokens currently support `GET /me` and `POST /auth/logout`. Event and scanner operations remain unavailable until the authority handoff is implemented. The ordinary `/auth/login` endpoint remains available on cloud and legacy runtimes, not nodes. The staff member's account role is not changed by a node assignment.
+
 ### 1.1 Mobile Login
 Issues a personal access token for mobile attendees and event staff.
 
 - **Method**: `POST`
 - **Endpoint**: `/auth/login`
-- **Access**: Public
+- **Access**: Public on cloud and legacy runtimes
 
 #### Request Body
 ```json

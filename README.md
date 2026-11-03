@@ -277,7 +277,7 @@ php artisan test --filter=RegistrationTest
 
 #### PostgreSQL concurrency verification (separate)
 
-Twenty-one scenarios are checked against the real PostgreSQL server using genuinely overlapping
+Twenty-two scenarios are checked against the real PostgreSQL server using genuinely overlapping
 transactions released through a two-process barrier:
 
 1. two simultaneous registrations competing for the final seat
@@ -307,6 +307,7 @@ transactions released through a two-process barrier:
 19. concurrent claims of one student number create one account
 20. concurrent snapshot refreshes retain one node event
 21. a refresh waits for an in-flight admission and preserves it
+22. a staff login waits for credential rotation and rejects the old password
 ```bash
 cd api
 php scripts/verify_pgsql_concurrency.php

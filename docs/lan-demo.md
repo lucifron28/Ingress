@@ -192,7 +192,7 @@ cd api
 php scripts/verify_pgsql_concurrency.php
 ```
 
-It creates its own `ingress_concurrency` database, releases transactions through a two-process barrier, and checks twenty-one concurrency scenarios. If that database already exists, set `INGRESS_CONCURRENCY_DB` to an unused name; the script refuses to reset an existing database:
+It creates its own `ingress_concurrency` database, releases transactions through a two-process barrier, and checks twenty-two concurrency scenarios. If that database already exists, set `INGRESS_CONCURRENCY_DB` to an unused name; the script refuses to reset an existing database:
 
 | Case | Invariant |
 | :--- | :--- |
@@ -217,6 +217,7 @@ It creates its own `ingress_concurrency` database, releases transactions through
 | S | concurrent claims for one student number → one account |
 | T | concurrent snapshot refreshes → one version and the same node event |
 | U | an in-flight admission blocks refresh and is preserved |
+| V | staff login waits for a credential rotation and rejects the old password |
 The script exits non-zero if any invariant fails.
 
 ---
