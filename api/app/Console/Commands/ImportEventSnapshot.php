@@ -10,7 +10,7 @@ class ImportEventSnapshot extends Command
 {
     protected $signature = 'ingress:import-snapshot {event_id}';
 
-    protected $description = 'Import the current staged cloud event into this node without enabling admission';
+    protected $description = 'Import or refresh the current staged cloud event without enabling admission';
 
     public function handle(ImportReceivedSnapshot $import): int
     {

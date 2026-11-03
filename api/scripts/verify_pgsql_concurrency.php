@@ -22,6 +22,7 @@
  * touches demonstration data.
  */
 
+use App\Actions\ImportReceivedSnapshot;
 use App\Actions\ReceiveSnapshot;
 use App\Actions\RegisterForEvent;
 use App\Actions\SnapshotEnvelope;
@@ -1154,6 +1155,86 @@ echo '  workers: '.json_encode($claimResults).PHP_EOL;
 $assert(count(array_filter($claimResults, fn ($result) => ($result['http_code'] ?? null) === 200)) === 1, 'one claim succeeds');
 $assert(count(array_filter($claimResults, fn ($result) => ($result['http_code'] ?? null) === 422)) === 1, 'the conflicting claim is rejected');
 $assert(User::where('student_id', $studentNumber)->count() === 1, 'exactly one student number exists');
+echo "\n";
+
+// =============================================================================
+// CASE T - Concurrent refreshes of an imported snapshot are idempotent
+// =============================================================================
+echo "CASE T: concurrent refresh of one imported event\n";
+$refreshPayload = $importPayload;
+$refreshPayload['snapshot_id'] = (string) Str::uuid();
+$refreshPayload['version'] = 2;
+$refreshPayload['event']['title'] = 'Refreshed event';
+$refreshJson = json_encode($refreshPayload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+app(ReceiveSnapshot::class)->execute(app(SnapshotEnvelope::class)->seal('race-node', $nodeSecret, $refreshJson));
+$refreshJobs = [
+    ['import', ['node_id' => 'race-node', 'event_id' => $refreshPayload['event']['id']]],
+    ['import', ['node_id' => 'race-node', 'event_id' => $refreshPayload['event']['id']]],
+];
+$refreshResults = $runConcurrently($refreshJobs, $childScript, $testDatabase);
+echo '  workers: '.json_encode($refreshResults).PHP_EOL;
+$assert(($refreshResults[0]['ok'] ?? false) && ($refreshResults[1]['ok'] ?? false), 'both refreshes completed');
+$assert(($refreshResults[0]['event_id'] ?? null) === ($importResults[0]['event_id'] ?? null)
+    && ($refreshResults[1]['event_id'] ?? null) === ($importResults[0]['event_id'] ?? null), 'refresh retains the node event ID');
+$assert(DB::table('node_event_imports')->where('cloud_event_id', $refreshPayload['event']['id'])->where('version', 2)->count() === 1, 'one refreshed version exists');
+echo "\n";
+
+// =============================================================================
+// CASE U - Refresh waits for an admission and then preserves it
+// =============================================================================
+echo "CASE U: refresh waits for an in-flight admission\n";
+$racePayload = json_decode($firstJson, true, 512, JSON_THROW_ON_ERROR);
+$racePayload['snapshot_id'] = (string) Str::uuid();
+$racePayload['event']['id'] += 400000;
+$racePayload['event']['slug'] = "refresh-admission-{$suffix}";
+$racePayload['event']['organizer']['id'] += 400000;
+$racePayload['event']['organizer']['email'] = "refresh-owner-{$suffix}@example.test";
+$racePayload['event']['venue']['id'] += 400000;
+$racePayload['event']['venue']['code'] = "REF{$suffix}";
+$raceGateId = $gateSnapshotEvent->id + 400000;
+$racePayload['access_points'][0]['id'] = $raceGateId;
+$racePayload['staff'] = [['id' => $raceGateId, 'access_point_id' => $raceGateId,
+    'user' => ['id' => $raceGateId + 1, 'name' => 'Refresh Staff', 'email' => "refresh-staff-{$suffix}@example.test", 'role' => 'staff']]];
+$racePayload['registrations'] = [['id' => $raceGateId, 'status' => 'confirmed', 'created_at' => now()->toISOString(), 'cancelled_at' => null,
+    'attendee' => ['id' => $raceGateId + 2, 'name' => 'Refresh Attendee', 'email' => "refresh-student-{$suffix}@example.test", 'student_id' => null],
+    'ticket' => ['id' => $raceGateId, 'public_id' => "refresh-{$suffix}", 'qr_hash' => hash('sha256', 'refresh-test-secret'),
+        'status' => 'active', 'credential_version' => 1, 'issued_at' => now()->toISOString(), 'revoked_at' => null]]];
+$raceJson = json_encode($racePayload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+app(ReceiveSnapshot::class)->execute(app(SnapshotEnvelope::class)->seal('race-node', $nodeSecret, $raceJson));
+$raceEventId = app(ImportReceivedSnapshot::class)->execute($racePayload['event']['id']);
+$racePayload['snapshot_id'] = (string) Str::uuid();
+$racePayload['version'] = 2;
+$racePayload['event']['title'] = 'New snapshot';
+$raceJson = json_encode($racePayload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+app(ReceiveSnapshot::class)->execute(app(SnapshotEnvelope::class)->seal('race-node', $nodeSecret, $raceJson));
+$localTicket = DB::table('node_import_ids')->where('kind', 'ticket')->where('cloud_id', $raceGateId)->value('local_id');
+$localGate = DB::table('node_import_ids')->where('kind', 'gate')->where('cloud_id', $raceGateId)->value('local_id');
+$localStaff = DB::table('node_import_ids')->where('kind', 'user')->where('cloud_id', $raceGateId + 1)->value('local_id');
+$admissionConnection = $rawConnection($testDatabase);
+$admissionConnection->beginTransaction();
+$admissionConnection->prepare('select id from events where id = ? for share')->execute([$raceEventId]);
+$admissionConnection->prepare('insert into admissions (ticket_id, access_point_id, scanned_by_user_id, client_scan_id, credential_version, admitted_at, created_at, updated_at) values (?, ?, ?, ?, 1, now(), now(), now())')
+    ->execute([$localTicket, $localGate, $localStaff, "refresh-race-{$suffix}"]);
+[$refreshProcess, $refreshPipes] = $spawnWorker('import', ['node_id' => 'race-node', 'event_id' => $racePayload['event']['id']], $testDatabase, $childScript);
+$refreshReady = trim((string) fgets($refreshPipes[1])) === 'READY';
+fwrite($refreshPipes[0], 'GO'.PHP_EOL);
+fflush($refreshPipes[0]);
+$refreshDeadline = microtime(true) + 20.0;
+$refreshBlocked = 0;
+while (microtime(true) < $refreshDeadline) {
+    $refreshBlocked = $blockedBackends($admissionConnection, $testDatabase);
+    if ($refreshBlocked > 0) {
+        break;
+    }
+    usleep(50_000);
+}
+$admissionConnection->commit();
+$refreshResult = $collectWorker($refreshProcess, $refreshPipes);
+$assert($refreshReady, 'refresh worker reached the barrier');
+$assert($refreshBlocked > 0, 'refresh waited for the admission event lock');
+$assert(($refreshResult['reason'] ?? null) === 'validation_error', 'refresh rejected the committed admission');
+$assert(DB::table('admissions')->where('client_scan_id', "refresh-race-{$suffix}")->count() === 1, 'the admission is preserved');
+$assert(DB::table('node_event_imports')->where('event_id', $raceEventId)->where('version', 1)->count() === 1, 'the prior import remains active');
 echo "\n";
 
 // =============================================================================
