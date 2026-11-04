@@ -33,11 +33,12 @@ class OrganizerAttendanceController extends Controller
         if ($search = $request->input('search')) {
             $query->where(function ($query) use ($search) {
                 $query->whereHas('user', function ($user) use ($search) {
-                    $user->where('name', 'ilike', "%{$search}%")
-                        ->orWhere('email', 'ilike', "%{$search}%")
-                        ->orWhere('student_id', 'ilike', "%{$search}%");
-                })->orWhere('guest_name', 'ilike', "%{$search}%")
-                    ->orWhere('guest_email', 'ilike', "%{$search}%");
+                    $user->whereLike('name', "%{$search}%")
+                        ->orWhereLike('email', "%{$search}%")
+                        ->orWhereLike('student_id', "%{$search}%");
+                })->orWhereLike('guest_name', "%{$search}%")
+                    ->orWhereLike('guest_email', "%{$search}%")
+                    ->orWhereLike('guest_student_id', "%{$search}%");
             });
         }
 
