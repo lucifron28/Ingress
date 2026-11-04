@@ -21,6 +21,8 @@ class Registration extends Model
         'attendee_type',
         'guest_name',
         'guest_email',
+        'guest_student_id',
+        'walk_in_kind',
         'status',
         'cancelled_at',
     ];
@@ -44,7 +46,7 @@ class Registration extends Model
 
     public function attendeeStudentId(): ?string
     {
-        return $this->user_id !== null ? $this->user?->student_id : null;
+        return $this->user_id !== null ? $this->user?->student_id : $this->guest_student_id;
     }
 
     public function event(): BelongsTo

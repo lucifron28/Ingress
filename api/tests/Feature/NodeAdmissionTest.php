@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Actions\ActivateEventAuthority;
 use App\Actions\AuthorityGrant;
 use App\Actions\ImportReceivedSnapshot;
+use App\Actions\IssueNodeWalkIn;
 use App\Actions\ReceiveSnapshot;
 use App\Actions\SnapshotEnvelope;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -12,6 +13,8 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
+use Illuminate\Validation\ValidationException;
+use Laravel\Sanctum\PersonalAccessToken;
 use Tests\TestCase;
 
 class NodeAdmissionTest extends TestCase
@@ -113,5 +116,30 @@ class NodeAdmissionTest extends TestCase
         DB::table('event_staff')->where('event_id', $this->eventId)->delete();
         $this->scan('', $this->gateId)->assertUnauthorized();
         $this->assertDatabaseCount('admissions', 1);
+    }
+
+    public function test_walk_in_issuance_is_idempotent_and_respects_capacity(): void
+    {
+        app(ActivateEventAuthority::class)->execute($this->grant);
+        $token = PersonalAccessToken::findToken($this->token);
+        $staff = $token->tokenable->withAccessToken($token);
+        $action = app(IssueNodeWalkIn::class);
+        $requestId = (string) Str::uuid();
+        $ticket = $action->execute($staff, $this->eventId, $requestId, 'Walk In', 'walkin@example.test', 'student', '456');
+        $retry = $action->execute($staff, $this->eventId, $requestId, 'Walk In', 'walkin@example.test', 'student', '456');
+        $this->assertSame($ticket->id, $retry->id);
+        $this->assertSame($ticket->getQrPayload(), $retry->getQrPayload());
+        $this->assertSame('456', $ticket->registration->attendeeStudentId());
+        $this->assertDatabaseCount('node_walk_in_issuances', 1);
+        $this->assertDatabaseCount('admissions', 0);
+
+        DB::table('events')->where('id', $this->eventId)->update(['capacity' => 2]);
+        try {
+            $action->execute($staff, $this->eventId, (string) Str::uuid(), 'Other', 'other@example.test', 'guest', null);
+            $this->fail('A full event accepted a walk-in.');
+        } catch (ValidationException $exception) {
+            $this->assertStringContainsString('capacity', $exception->errors()['walk_in'][0]);
+        }
+        $this->assertDatabaseCount('node_walk_in_issuances', 1);
     }
 }
