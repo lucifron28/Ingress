@@ -7,7 +7,7 @@
  * with the two native packages stubbed through an inline loader. That covers the
  * substrate the session rules rest on:
  *
- *   - clearing a session drops the token and cached user but keeps the Event Node URL
+ *   - clearing a session drops the token and cached user but keeps the cloud API URL
  *   - a 401 is distinguishable from an unreachable server (status 401 vs status 0)
  *   - transport failures stay fail-closed
  *
@@ -100,7 +100,7 @@ await AuthStorage.clearAll();
 check('clearing a session removes the bearer token', (await AuthStorage.getToken()) === null);
 check('clearing a session removes the cached user', (await AuthStorage.getUser()) === null);
 check(
-  'clearing a session keeps the configured Event Node URL',
+  'clearing a session keeps the configured cloud API URL',
   (await AuthStorage.getServerUrl()) === 'http://192.168.1.50:8000/api/v1',
   String(await AuthStorage.getServerUrl()),
 );
@@ -170,6 +170,18 @@ for (const url of ['http://node.example/api/v1', 'https://user:pass@node.example
   try { normalizeNodeUrl(url); } catch { rejectedUrls++; }
 }
 check('node configuration rejects insecure or ambiguous addresses', rejectedUrls === 5);
+delete process.env.EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE;
+let localHttpRejectedByDefault = false;
+try { normalizeNodeUrl('http://192.168.1.50:8000/api/v1'); } catch { localHttpRejectedByDefault = true; }
+process.env.EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE = 'true';
+let localHttpAccepted = true;
+for (const url of ['http://localhost:8000/api/v1', 'http://10.0.2.2:8000/api/v1', 'http://192.168.1.50:8000/api/v1', 'http://[fd00::1]:8000/api/v1']) {
+  try { normalizeNodeUrl(url); } catch { localHttpAccepted = false; }
+}
+let publicHttpRejected = false;
+try { normalizeNodeUrl('http://node.example/api/v1'); } catch { publicHttpRejected = true; }
+check('local Event Node HTTP is opt-in and restricted to private hosts', localHttpRejectedByDefault && localHttpAccepted && publicHttpRejected);
+delete process.env.EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE;
 const beforeEscape = calls.length;
 try { await nodeRequest('/../../other'); } catch { /* Expected rejection. */ }
 check('node requests cannot escape the configured API path', calls.length === beforeEscape);
@@ -371,7 +383,7 @@ await AuthStorage.saveServerUrl('http://10.0.0.9:8000/api/v1');
 await AuthStorage.saveToken('token-from-server-b');
 
 check(
-  'storage primitives allow updating the Event Node URL independently of tokens',
+  'storage primitives allow updating the cloud API URL independently of tokens',
   (await AuthStorage.getServerUrl()) === 'http://10.0.0.9:8000/api/v1' &&
     (await AuthStorage.getToken()) === 'token-from-server-b',
 );

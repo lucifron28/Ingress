@@ -16,6 +16,25 @@ const NODE_OPTIONS = { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE
 let nodeQueue: Promise<void> = Promise.resolve();
 let onUnauthorized: ((token: string) => void) | null = null;
 
+function isPrivateNodeHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
+
+  if (host === 'localhost' || host.endsWith('.localhost') || host === '::1' || /^(fc|fd)[0-9a-f:]+$/.test(host) || /^fe[89ab][0-9a-f:]+$/.test(host)) {
+    return true;
+  }
+
+  const octets = host.split('.').map(Number);
+  if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) {
+    return false;
+  }
+
+  const [first, second] = octets;
+  return first === 10 || first === 127 ||
+    (first === 169 && second === 254) ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168);
+}
+
 function serialize<T>(operation: () => Promise<T>): Promise<T> {
   const result = nodeQueue.then(operation, operation);
   nodeQueue = result.then(() => undefined, () => undefined);
@@ -24,8 +43,9 @@ function serialize<T>(operation: () => Promise<T>): Promise<T> {
 
 export function normalizeNodeUrl(input: string): string {
   const url = new URL(input.trim());
-  if (url.protocol !== 'https:' || !url.hostname || url.username || url.password || url.search || url.hash || input.length > 512 || !/^(?:\/[A-Za-z0-9_-]+)*\/api\/v1\/?$/.test(url.pathname)) {
-    throw new Error('Enter the HTTPS Event Node API address ending in /api/v1.');
+  const allowLocalHttp = process.env.EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE === 'true' && isPrivateNodeHost(url.hostname);
+  if ((url.protocol !== 'https:' && !(url.protocol === 'http:' && allowLocalHttp)) || !url.hostname || url.username || url.password || url.search || url.hash || input.length > 512 || !/^(?:\/[A-Za-z0-9_-]+)*\/api\/v1\/?$/.test(url.pathname)) {
+    throw new Error('Enter the HTTPS Event Node API address ending in /api/v1. Local HTTP is limited to development builds.');
   }
   return url.toString().replace(/\/+$/, '');
 }

@@ -34,6 +34,7 @@ interface PendingPreview {
   attendeeName: string;
   studentId?: string | null;
   profilePhotoUrl?: string | null;
+  identityVerificationLevel: 'standard' | 'id_check';
 }
 export default function ScannerScreen() {
   const node = useNodeStaff();
@@ -51,6 +52,7 @@ export default function ScannerScreen() {
   const [isValidating, setIsValidating] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
   const [pendingPreview, setPendingPreview] = useState<PendingPreview | null>(null);
+  const [identityCheckConfirmed, setIdentityCheckConfirmed] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<ScanFeedback | null>(null);
   const [isManualModalVisible, setIsManualModalVisible] = useState(false);
@@ -187,6 +189,7 @@ export default function ScannerScreen() {
     setIsValidating(true);
     setFeedback(null);
     setPendingPreview(null);
+    setIdentityCheckConfirmed(false);
 
     try {
       // Step 1: Read-only preview validation. Does NOT consume the ticket or create an Admission.
@@ -199,6 +202,7 @@ export default function ScannerScreen() {
           attendee_name: string;
           student_id?: string | null;
           profile_photo_url?: string | null;
+          identity_verification_level: 'standard' | 'id_check';
         };
       }>(`/staff/events/${eventId}/admissions/preview`, {
         method: 'POST',
@@ -219,7 +223,9 @@ export default function ScannerScreen() {
           attendeeName: res.ticket.attendee_name,
           studentId: res.ticket.student_id,
           profilePhotoUrl: res.ticket.profile_photo_url,
+          identityVerificationLevel: res.ticket.identity_verification_level ?? 'standard',
         });
+        setIdentityCheckConfirmed(false);
       }
     } catch (err: unknown) {
       handleApiError(err);
@@ -235,10 +241,12 @@ export default function ScannerScreen() {
     // Operator chose "NOT THIS PERSON": clear pending preview without mutating backend.
     setPendingPreview(null);
     setConfirmError(null);
+    setIdentityCheckConfirmed(false);
   };
 
   const handleConfirmAdmission = async () => {
-    if (!pendingPreview || isConfirming) return;
+    if (!pendingPreview || isConfirming
+      || (pendingPreview.identityVerificationLevel === 'id_check' && !identityCheckConfirmed)) return;
 
     setIsConfirming(true);
     setConfirmError(null);
@@ -260,11 +268,13 @@ export default function ScannerScreen() {
           qr_payload: payloadToAdmit,
           client_scan_id: clientScanId,
           direction: pendingPreview.direction,
+          identity_check_confirmed: pendingPreview.identityVerificationLevel === 'id_check' && identityCheckConfirmed,
         }),
       });
 
       setPendingPreview(null);
       setConfirmError(null);
+      setIdentityCheckConfirmed(false);
 
       if (res.status === 'admitted' || res.status === 'exited') {
         setFeedback({
@@ -448,13 +458,29 @@ export default function ScannerScreen() {
             </View>
 
             <Text style={styles.verifyInstruction}>
-              Compare the attendee with their university ID before confirming {pendingPreview.direction}.
+              {pendingPreview.identityVerificationLevel === 'id_check'
+                ? 'Compare the attendee with an approved photo ID before confirming this movement.'
+                : 'Compare the attendee name and identifier with the ticket details. Student email and number alone do not prove enrollment.'}
             </Text>
+            {pendingPreview.identityVerificationLevel === 'id_check' && (
+              <Pressable
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: identityCheckConfirmed }}
+                onPress={() => setIdentityCheckConfirmed((checked) => !checked)}
+                disabled={isConfirming}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 12 }}
+              >
+                <View style={{ width: 22, height: 22, borderWidth: 2, borderColor: '#6b7280', borderRadius: 4, alignItems: 'center', justifyContent: 'center', backgroundColor: identityCheckConfirmed ? '#7a0019' : '#ffffff' }}>
+                  {identityCheckConfirmed && <Text style={{ color: '#ffffff', fontWeight: '700' }}>✓</Text>}
+                </View>
+                <Text style={{ flex: 1, color: '#1f2937', fontWeight: '600' }}>I checked the attendee’s approved ID</Text>
+              </Pressable>
+            )}
             {confirmError && (
               <View style={styles.confirmErrorBanner}>
                 <Text style={styles.confirmErrorText}>{confirmError}</Text>
                 <Text style={styles.confirmErrorSubtext}>
-                  Network interrupted. ID preserved. Tap CONFIRM {pendingPreview.direction.toUpperCase()} to retry.
+                  Connection interrupted. Retry this confirmation. The Event Node will not record it twice.
                 </Text>
               </View>
             )}
@@ -470,7 +496,7 @@ export default function ScannerScreen() {
               <Pressable
                 style={[styles.verifyButton, styles.confirmButton, isConfirming && styles.buttonDisabled]}
                 onPress={handleConfirmAdmission}
-                disabled={isConfirming}
+                disabled={isConfirming || (pendingPreview.identityVerificationLevel === 'id_check' && !identityCheckConfirmed)}
               >
                 {isConfirming ? (
                   <ActivityIndicator size="small" color="#ffffff" />

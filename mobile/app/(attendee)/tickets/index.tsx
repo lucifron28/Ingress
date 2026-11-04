@@ -220,7 +220,7 @@ export default function MyTicketsScreen() {
               <Text style={styles.discoverButtonText}>Discover Events</Text>
             </Pressable>
           </View>
-        ) : null}
+        ) : undefined}
       />
     </View>
   );
