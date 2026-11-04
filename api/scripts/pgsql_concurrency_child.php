@@ -24,7 +24,9 @@ use App\Actions\PrepareEventSnapshot;
 use App\Actions\ReceiveAdmissionBatch;
 use App\Actions\ReceiveSnapshot;
 use App\Actions\ReceiveWalkIn;
+use App\Actions\ReceiveWalkInRecovery;
 use App\Actions\RegisterForEvent;
+use App\Actions\SyncWalkInRecovery;
 use App\Actions\TransferEventAuthority;
 use App\Http\Controllers\Api\V1\NodeStaffAuthController;
 use App\Http\Controllers\StudentEmailVerificationController;
@@ -132,6 +134,15 @@ try {
         config(['ingress.mode' => 'cloud']);
         $result = app(ReceiveWalkIn::class)->execute($payload['node_id'], $payload['package']);
         $emit(['ok' => true, 'receipt' => $result['receipt'], 'registration_id' => $result['registration_id'], 'ticket_id' => $result['ticket_id']]);
+    } elseif ($mode === 'prepare_walk_in_recovery') {
+        config(['ingress.mode' => 'node', 'ingress.node_id' => $payload['node_id'], 'ingress.node_sync_key' => $payload['secret'], 'ingress.authority_public_key' => $payload['public_key']]);
+        $recovery = app(SyncWalkInRecovery::class)->prepare($payload['event_id']);
+        $emit(['ok' => $recovery !== null, 'recovery_id' => $recovery['recovery_id'] ?? null,
+            'package_hash' => isset($recovery['package']) ? hash('sha256', $recovery['package']) : null]);
+    } elseif ($mode === 'receive_walk_in_recovery') {
+        config(['ingress.mode' => 'cloud']);
+        $result = app(ReceiveWalkInRecovery::class)->execute($payload['node_id'], $payload['package']);
+        $emit(['ok' => true, 'receipt' => $result['receipt'], 'recovery_id' => $result['recovery_id']]);
     } elseif ($mode === 'redeem_pairing') {
         config(['ingress.mode' => 'node', 'ingress.node_id' => $payload['node_id']]);
         $session = app(NodeStaffPairing::class)->redeem($payload['token'], $payload['node_id'], 'race-scanner');
