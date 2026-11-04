@@ -15,6 +15,8 @@ return new class extends Migration
             $table->foreignId('event_id')->constrained()->restrictOnDelete();
             $table->foreignId('registration_id')->unique()->constrained()->restrictOnDelete();
             $table->foreignId('ticket_id')->unique()->constrained()->restrictOnDelete();
+            $table->string('qr_hash', 64);
+            $table->unsignedInteger('credential_version');
             $table->string('payload_hash', 64);
             $table->timestamp('received_at');
             $table->primary(['node_id', 'issuance_id']);

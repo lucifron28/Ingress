@@ -99,7 +99,8 @@ class ReceiveWalkIn
                 ]);
                 DB::table('cloud_walk_in_receipts')->insert([
                     'node_id' => $nodeId, 'issuance_id' => $data['issuance_id'], 'event_id' => $data['event_id'],
-                    'registration_id' => $registrationId, 'ticket_id' => $ticketId, 'payload_hash' => $hash, 'received_at' => now(),
+                    'registration_id' => $registrationId, 'ticket_id' => $ticketId, 'qr_hash' => $data['qr_hash'],
+                    'credential_version' => 1, 'payload_hash' => $hash, 'received_at' => now(),
                 ]);
 
                 return $this->receipt($data['issuance_id'], $hash, $registrationId, $ticketId, $secret);

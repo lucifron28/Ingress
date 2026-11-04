@@ -509,6 +509,11 @@ class SnapshotTransferTest extends TestCase
             $this->actingAs($owner)->get("/organizer/events/{$event->id}")->assertOk()
                 ->assertSee('Recent walk-in pass recoveries')->assertSee($walkIn['public_id'])
                 ->assertSee(DB::table('users')->where('id', $cloudStaffId)->value('name'));
+            $originalHash = DB::table('tickets')->where('id', $walkInReceipt['ticket_id'])->value('qr_hash');
+            DB::table('tickets')->where('id', $walkInReceipt['ticket_id'])->update(['qr_hash' => str_repeat('0', 64)]);
+            $this->call('POST', '/api/v1/node-sync/admissions', [], [], [], $headers, $walkInAdmission['package'])->assertStatus(422);
+            $this->assertDatabaseCount('admissions', 3);
+            DB::table('tickets')->where('id', $walkInReceipt['ticket_id'])->update(['qr_hash' => $originalHash]);
             $walkInAdmissionReceipt = $this->call('POST', '/api/v1/node-sync/admissions', [], [], [], $headers, $walkInAdmission['package'])->assertOk()->json('receipt');
             $this->assertDatabaseCount('admissions', 4);
             DB::setDefaultConnection('authority_node');
