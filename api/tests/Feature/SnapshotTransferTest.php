@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Actions\AcknowledgeAdmissionBatch;
+use App\Actions\AcknowledgeWalkInSync;
 use App\Actions\ActivateEventAuthority;
 use App\Actions\AdmissionSyncEnvelope;
 use App\Actions\AuthorityGrant;
@@ -10,6 +11,7 @@ use App\Actions\ExportSnapshot;
 use App\Actions\ImportReceivedSnapshot;
 use App\Actions\IssueImportReceipt;
 use App\Actions\PrepareAdmissionBatch;
+use App\Actions\PrepareWalkInSync;
 use App\Actions\ReceiveAdmissionBatch;
 use App\Actions\ReceiveSnapshot;
 use App\Actions\SnapshotEnvelope;
@@ -455,6 +457,44 @@ class SnapshotTransferTest extends TestCase
             app(AcknowledgeAdmissionBatch::class)->execute($event->id, $nextBatch['batch_id'], $nextReceipt);
             $this->assertDatabaseCount('node_synced_admissions', 3);
             $this->assertNull(app(PrepareAdmissionBatch::class)->execute($event->id));
+            $walkIn = $this->withToken($staffToken)->postJson("/api/v1/staff/events/{$localId}/walk-ins", [
+                'client_request_id' => (string) Str::uuid(), 'name' => 'Walk In', 'email' => 'walkin@example.test', 'kind' => 'guest',
+            ])->assertOk()->json();
+            $this->withToken($staffToken)->postJson("/api/v1/staff/events/{$localId}/admissions", [
+                'access_point_id' => $gateId, 'qr_payload' => $walkIn['qr_payload'], 'client_scan_id' => 'walk-in-scan',
+            ])->assertOk()->assertJsonPath('status', 'admitted');
+            $this->assertNull(app(PrepareAdmissionBatch::class)->execute($event->id));
+            $walkInPackage = app(PrepareWalkInSync::class)->execute($event->id);
+            $this->assertSame($walkInPackage, app(PrepareWalkInSync::class)->execute($event->id));
+            DB::setDefaultConnection($cloudConnection);
+            Crypt::swap($cloudEncrypter);
+            config(['ingress.mode' => 'cloud', 'ingress.node_id' => null, 'ingress.node_sync_key' => null]);
+            $walkInReceipt = $this->call('POST', '/api/v1/node-sync/walk-ins', [], [], [], $headers, $walkInPackage['package'])->assertOk()->json();
+            $this->call('POST', '/api/v1/node-sync/walk-ins', [], [], [], $headers, $walkInPackage['package'])->assertOk()->assertExactJson($walkInReceipt);
+            $this->assertDatabaseCount('cloud_walk_in_receipts', 1);
+            $this->assertNull(DB::table('tickets')->where('id', $walkInReceipt['ticket_id'])->value('encrypted_secret'));
+            DB::setDefaultConnection('authority_node');
+            Crypt::swap($nodeEncrypter);
+            config(['ingress.mode' => 'node', 'ingress.node_id' => 'node-1', 'ingress.node_sync_key' => $secret]);
+            try {
+                app(AcknowledgeWalkInSync::class)->execute($event->id, $walkInReceipt['issuance_id'], $walkInReceipt['registration_id'], $walkInReceipt['ticket_id'], str_repeat('0', 64));
+                $this->fail('A forged walk-in receipt was accepted.');
+            } catch (ValidationException) {
+                $this->assertSame($walkInPackage, app(PrepareWalkInSync::class)->execute($event->id));
+            }
+            app(AcknowledgeWalkInSync::class)->execute($event->id, $walkInReceipt['issuance_id'], $walkInReceipt['registration_id'], $walkInReceipt['ticket_id'], $walkInReceipt['receipt']);
+            $walkInAdmission = app(PrepareAdmissionBatch::class)->execute($event->id);
+            $this->assertSame(1, $walkInAdmission['count']);
+            DB::setDefaultConnection($cloudConnection);
+            Crypt::swap($cloudEncrypter);
+            config(['ingress.mode' => 'cloud', 'ingress.node_id' => null, 'ingress.node_sync_key' => null]);
+            $walkInAdmissionReceipt = $this->call('POST', '/api/v1/node-sync/admissions', [], [], [], $headers, $walkInAdmission['package'])->assertOk()->json('receipt');
+            $this->assertDatabaseCount('admissions', 4);
+            DB::setDefaultConnection('authority_node');
+            Crypt::swap($nodeEncrypter);
+            config(['ingress.mode' => 'node', 'ingress.node_id' => 'node-1', 'ingress.node_sync_key' => $secret]);
+            app(AcknowledgeAdmissionBatch::class)->execute($event->id, $walkInAdmission['batch_id'], $walkInAdmissionReceipt);
+            $this->assertDatabaseCount('node_synced_admissions', 4);
             DB::setDefaultConnection($cloudConnection);
             Crypt::swap($cloudEncrypter);
             config(['ingress.mode' => 'cloud', 'ingress.node_id' => null, 'ingress.node_sync_key' => null]);
