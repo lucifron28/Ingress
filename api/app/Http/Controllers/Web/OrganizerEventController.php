@@ -144,6 +144,14 @@ class OrganizerEventController extends Controller
         $staffUsers = User::where('role', User::ROLE_STAFF)->orderBy('name')->get();
         $guestRegistrations = config('ingress.mode') === 'cloud' && Auth::user()->can('update', $event)
             ? $event->registrations()->whereIn('attendee_type', ['guest', 'alumni'])->with('ticket')->orderBy('id')->get() : collect();
+        $walkInRecoveries = config('ingress.mode') === 'cloud' && Auth::user()->can('update', $event)
+            ? DB::table('cloud_walk_in_recoveries as recovery')
+                ->join('cloud_walk_in_receipts as issuance', fn ($join) => $join->on('issuance.node_id', '=', 'recovery.node_id')
+                    ->on('issuance.issuance_id', '=', 'recovery.issuance_id'))
+                ->join('tickets as ticket', 'ticket.id', '=', 'issuance.ticket_id')
+                ->join('users as staff', 'staff.id', '=', 'recovery.recovered_by_user_id')
+                ->where('recovery.event_id', $event->id)->orderByDesc('recovery.recovered_at')->limit(50)
+                ->get(['recovery.recovered_at', 'recovery.node_id', 'staff.name as staff_name', 'ticket.public_id']) : collect();
         $receiptNodeId = null;
         $importReceiptNodeId = null;
         $authority = DB::table('cloud_event_authorities')->where('event_id', $event->id)->first();
@@ -167,7 +175,7 @@ class OrganizerEventController extends Controller
                 ->whereNull('event_snapshots.invalidated_at')->value('event_snapshot_import_receipts.node_id');
         }
 
-        return view('organizer.events.show', compact('event', 'staffUsers', 'receiptNodeId', 'importReceiptNodeId', 'authority', 'guestRegistrations'));
+        return view('organizer.events.show', compact('event', 'staffUsers', 'receiptNodeId', 'importReceiptNodeId', 'authority', 'guestRegistrations', 'walkInRecoveries'));
     }
 
     /**
