@@ -13,6 +13,8 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('v1')->group(function () {
     Route::post('/node-sync/admissions', [AdmissionSyncController::class, 'receive'])
         ->middleware(['runtime:cloud', 'throttle:60,1']);
+    Route::post('/node-sync/walk-ins', [AdmissionSyncController::class, 'receiveWalkIn'])
+        ->middleware(['runtime:cloud', 'throttle:60,1']);
 
     // Public Authentication
     Route::post('/auth/student-verification', [StudentEmailVerificationController::class, 'requestLink'])

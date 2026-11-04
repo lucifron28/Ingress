@@ -3,8 +3,10 @@
 namespace App\Console\Commands;
 
 use App\Actions\AcknowledgeAdmissionBatch;
+use App\Actions\AcknowledgeWalkInSync;
 use App\Actions\BindRuntimeDatabase;
 use App\Actions\PrepareAdmissionBatch;
+use App\Actions\PrepareWalkInSync;
 use Illuminate\Console\Command;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\DB;
@@ -18,7 +20,8 @@ class SyncNodeAdmissions extends Command
 
     protected $description = 'Send pending node admissions to the cloud with authenticated retries';
 
-    public function handle(BindRuntimeDatabase $runtime, PrepareAdmissionBatch $prepare, AcknowledgeAdmissionBatch $ack): int
+    public function handle(BindRuntimeDatabase $runtime, PrepareAdmissionBatch $prepare, AcknowledgeAdmissionBatch $ack,
+        PrepareWalkInSync $prepareWalkIn, AcknowledgeWalkInSync $ackWalkIn): int
     {
         $url = config('ingress.cloud_sync_url');
         $nodeId = config('ingress.node_id');
@@ -49,6 +52,23 @@ class SyncNodeAdmissions extends Command
         $failed = false;
         foreach ($events as $eventId) {
             try {
+                for ($number = 0; $number < 50; $number++) {
+                    $walkIn = $prepareWalkIn->execute((int) $eventId);
+                    if ($walkIn === null) {
+                        break;
+                    }
+                    $response = Http::acceptJson()->withHeaders(['X-Ingress-Node' => $nodeId])
+                        ->withOptions(['allow_redirects' => false])->connectTimeout(5)->timeout(15)
+                        ->withBody($walkIn['package'], 'application/octet-stream')
+                        ->post(rtrim($url, '/').'/node-sync/walk-ins');
+                    $body = $response->json();
+                    if (! $response->successful() || ! is_array($body) || ($body['issuance_id'] ?? null) !== $walkIn['issuance_id']
+                        || ! is_int($body['registration_id'] ?? null) || ! is_int($body['ticket_id'] ?? null)
+                        || ! is_string($body['receipt'] ?? null)) {
+                        throw ValidationException::withMessages(['sync' => 'Cloud did not confirm the walk-in.']);
+                    }
+                    $ackWalkIn->execute((int) $eventId, $body['issuance_id'], $body['registration_id'], $body['ticket_id'], $body['receipt']);
+                }
                 for ($batchNumber = 0; $batchNumber < 10; $batchNumber++) {
                     $batch = $prepare->execute((int) $eventId);
                     if ($batch === null) {
