@@ -13,6 +13,10 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('v1')->group(function () {
     Route::post('/node-sync/admissions', [AdmissionSyncController::class, 'receive'])
         ->middleware(['runtime:cloud', 'throttle:60,1']);
+    Route::post('/node-sync/walk-ins', [AdmissionSyncController::class, 'receiveWalkIn'])
+        ->middleware(['runtime:cloud', 'throttle:60,1']);
+    Route::post('/node-sync/walk-in-recoveries', [AdmissionSyncController::class, 'receiveWalkInRecovery'])
+        ->middleware(['runtime:cloud', 'throttle:60,1']);
 
     // Public Authentication
     Route::post('/auth/student-verification', [StudentEmailVerificationController::class, 'requestLink'])
@@ -45,6 +49,8 @@ Route::prefix('v1')->group(function () {
             Route::get('/events/{event}/access-points', [StaffAdmissionController::class, 'accessPoints']);
             Route::post('/events/{event}/admissions/preview', [StaffAdmissionController::class, 'preview']);
             Route::post('/events/{event}/admissions', [StaffAdmissionController::class, 'scan']);
+            Route::post('/events/{event}/walk-ins', [StaffAdmissionController::class, 'issueWalkIn'])->middleware('runtime:node');
+            Route::post('/events/{event}/walk-ins/recover', [StaffAdmissionController::class, 'recoverWalkIn'])->middleware(['runtime:node', 'throttle:30,1']);
         });
     });
 });

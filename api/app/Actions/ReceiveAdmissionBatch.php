@@ -83,6 +83,14 @@ class ReceiveAdmissionBatch
                 }
                 foreach ($data['admissions'] as $item) {
                     $ticket = $tickets[$item['ticket_id']] ?? null;
+                    if (! $ticket) {
+                        $walkIn = DB::table('cloud_walk_in_receipts')
+                            ->where('node_id', $nodeId)->where('event_id', $data['event_id'])->where('ticket_id', $item['ticket_id'])
+                            ->first(['qr_hash', 'credential_version']);
+                        if ($walkIn) {
+                            $ticket = ['qr_hash' => $walkIn->qr_hash, 'credential_version' => (int) $walkIn->credential_version];
+                        }
+                    }
                     $assignment = $staff[$item['staff_id']] ?? null;
                     if (! $ticket || $ticket['credential_version'] !== $item['credential_version'] || ! isset($gates[$item['gate_id']])
                         || ! $assignment || ($assignment['access_point_id'] !== null && $assignment['access_point_id'] !== $item['gate_id'])) {

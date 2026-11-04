@@ -3,8 +3,11 @@
 namespace App\Console\Commands;
 
 use App\Actions\AcknowledgeAdmissionBatch;
+use App\Actions\AcknowledgeWalkInSync;
 use App\Actions\BindRuntimeDatabase;
 use App\Actions\PrepareAdmissionBatch;
+use App\Actions\PrepareWalkInSync;
+use App\Actions\SyncWalkInRecovery;
 use Illuminate\Console\Command;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\DB;
@@ -18,7 +21,8 @@ class SyncNodeAdmissions extends Command
 
     protected $description = 'Send pending node admissions to the cloud with authenticated retries';
 
-    public function handle(BindRuntimeDatabase $runtime, PrepareAdmissionBatch $prepare, AcknowledgeAdmissionBatch $ack): int
+    public function handle(BindRuntimeDatabase $runtime, PrepareAdmissionBatch $prepare, AcknowledgeAdmissionBatch $ack,
+        PrepareWalkInSync $prepareWalkIn, AcknowledgeWalkInSync $ackWalkIn, SyncWalkInRecovery $recoveries): int
     {
         $url = config('ingress.cloud_sync_url');
         $nodeId = config('ingress.node_id');
@@ -47,11 +51,62 @@ class SyncNodeAdmissions extends Command
             return self::FAILURE;
         }
         $failed = false;
+        // Leave time for the last HTTP request before the scheduler's 10-minute lock expires.
+        $deadline = hrtime(true) + 480_000_000_000;
+        $hasTime = static fn (): bool => hrtime(true) < $deadline;
         foreach ($events as $eventId) {
+            if (! $hasTime()) {
+                break;
+            }
             try {
-                for ($batchNumber = 0; $batchNumber < 10; $batchNumber++) {
+                for ($number = 0; $number < 40 && $hasTime(); $number++) {
+                    $walkIn = $prepareWalkIn->execute((int) $eventId);
+                    if ($walkIn === null || ! $hasTime()) {
+                        break;
+                    }
+                    $response = Http::acceptJson()->withHeaders(['X-Ingress-Node' => $nodeId])
+                        ->withOptions(['allow_redirects' => false])->connectTimeout(5)->timeout(15)
+                        ->withBody($walkIn['package'], 'application/octet-stream')
+                        ->post(rtrim($url, '/').'/node-sync/walk-ins');
+                    $body = $response->json();
+                    if (! $response->successful() || ! is_array($body) || ($body['issuance_id'] ?? null) !== $walkIn['issuance_id']
+                        || ! is_int($body['registration_id'] ?? null) || ! is_int($body['ticket_id'] ?? null)
+                        || ! is_string($body['receipt'] ?? null)) {
+                        throw ValidationException::withMessages(['sync' => 'Cloud did not confirm the walk-in.']);
+                    }
+                    $ackWalkIn->execute((int) $eventId, $body['issuance_id'], $body['registration_id'], $body['ticket_id'], $body['receipt']);
+                }
+            } catch (ConnectionException|ValidationException) {
+                $failed = true;
+                Log::warning('Walk-in synchronization failed; the pending issuance will be retried.', ['cloud_event_id' => (int) $eventId]);
+                $this->error("Walk-in synchronization failed for event {$eventId}; the pending issuance will be retried.");
+            }
+            try {
+                for ($number = 0; $number < 10 && $hasTime(); $number++) {
+                    $recovery = $recoveries->prepare((int) $eventId);
+                    if ($recovery === null || ! $hasTime()) {
+                        break;
+                    }
+                    $response = Http::acceptJson()->withHeaders(['X-Ingress-Node' => $nodeId])
+                        ->withOptions(['allow_redirects' => false])->connectTimeout(5)->timeout(15)
+                        ->withBody($recovery['package'], 'application/octet-stream')
+                        ->post(rtrim($url, '/').'/node-sync/walk-in-recoveries');
+                    $body = $response->json();
+                    if (! $response->successful() || ! is_array($body) || ($body['recovery_id'] ?? null) !== $recovery['recovery_id']
+                        || ! is_string($body['receipt'] ?? null)) {
+                        throw ValidationException::withMessages(['sync' => 'Cloud did not confirm the recovery.']);
+                    }
+                    $recoveries->acknowledge((int) $eventId, $body['recovery_id'], $body['receipt']);
+                }
+            } catch (ConnectionException|ValidationException) {
+                $failed = true;
+                Log::warning('Walk-in recovery synchronization failed; the pending record will be retried.', ['cloud_event_id' => (int) $eventId]);
+                $this->error("Walk-in recovery synchronization failed for event {$eventId}; the pending record will be retried.");
+            }
+            try {
+                for ($batchNumber = 0; $batchNumber < 10 && $hasTime(); $batchNumber++) {
                     $batch = $prepare->execute((int) $eventId);
-                    if ($batch === null) {
+                    if ($batch === null || ! $hasTime()) {
                         break;
                     }
                     $response = Http::acceptJson()->withHeaders(['X-Ingress-Node' => $nodeId])

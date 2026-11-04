@@ -7,14 +7,15 @@ use App\Actions\RegisterForEvent;
 use App\Models\AccessPoint;
 use App\Models\Admission;
 use App\Models\Event;
+use App\Models\Registration;
+use App\Models\Ticket;
 use App\Models\User;
 use App\Models\Venue;
 use Carbon\Carbon;
-use App\Models\Registration;
-use App\Models\Ticket;
-use Illuminate\Support\Facades\Crypt;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Str;
+use Symfony\Component\Process\Process;
 use Tests\TestCase;
 
 class AttendanceDashboardTest extends TestCase
@@ -142,6 +143,22 @@ class AttendanceDashboardTest extends TestCase
             ->get("/organizer/events/{$this->event->id}/attendance");
 
         $response->assertStatus(403);
+    }
+
+    public function test_attendance_search_finds_a_walk_in_by_student_id(): void
+    {
+        Registration::create([
+            'event_id' => $this->event->id, 'user_id' => null, 'attendee_type' => 'walk_in',
+            'walk_in_kind' => 'student', 'guest_name' => 'Walk In Student', 'guest_email' => 'walkin@example.test',
+            'guest_student_id' => 'WI-45678', 'status' => Registration::STATUS_CONFIRMED,
+        ]);
+        Registration::create([
+            'event_id' => $this->event->id, 'user_id' => null, 'attendee_type' => 'walk_in',
+            'walk_in_kind' => 'guest', 'guest_name' => 'Other Guest', 'guest_email' => 'other@example.test',
+            'status' => Registration::STATUS_CONFIRMED,
+        ]);
+        $this->actingAs($this->organizerA)->get("/organizer/events/{$this->event->id}/attendance?search=wi-456")
+            ->assertOk()->assertSee('Walk In Student')->assertDontSee('Other Guest');
     }
 
     public function test_attendance_page_uses_safe_dom_rendering_and_refresh_feed_trigger(): void
@@ -510,8 +527,7 @@ class AttendanceDashboardTest extends TestCase
      * Helper to run the attendance view's fetchLiveData() script in Node.js
      * with a lightweight DOM mock supporting createElement, textContent, appendChild, style, etc.
      *
-     * @param string $scriptCode
-     * @param array<int, array{ok?: bool, status?: int, data?: mixed, throws?: bool}> $steps
+     * @param  array<int, array{ok?: bool, status?: int, data?: mixed, throws?: bool}>  $steps
      * @return array<int, array<string, mixed>>
      */
     private function executeDashboardScript(string $scriptCode, array $steps, int $pollTimeoutMs = 30): array
@@ -697,7 +713,7 @@ class AttendanceDashboardTest extends TestCase
         });
         JS;
 
-        $process = new \Symfony\Component\Process\Process(['node', '-e', $nodeRunner]);
+        $process = new Process(['node', '-e', $nodeRunner]);
         $process->setInput(json_encode([
             'script' => $scriptCode,
             'steps' => $steps,
@@ -706,6 +722,7 @@ class AttendanceDashboardTest extends TestCase
         $process->run();
 
         $this->assertTrue($process->isSuccessful(), 'Node.js failed to execute dashboard script: '.$process->getErrorOutput());
+
         return json_decode($process->getOutput(), true);
     }
 
@@ -772,7 +789,7 @@ class AttendanceDashboardTest extends TestCase
 
     public function test_administratively_invalidated_registration_is_not_counted_as_checked_in(): void
     {
-        $admitAction = new AdmitTicket();
+        $admitAction = new AdmitTicket;
 
         // Register and admit at Gate A.
         $registration = $this->actingAs($this->student, 'sanctum')

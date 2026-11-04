@@ -71,6 +71,7 @@ export default function StaffLayout() {
           headerBackTitle: 'Events',
         }}
       />
+      <Stack.Screen name="walk-in" options={{ title: 'Register walk-in', headerBackTitle: 'Events' }} />
     </Stack>
   );
 }

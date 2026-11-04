@@ -3,15 +3,21 @@
 namespace Tests\Feature;
 
 use App\Actions\ActivateEventAuthority;
+use App\Actions\AdmissionSyncEnvelope;
 use App\Actions\AuthorityGrant;
 use App\Actions\ImportReceivedSnapshot;
+use App\Actions\IssueNodeWalkIn;
+use App\Actions\PrepareAdmissionBatch;
 use App\Actions\ReceiveSnapshot;
 use App\Actions\SnapshotEnvelope;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
+use Illuminate\Validation\ValidationException;
+use Laravel\Sanctum\PersonalAccessToken;
 use Tests\TestCase;
 
 class NodeAdmissionTest extends TestCase
@@ -113,5 +119,123 @@ class NodeAdmissionTest extends TestCase
         DB::table('event_staff')->where('event_id', $this->eventId)->delete();
         $this->scan('', $this->gateId)->assertUnauthorized();
         $this->assertDatabaseCount('admissions', 1);
+    }
+
+    public function test_walk_in_issuance_is_idempotent_and_respects_capacity(): void
+    {
+        app(ActivateEventAuthority::class)->execute($this->grant);
+        $token = PersonalAccessToken::findToken($this->token);
+        $staff = $token->tokenable->withAccessToken($token);
+        $action = app(IssueNodeWalkIn::class);
+        $requestId = (string) Str::uuid();
+        $ticket = $action->execute($staff, $this->eventId, $requestId, 'Walk In', 'walkin@example.test', 'student', '456');
+        $retry = $action->execute($staff, $this->eventId, $requestId, 'Walk In', 'walkin@example.test', 'student', '456');
+        $this->assertSame($ticket->id, $retry->id);
+        $this->assertSame($ticket->getQrPayload(), $retry->getQrPayload());
+        $this->assertSame('456', $ticket->registration->attendeeStudentId());
+        $this->assertDatabaseCount('node_walk_in_issuances', 1);
+        $this->assertDatabaseCount('admissions', 0);
+
+        DB::table('events')->where('id', $this->eventId)->update(['capacity' => 2]);
+        try {
+            $action->execute($staff, $this->eventId, (string) Str::uuid(), 'Other', 'other@example.test', 'guest', null);
+            $this->fail('A full event accepted a walk-in.');
+        } catch (ValidationException $exception) {
+            $this->assertStringContainsString('capacity', $exception->errors()['walk_in'][0]);
+        }
+        $this->assertDatabaseCount('node_walk_in_issuances', 1);
+    }
+
+    public function test_walk_in_endpoint_requires_authority_and_uses_the_normal_scanner(): void
+    {
+        $details = ['client_request_id' => (string) Str::uuid(), 'name' => 'Walk In',
+            'email' => 'walkin@example.test', 'kind' => 'guest'];
+        $url = "/api/v1/staff/events/{$this->eventId}/walk-ins";
+        $this->withToken($this->token)->postJson($url, $details)->assertForbidden();
+        app(ActivateEventAuthority::class)->execute($this->grant);
+        $pass = $this->withToken($this->token)->postJson($url, $details)->assertOk()->json();
+        $this->assertSame($pass['qr_payload'], $this->withToken($this->token)->postJson($url, $details)->assertOk()->json('qr_payload'));
+        $this->withToken($this->token)->postJson("/api/v1/staff/events/{$this->eventId}/admissions/preview", [
+            'access_point_id' => $this->gateId, 'qr_payload' => $pass['qr_payload'],
+        ])->assertOk()->assertJsonPath('ticket.attendee_name', 'Walk In');
+        $this->assertDatabaseCount('admissions', 0);
+        $this->withToken($this->token)->postJson("/api/v1/staff/events/{$this->eventId}/admissions", [
+            'access_point_id' => $this->gateId, 'qr_payload' => $pass['qr_payload'], 'client_scan_id' => 'walk-in-scan',
+        ])->assertOk()->assertJsonPath('status', 'admitted');
+        $this->assertDatabaseCount('admissions', 1);
+    }
+
+    public function test_walk_in_rejects_conflicting_retries_and_duplicate_attendees(): void
+    {
+        app(ActivateEventAuthority::class)->execute($this->grant);
+        $url = "/api/v1/staff/events/{$this->eventId}/walk-ins";
+        $details = ['client_request_id' => (string) Str::uuid(), 'name' => 'Walk In',
+            'email' => 'walkin@example.test', 'kind' => 'student', 'student_id' => '456'];
+        $this->withToken($this->token)->postJson($url, $details)->assertOk();
+        $this->withToken($this->token)->postJson($url, array_merge($details, ['name' => 'Other Name']))->assertStatus(422);
+        $this->withToken($this->token)->postJson($url, array_merge($details, [
+            'client_request_id' => (string) Str::uuid(), 'email' => 'other@example.test',
+        ]))->assertStatus(422);
+        $this->withToken($this->token)->postJson($url, array_merge($details, [
+            'client_request_id' => (string) Str::uuid(), 'student_id' => '789',
+        ]))->assertStatus(422);
+        $this->assertDatabaseCount('node_walk_in_issuances', 1);
+        DB::table('node_staff_credentials')->delete();
+        $this->withToken($this->token)->postJson($url, $details)->assertUnauthorized();
+        $this->assertDatabaseCount('node_walk_in_issuances', 1);
+    }
+
+    public function test_failed_walk_in_sync_does_not_block_preregistered_admissions(): void
+    {
+        app(ActivateEventAuthority::class)->execute($this->grant);
+        $this->scan('', $this->gateId)->assertOk();
+        $this->withToken($this->token)->postJson("/api/v1/staff/events/{$this->eventId}/walk-ins", [
+            'client_request_id' => (string) Str::uuid(), 'name' => 'Walk In', 'email' => 'walkin@example.test', 'kind' => 'guest',
+        ])->assertOk();
+        $batch = app(PrepareAdmissionBatch::class)->execute(10);
+        $secret = config('ingress.node_sync_key');
+        $envelope = app(AdmissionSyncEnvelope::class);
+        $payload = $envelope->open($batch['package'], $secret);
+        $receipt = $envelope->receipt($batch['batch_id'], hash('sha256', $payload), $secret);
+        config(['ingress.cloud_sync_url' => 'https://cloud.example/api/v1']);
+        Http::fake([
+            'https://cloud.example/api/v1/node-sync/walk-ins' => Http::response([], 422),
+            'https://cloud.example/api/v1/node-sync/admissions' => Http::response(['batch_id' => $batch['batch_id'], 'receipt' => $receipt]),
+        ]);
+        $this->assertSame(1, Artisan::call('ingress:sync-admissions', ['event_id' => '10']));
+        $this->assertDatabaseCount('node_synced_admissions', 1);
+        $this->assertNull(DB::table('node_walk_in_issuances')->value('synced_at'));
+    }
+
+    public function test_walk_in_pass_recovery_requires_authority_and_records_the_staff_member(): void
+    {
+        $url = "/api/v1/staff/events/{$this->eventId}/walk-ins";
+        $this->withToken($this->token)->postJson($url.'/recover', ['email' => 'walkin@example.test'])->assertForbidden();
+        app(ActivateEventAuthority::class)->execute($this->grant);
+        $pass = $this->withToken($this->token)->postJson($url, [
+            'client_request_id' => (string) Str::uuid(), 'name' => 'Walk In', 'email' => 'walkin@example.test',
+            'kind' => 'student', 'student_id' => '456',
+        ])->assertOk()->json();
+        $this->withToken($this->token)->postJson($url.'/recover', ['email' => 'WALKIN@example.test'])
+            ->assertOk()->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('qr_payload', $pass['qr_payload'])->assertJsonPath('student_id', '456');
+        $staffId = PersonalAccessToken::findToken($this->token)->tokenable_id;
+        $this->assertDatabaseHas('node_walk_in_recoveries', ['recovered_by_user_id' => $staffId]);
+        $this->withToken($this->token)->postJson($url.'/recover', ['email' => 'missing@example.test'])->assertStatus(422);
+        DB::table('tickets')->where('public_id', $pass['public_id'])->update(['status' => 'revoked']);
+        $this->withToken($this->token)->postJson($url.'/recover', ['email' => 'walkin@example.test'])->assertStatus(422);
+        $this->assertDatabaseCount('node_walk_in_recoveries', 1);
+    }
+
+    public function test_walk_in_retry_does_not_return_a_revoked_pass(): void
+    {
+        app(ActivateEventAuthority::class)->execute($this->grant);
+        $url = "/api/v1/staff/events/{$this->eventId}/walk-ins";
+        $details = ['client_request_id' => (string) Str::uuid(), 'name' => 'Walk In',
+            'email' => 'walkin@example.test', 'kind' => 'guest'];
+        $pass = $this->withToken($this->token)->postJson($url, $details)->assertOk()->json();
+        DB::table('tickets')->where('public_id', $pass['public_id'])->update(['status' => 'revoked']);
+        $this->withToken($this->token)->postJson($url, $details)->assertStatus(422)->assertJsonMissing(['qr_payload' => $pass['qr_payload']]);
+        $this->assertDatabaseCount('node_walk_in_issuances', 1);
     }
 }

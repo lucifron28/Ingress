@@ -148,6 +148,15 @@
                 <p>No guest or alumni passes issued.</p>
             @endforelse
         </section>
+        @if ($walkInRecoveries->isNotEmpty())
+            <section class="card" style="grid-column: 1 / -1;">
+                <h2>Recent walk-in pass recoveries</h2>
+                <p>Showing up to 50 synchronized recoveries. Records may be delayed while the node is offline.</p>
+                @foreach ($walkInRecoveries as $recovery)
+                    <p>{{ $recovery->recovered_at }} &middot; {{ $recovery->staff_name }} &middot; {{ $recovery->public_id }} &middot; {{ $recovery->node_id }}</p>
+                @endforeach
+            </section>
+        @endif
     @endif
     <!-- Event Details Card -->
     <div class="card">

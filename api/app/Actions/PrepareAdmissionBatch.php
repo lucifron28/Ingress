@@ -65,6 +65,8 @@ class PrepareAdmissionBatch
                 ->leftJoin('node_import_ids as si', fn ($join) => $join->on('si.local_id', '=', 'a.scanned_by_user_id')->where('si.kind', '=', 'user'))
                 ->where('r.event_id', $import->event_id)
                 ->whereNotExists(fn ($query) => $query->selectRaw('1')->from('node_synced_admissions as s')->whereColumn('s.admission_id', 'a.id'))
+                ->whereNotExists(fn ($query) => $query->selectRaw('1')->from('node_walk_in_issuances as w')
+                    ->whereColumn('w.ticket_id', 'a.ticket_id')->whereNull('w.synced_at'))
                 ->orderBy('a.id')->limit(100)
                 ->get(['a.id', 'a.client_scan_id', 'a.credential_version', 'a.admitted_at', 'g.event_id as gate_event_id',
                     'ti.cloud_id as cloud_ticket_id', 'gi.cloud_id as cloud_gate_id', 'si.cloud_id as cloud_staff_id']);

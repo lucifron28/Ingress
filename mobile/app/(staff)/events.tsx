@@ -75,6 +75,14 @@ export default function StaffEventsScreen() {
       <Text style={styles.venueBadge}>{item.venue?.name || 'MSEUF Campus'}</Text>
       <Text style={styles.title}>{item.title}</Text>
 
+      {node.active && (
+        <Pressable style={styles.walkInButton} onPress={() => router.push({
+          pathname: '/(staff)/walk-in', params: { eventId: item.id.toString(), eventTitle: item.title },
+        })}>
+          <Text style={styles.walkInText}>Register walk-in</Text>
+        </Pressable>
+      )}
+
       <View style={styles.gateSection}>
         <Text style={styles.gateHeading}>Select Gate to Begin Scanning</Text>
         <View style={styles.gateList}>
@@ -233,6 +241,10 @@ const styles = StyleSheet.create({
     borderTopColor: '#f1f5f9',
     paddingTop: 12,
   },
+  walkInButton: {
+    backgroundColor: '#800000', borderRadius: 6, padding: 12, alignItems: 'center', marginBottom: 12,
+  },
+  walkInText: { color: '#ffffff', fontWeight: '700', fontSize: 14 },
   gateHeading: {
     fontSize: 11,
     fontWeight: '700',

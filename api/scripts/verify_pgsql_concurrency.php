@@ -30,8 +30,10 @@ use App\Actions\ManageNodeStaffCredential;
 use App\Actions\NodeStaffPairing;
 use App\Actions\PrepareEventSnapshot;
 use App\Actions\ReceiveSnapshot;
+use App\Actions\RecoverNodeWalkIn;
 use App\Actions\RegisterForEvent;
 use App\Actions\SnapshotEnvelope;
+use App\Actions\SyncWalkInRecovery;
 use App\Models\AccessPoint;
 use App\Models\Admission;
 use App\Models\Event;
@@ -1623,6 +1625,105 @@ $guestRaceResults = $runConcurrently([
 $assert(count(array_filter($guestRaceResults, fn ($result) => ($result['ok'] ?? false) === true)) === 1, 'exactly one registration succeeded');
 $assert(Registration::where('event_id', $guestRaceEvent->id)->where('status', 'confirmed')->count() === 1, 'the event has exactly one confirmed attendee');
 $assert(Ticket::whereHas('registration', fn ($query) => $query->where('event_id', $guestRaceEvent->id))->count() === 1, 'exactly one ticket was issued');
+echo "\n";
+
+// =============================================================================
+// CASE AG - Walk-ins compete for the final node seat
+// =============================================================================
+echo "CASE AG: concurrent node walk-ins compete for the final seat\n";
+$walkInToken = User::findOrFail($nodeStaffId)->createToken('walk-in-race', ['node:staff'], now()->addHours(1))->accessToken;
+$walkInJob = [
+    'node_id' => 'race-node', 'public_key' => $authorityPublic, 'staff_user_id' => $nodeStaffId,
+    'token_id' => $walkInToken->id, 'event_id' => $nodeEventId,
+];
+DB::table('events')->where('id', $nodeEventId)->update(['capacity' => 2]);
+$walkInRace = $runConcurrently([
+    ['node_walk_in', $walkInJob + ['request_id' => (string) Str::uuid(), 'email' => "walkin-a-{$suffix}@example.test"]],
+    ['node_walk_in', $walkInJob + ['request_id' => (string) Str::uuid(), 'email' => "walkin-b-{$suffix}@example.test"]],
+], $childScript, $testDatabase);
+$assert(count(array_filter($walkInRace, fn ($result) => ($result['ok'] ?? false) === true)) === 1, 'one walk-in received the final seat');
+$assert(count(array_filter($walkInRace, fn ($result) => ($result['reason'] ?? null) === 'validation_error')) === 1, 'the other walk-in was rejected');
+$assert(Registration::where('event_id', $nodeEventId)->where('status', 'confirmed')->count() === 2, 'the node did not exceed capacity');
+$assert(DB::table('node_walk_in_issuances')->where('event_id', $nodeEventId)->count() === 1, 'one walk-in issuance exists');
+echo "\n";
+
+// =============================================================================
+// CASE AH - Concurrent retries preserve the same ticket and credential
+// =============================================================================
+echo "CASE AH: concurrent retries of one node walk-in request\n";
+DB::table('events')->where('id', $nodeEventId)->update(['capacity' => 3]);
+$replayJob = $walkInJob + ['request_id' => (string) Str::uuid(), 'email' => "walkin-retry-{$suffix}@example.test"];
+$walkInRetries = $runConcurrently([
+    ['node_walk_in', $replayJob], ['node_walk_in', $replayJob],
+], $childScript, $testDatabase);
+$assert(($walkInRetries[0]['ok'] ?? false) && ($walkInRetries[1]['ok'] ?? false), 'both retries succeeded');
+$assert(! empty($walkInRetries[0]['ticket_id']) && $walkInRetries[0]['ticket_id'] === ($walkInRetries[1]['ticket_id'] ?? null), 'both retries returned the same ticket');
+$assert(! empty($walkInRetries[0]['qr_hash']) && $walkInRetries[0]['qr_hash'] === ($walkInRetries[1]['qr_hash'] ?? null), 'both retries returned the same credential');
+$assert(DB::table('node_walk_in_issuances')->where('event_id', $nodeEventId)->count() === 2, 'one issuance was added for both retries');
+echo "\n";
+
+// =============================================================================
+// CASE AI - Concurrent cloud delivery of a walk-in is idempotent
+// =============================================================================
+echo "CASE AI: concurrent delivery of one walk-in to the cloud\n";
+$walkInSync = [
+    'schema_version' => 1, 'node_id' => 'sync-race-node', 'event_id' => $syncEvent->id,
+    'snapshot_id' => $syncSnapshotId, 'version' => (int) $syncSnapshot->version, 'snapshot_sha256' => $syncSnapshot->sha256,
+    'issuance_id' => (string) Str::uuid(), 'staff_id' => $syncStaff->id, 'name' => 'Sync Walk-in',
+    'email' => "sync-walkin-{$suffix}@example.test", 'kind' => 'guest', 'student_id' => null,
+    'public_id' => 'ING-'.strtoupper(Str::random(10)), 'qr_hash' => hash('sha256', random_bytes(32)),
+    'issued_at' => now()->utc()->toISOString(),
+];
+$walkInPackage = $syncEnvelope->seal(json_encode($walkInSync, JSON_THROW_ON_ERROR), $syncSecret);
+$walkInDeliveries = $runConcurrently([
+    ['receive_walk_in', ['node_id' => 'sync-race-node', 'package' => $walkInPackage]],
+    ['receive_walk_in', ['node_id' => 'sync-race-node', 'package' => $walkInPackage]],
+], $childScript, $testDatabase);
+$assert(($walkInDeliveries[0]['ok'] ?? false) && ($walkInDeliveries[1]['ok'] ?? false), 'both deliveries succeeded');
+$assert(! empty($walkInDeliveries[0]['receipt']) && $walkInDeliveries[0]['receipt'] === ($walkInDeliveries[1]['receipt'] ?? null), 'both deliveries returned the same receipt');
+$assert(($walkInDeliveries[0]['ticket_id'] ?? null) === ($walkInDeliveries[1]['ticket_id'] ?? null), 'both deliveries returned the same ticket');
+$assert(DB::table('cloud_walk_in_receipts')->where('node_id', 'sync-race-node')->where('issuance_id', $walkInSync['issuance_id'])->count() === 1, 'one cloud receipt exists');
+$assert(Registration::where('event_id', $syncEvent->id)->where('guest_email', $walkInSync['email'])->count() === 1, 'one cloud walk-in registration exists');
+echo "\n";
+
+// =============================================================================
+// CASE AJ - Concurrent delivery of a recovery audit record is idempotent
+// =============================================================================
+echo "CASE AJ: concurrent cloud recovery audit delivery\n";
+$recoveryData = [
+    'schema_version' => 1, 'node_id' => 'sync-race-node', 'event_id' => $syncEvent->id,
+    'snapshot_id' => $syncSnapshotId, 'version' => (int) $syncSnapshot->version, 'snapshot_sha256' => $syncSnapshot->sha256,
+    'recovery_id' => 1, 'issuance_id' => $walkInSync['issuance_id'], 'staff_id' => $syncStaff->id,
+    'recovered_at' => now()->utc()->toISOString(),
+];
+$recoveryPackage = $syncEnvelope->seal(json_encode($recoveryData, JSON_THROW_ON_ERROR), $syncSecret);
+$recoveryDeliveries = $runConcurrently([
+    ['receive_walk_in_recovery', ['node_id' => 'sync-race-node', 'package' => $recoveryPackage]],
+    ['receive_walk_in_recovery', ['node_id' => 'sync-race-node', 'package' => $recoveryPackage]],
+], $childScript, $testDatabase);
+$assert(($recoveryDeliveries[0]['ok'] ?? false) && ($recoveryDeliveries[1]['ok'] ?? false), 'both recovery deliveries succeeded');
+$assert(! empty($recoveryDeliveries[0]['receipt']) && $recoveryDeliveries[0]['receipt'] === ($recoveryDeliveries[1]['receipt'] ?? null), 'both deliveries returned the same recovery receipt');
+$assert(DB::table('cloud_walk_in_recoveries')->where('node_id', 'sync-race-node')->where('node_recovery_id', 1)->count() === 1, 'one cloud recovery audit record exists');
+echo "\n";
+
+// =============================================================================
+// CASE AK - Node recovery waits for issuance sync and prepares once
+// =============================================================================
+echo "CASE AK: concurrent recovery package preparation\n";
+config(['ingress.mode' => 'node', 'ingress.node_id' => 'race-node', 'ingress.node_sync_key' => $nodeSecret,
+    'ingress.authority_public_key' => $authorityPublic]);
+$recoveringStaff = User::findOrFail($nodeStaffId)->withAccessToken($walkInToken);
+app(RecoverNodeWalkIn::class)->execute($recoveringStaff, $nodeEventId, $replayJob['email']);
+$assert(app(SyncWalkInRecovery::class)->prepare($nodePayload['event']['id']) === null, 'recovery waits for its issuance mapping');
+DB::table('node_walk_in_issuances')->where('client_request_id', $replayJob['request_id'])->update(['synced_at' => now()]);
+$recoveryJob = ['node_id' => 'race-node', 'secret' => $nodeSecret, 'public_key' => $authorityPublic, 'event_id' => $nodePayload['event']['id']];
+$preparedRecoveries = $runConcurrently([
+    ['prepare_walk_in_recovery', $recoveryJob], ['prepare_walk_in_recovery', $recoveryJob],
+], $childScript, $testDatabase);
+$assert(($preparedRecoveries[0]['ok'] ?? false) && ($preparedRecoveries[1]['ok'] ?? false), 'both preparations succeeded');
+$assert(! empty($preparedRecoveries[0]['recovery_id']) && $preparedRecoveries[0]['recovery_id'] === ($preparedRecoveries[1]['recovery_id'] ?? null), 'both preparations selected the same recovery');
+$assert(! empty($preparedRecoveries[0]['package_hash']) && $preparedRecoveries[0]['package_hash'] === ($preparedRecoveries[1]['package_hash'] ?? null), 'both preparations returned the same immutable package');
+$assert(DB::table('node_walk_in_recoveries')->whereNotNull('sync_package_ciphertext')->count() === 1, 'one pending recovery package exists');
 echo "\n";
 
 // =============================================================================
