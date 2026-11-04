@@ -145,6 +145,34 @@ class AttendanceDashboardTest extends TestCase
         $response->assertStatus(403);
     }
 
+    public function test_attendance_csv_is_private_authorized_and_safe_for_spreadsheet_cells(): void
+    {
+        $this->student->update(['name' => '=2+2']);
+        $result = (new RegisterForEvent)->execute($this->student, $this->event->id);
+        (new AdmitTicket)->execute(
+            staff: $this->organizerA,
+            eventId: $this->event->id,
+            accessPointId: $this->gateA->id,
+            qrPayload: $result['qr_payload'],
+            clientScanId: (string) Str::uuid(),
+        );
+
+        $response = $this->actingAs($this->organizerA)->get("/organizer/events/{$this->event->id}/attendance.csv");
+        $response->assertOk()
+            ->assertHeader('Content-Type', 'text/csv; charset=UTF-8')
+            ->assertHeader('X-Content-Type-Options', 'nosniff');
+        $this->assertStringContainsString('private', strtolower($response->headers->get('Cache-Control')));
+        $this->assertStringContainsString('no-store', strtolower($response->headers->get('Cache-Control')));
+        $csv = $response->streamedContent();
+        $this->assertStringContainsString("'=2+2", $csv);
+        $this->assertStringContainsString(',inside,1,0,entry,', $csv);
+        $this->assertStringNotContainsString('ingress:v1:', $csv);
+        $rows = array_map(fn (string $line) => str_getcsv($line, ',', '"', ''), explode("\r\n", trim($csv)));
+        $this->assertSame('', $rows[1][14]);
+
+        $this->actingAs($this->organizerB)->get("/organizer/events/{$this->event->id}/attendance.csv")->assertForbidden();
+    }
+
     public function test_attendance_search_finds_a_walk_in_by_student_id(): void
     {
         Registration::create([

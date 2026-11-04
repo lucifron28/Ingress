@@ -22,6 +22,7 @@ class Admission extends Model
         'client_scan_id',
         'credential_version',
         'direction',
+        'identity_check_confirmed',
         'admitted_at',
     ];
 
@@ -29,6 +30,7 @@ class Admission extends Model
     {
         return [
             'credential_version' => 'integer',
+            'identity_check_confirmed' => 'boolean',
             'admitted_at' => 'datetime',
         ];
     }

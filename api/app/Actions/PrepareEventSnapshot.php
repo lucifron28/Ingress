@@ -59,9 +59,9 @@ class PrepareEventSnapshot
 
             $event->load(['venue', 'organizer', 'accessPoints', 'staffAssignments.user']);
             $registrations = Registration::with(['user', 'ticket'])->where('event_id', $event->id)->orderBy('id')->get();
-            $schemaVersion = $event->re_entry_allowed
-                ? 3
-                : ($registrations->contains(fn ($registration) => $registration->user_id === null) ? 2 : 1);
+            $schemaVersion = $event->identity_verification_level === Event::IDENTITY_CHECK
+                ? 4
+                : ($event->re_entry_allowed ? 3 : ($registrations->contains(fn ($registration) => $registration->user_id === null) ? 2 : 1));
             $id = (string) Str::uuid();
             $version = $event->snapshot_version + 1;
             $identity = fn ($user) => [
@@ -81,7 +81,8 @@ class PrepareEventSnapshot
                     'venue' => ['id' => $event->venue->id, 'name' => $event->venue->name,
                         'code' => $event->venue->code, 'location' => $event->venue->location],
                     'organizer' => $identity($event->organizer),
-                ] + ($schemaVersion === 3 ? ['re_entry_allowed' => true] : []),
+                ] + ($schemaVersion >= 3 ? ['re_entry_allowed' => (bool) $event->re_entry_allowed] : [])
+                    + ($schemaVersion >= 4 ? ['identity_verification_level' => $event->identity_verification_level] : []),
                 'access_points' => $event->accessPoints->sortBy('id')->values()->map(fn ($gate) => [
                     'id' => $gate->id, 'name' => $gate->name, 'code' => $gate->code, 'is_active' => $gate->is_active,
                 ])->all(),

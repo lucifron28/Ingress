@@ -23,6 +23,10 @@ class Event extends Model
 
     public const STATUS_COMPLETED = 'completed';
 
+    public const IDENTITY_STANDARD = 'standard';
+
+    public const IDENTITY_CHECK = 'id_check';
+
     protected $fillable = [
         'organizer_id',
         'venue_id',
@@ -36,6 +40,7 @@ class Event extends Model
         'starts_at',
         'ends_at',
         're_entry_allowed',
+        'identity_verification_level',
         'ticket_transfers_allowed',
         'status',
         'banner_path',

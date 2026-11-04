@@ -48,9 +48,9 @@ Write-Host "`n[4/4] Verifying Mobile TypeScript Compilation..." -ForegroundColor
 Set-Location $mobileDir
 npx tsc --noEmit
 if ($LASTEXITCODE -eq 0) {
-    $results["Mobile TypeScript Compilation (Expo SDK 57)"] = "PASSED"
+    $results["Mobile TypeScript Compilation (Expo SDK 58)"] = "PASSED"
 } else {
-    $results["Mobile TypeScript Compilation (Expo SDK 57)"] = "FAILED"
+    $results["Mobile TypeScript Compilation (Expo SDK 58)"] = "FAILED"
 }
 
 # Summary

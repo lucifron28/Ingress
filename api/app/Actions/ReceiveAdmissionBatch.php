@@ -69,6 +69,7 @@ class ReceiveAdmissionBatch
                 }
                 $tickets = $gates = $staff = $presence = [];
                 $reEntryAllowed = $roster['event']['re_entry_allowed'] ?? false;
+                $requiresIdentityCheck = ($roster['event']['identity_verification_level'] ?? 'standard') === 'id_check';
                 foreach ($roster['registrations'] as $registration) {
                     if ($registration['status'] === 'confirmed' && $registration['ticket'] !== null && $registration['ticket']['status'] === 'active') {
                         $tickets[$registration['ticket']['id']] = $registration['ticket'];
@@ -94,7 +95,8 @@ class ReceiveAdmissionBatch
                     }
                     $assignment = $staff[$item['staff_id']] ?? null;
                     if (! $ticket || $ticket['credential_version'] !== $item['credential_version'] || ! isset($gates[$item['gate_id']])
-                        || ! $assignment || ($assignment['access_point_id'] !== null && $assignment['access_point_id'] !== $item['gate_id'])) {
+                        || ! $assignment || ($assignment['access_point_id'] !== null && $assignment['access_point_id'] !== $item['gate_id'])
+                        || $item['identity_check_confirmed'] !== $requiresIdentityCheck) {
                         $this->invalid();
                     }
                     $cloudTicket = DB::table('tickets')->join('registrations', 'registrations.id', '=', 'tickets.registration_id')
@@ -114,6 +116,7 @@ class ReceiveAdmissionBatch
                             || (int) $admission->scanned_by_user_id !== $item['staff_id'] || $admission->client_scan_id !== $item['scan_id']
                             || (int) $admission->credential_version !== $item['credential_version']
                             || $admission->direction !== $item['direction']
+                            || (bool) $admission->identity_check_confirmed !== $item['identity_check_confirmed']
                             || ! CarbonImmutable::parse($admission->admitted_at, 'UTC')->equalTo(CarbonImmutable::parse($item['admitted_at']))) {
                             $this->invalid();
                         }
@@ -135,6 +138,7 @@ class ReceiveAdmissionBatch
                         'ticket_id' => $item['ticket_id'], 'access_point_id' => $item['gate_id'],
                         'scanned_by_user_id' => $item['staff_id'], 'client_scan_id' => $item['scan_id'],
                         'credential_version' => $item['credential_version'], 'direction' => $direction,
+                        'identity_check_confirmed' => $item['identity_check_confirmed'],
                         'admitted_at' => CarbonImmutable::parse($item['admitted_at'])->utc(),
                         'created_at' => now(), 'updated_at' => now(),
                     ]);

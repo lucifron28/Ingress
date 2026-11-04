@@ -37,7 +37,7 @@ export default function AttendeeLayout() {
             <Ionicons
               name={focused ? 'calendar' : 'calendar-outline'}
               size={24}
-              color={color}
+              color={typeof color === 'string' ? color : '#800000'}
             />
           ),
         }}
@@ -58,7 +58,7 @@ export default function AttendeeLayout() {
             <Ionicons
               name={focused ? 'ticket' : 'ticket-outline'}
               size={24}
-              color={color}
+              color={typeof color === 'string' ? color : '#800000'}
             />
           ),
         }}
@@ -79,7 +79,7 @@ export default function AttendeeLayout() {
             <Ionicons
               name={focused ? 'person' : 'person-outline'}
               size={24}
-              color={color}
+              color={typeof color === 'string' ? color : '#800000'}
             />
           ),
         }}

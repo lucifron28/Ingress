@@ -28,7 +28,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   /**
-   * Points the app at a different Event Node. Resolves to true when the change
+   * Changes the cloud or legacy demo API URL. Resolves to true when the change
    * invalidated the current session, so the caller can send the user to login.
    */
   updateServerUrl: (url: string) => Promise<boolean>;

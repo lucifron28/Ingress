@@ -45,6 +45,7 @@ Route::middleware(['auth', 'organizer', 'runtime:legacy,cloud'])->prefix('organi
 
     // Attendance view route (detailed in Phase 8)
     Route::get('/events/{event}/attendance', [OrganizerAttendanceController::class, 'show'])->name('attendance');
+    Route::get('/events/{event}/attendance.csv', [OrganizerAttendanceController::class, 'export'])->name('attendance.export');
     Route::get('/events/{event}/attendance/feed', [OrganizerAttendanceController::class, 'feed'])->name('attendance.feed');
 
 });

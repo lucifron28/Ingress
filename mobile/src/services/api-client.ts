@@ -1,12 +1,11 @@
 import { AuthStorage } from './auth-storage';
 
 /**
- * Development fallback for the Ingress Event Node base URL.
+ * Development fallback for the Ingress cloud API base URL.
  *
- * The runtime LAN address is configured per device through the Server Settings
- * screen and persisted in secure storage. This constant is only the initial
- * value used before a device has been configured, and can be overridden at
- * build time with the EXPO_PUBLIC_API_URL environment variable.
+ * Production builds set this to the cloud HTTPS origin. Demo builds may use the
+ * legacy local server setting. Event Node staff traffic uses its own paired
+ * session and URL in node-session.ts.
  */
 export const DEFAULT_API_URL =
   process.env.EXPO_PUBLIC_API_URL?.trim().replace(/\/+$/, '') || 'http://localhost:8000/api/v1';

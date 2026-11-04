@@ -96,7 +96,7 @@ class ImportReceivedSnapshot
         }
         $old = DB::table('received_snapshots')->where('id', $prior->snapshot_id)
             ->where('event_id', $cloudEventId)->where('version', $prior->version)->first();
-        if (! $old || ! in_array((int) $old->schema_version, [1, 2, 3], true) || ! hash_equals($prior->sha256, $old->sha256)) {
+        if (! $old || ! in_array((int) $old->schema_version, [1, 2, 3, 4], true) || ! hash_equals($prior->sha256, $old->sha256)) {
             $this->invalid();
         }
         $json = Crypt::decryptString($old->payload_ciphertext);
@@ -171,7 +171,7 @@ class ImportReceivedSnapshot
                     $this->invalid();
                 }
                 $record = DB::table('received_snapshots')->where('event_id', $cloudEventId)->where('version', $head->version)->first();
-                if (! $record || ! in_array((int) $record->schema_version, [1, 2, 3], true)) {
+                if (! $record || ! in_array((int) $record->schema_version, [1, 2, 3, 4], true)) {
                     $this->invalid();
                 }
                 $json = Crypt::decryptString($record->payload_ciphertext);
@@ -206,6 +206,7 @@ class ImportReceivedSnapshot
                     'registration_closes_at' => $this->time($event['registration_closes_at']),
                     'registration_closed_at' => $this->time($event['registration_closed_at']),
                     're_entry_allowed' => $event['re_entry_allowed'] ?? false,
+                    'identity_verification_level' => $event['identity_verification_level'] ?? 'standard',
                     'snapshot_version' => $payload['version'], 'snapshot_prepared_at' => now(), 'updated_at' => now(),
                 ];
                 if ($eventId === null) {

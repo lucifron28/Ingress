@@ -1,11 +1,11 @@
-# Ingress LAN Demonstration & Defense Operational Guide
+# Ingress legacy LAN demonstration guide
 
 **Manuel S. Enverga University Foundation (MSEUF)**  
 *Event Ticketing, Admission, and Attendance Management System*
 
-This guide provides concrete instructions for reproducing and defending the **current 50% prototype** during the capstone defense.
+This guide describes the single-server `legacy` demo mode for classroom demonstrations. Use the [deployment guide](deployment.md) and [current architecture](second-half-architecture.md) for the cloud and Event Node runtimes.
 
-> **Milestone scope:** this guide intentionally documents the implementation that exists today, where both student and staff phones can be pointed at the local Event Node manually. The planned second-half architecture changes that split: students use the cloud and cached offline tickets, while only staff scanners connect to the Event Node, normally through QR pairing. See [Second-half target architecture](second-half-architecture.md).
+> **Demo scope:** in `legacy` mode, the laptop serves the organizer, student, and staff flows from one database. This mode is limited to local and test environments. It does not demonstrate cloud snapshot transfer, separate Event Node staff sessions, or post-event synchronization.
 
 ---
 
@@ -19,14 +19,14 @@ This guide provides concrete instructions for reproducing and defending the **cu
            │                         │                         │
      192.168.x.x               192.168.x.x               192.168.x.x
      [Developer Laptop]       [Staff Phone 1]           [Staff Phone 2]
-     • Laravel 13 Server      • Entrance 1 Scanner      • Entrance 2 Scanner
+     • Legacy Laravel Server  • Entrance 1 Scanner      • Entrance 2 Scanner
      • PostgreSQL 18 DB
      • Blade Dashboard
 ```
 
-> **Important Defense Note**: The developer's laptop simulates the central **Ingress Event Node** for this 50% prototype milestone. Do not present the laptop itself as the proposed production cloud architecture. In production, this role is fulfilled by an on-premises local Event Node server.
+> The laptop runs the local-only `legacy` runtime. Production uses a separate cloud runtime and Event Node with separate databases and authority rules.
 
-> **Transport security (demo scope)**: the entire procedure below uses plain **HTTP over a controlled local LAN or hotspot**. That is an accepted simplification for demonstrations, and it is also why the mobile build enables Android `usesCleartextTraffic` (configured via the `expo-build-properties` plugin) and iOS `NSAllowsArbitraryLoads`. It is **not** a production posture: passwords, Sanctum bearer tokens, QR credentials, and attendee identity data must all travel over **HTTPS/TLS** in production. See ADR 009 in `docs/design-decisions.md` for the requirements and the production checklist.
+> **Transport security:** this local demo uses HTTP on a controlled LAN. Set `EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE=true` before building the native development app. Android enables cleartext for that whole development build; do not use the flag in a release build. Production cloud and Event Node traffic must use trusted HTTPS certificates. See [ADR 009](design-decisions.md#adr-009-transport-security-for-lan-and-production).
 
 ---
 
@@ -92,14 +92,14 @@ The mobile quick-select chips and the pre-filled password appear only when the a
 
 ## 4. Mobile Client Connection Guide
 
-> Changing the Event Node here signs you out on purpose. A Sanctum token is only meaningful to the server that issued it, so the app clears the stored token and cached identity before saving the new address and returns you to the login screen.
+> Changing the legacy demo server URL signs you out on purpose. A Sanctum token is only meaningful to the server that issued it, so the app clears the stored token and cached identity before saving the new address and returns you to the login screen.
 
 1. Ensure all testing phones are connected to the **same Wi-Fi network** as the laptop.
 2. Launch the mobile app:
    - **Standalone APK (Recommended)**: Open the installed **Ingress** app directly on the phone (does not require Expo Go or Metro).
    - **Development Mode**: Run `cd mobile && npx expo start` and open via Expo Go or development client.
 3. On the login screen of each phone, tap **Change Server IP**.
-4. Enter the base URL using the laptop IP found in Step 2.1:
+4. Enter the legacy demo server URL using the laptop IP found in Step 2.1:
    ```
    http://<LAN_IP>:8000/api/v1
    ```

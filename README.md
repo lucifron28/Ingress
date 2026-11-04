@@ -7,128 +7,51 @@
 **Manuel S. Enverga University Foundation (MSEUF)**  
 *Event Ticketing, Admission, and Attendance Management System*
 
-Ingress is a high-reliability, LAN-operable event platform designed for campus events at MSEUF. It combines a Laravel 13 web management console for organizers with an Expo React Native mobile application for student discovery, digital ticketing, and multi-gate admission scanning.
+Ingress is a LAN-operable event platform for campus events at MSEUF. It combines a Laravel 13 web management console for organizers with an Expo React Native mobile app for student ticketing and multi-gate admission scanning.
 
 A key feature is **LAN-enabled event operation**: multiple gate staff phones connect to a local Ingress event server and validate tickets against one shared source of truth without requiring an active internet connection.
 
 ---
 
-## 50% Milestone Vertical Slice
+## Current system
 
-The completed 50% milestone demonstrates the full end-to-end lifecycle across roles:
+Ingress separates online ticketing from event admission. The cloud handles student account activation, event discovery, registration, ticket transfers, organizer tools, and attendance reporting. Each Event Node has a separate PostgreSQL database and becomes the admission authority for its event after it imports a verified snapshot and activates the signed authority grant.
 
-```
-ORGANIZER WEB (Blade)
-Login (organizer@mseuf.edu.ph)
-  ↓ Create Event & configure capacity
-  ↓ Provision access points (Entrance 1, Entrance 2, Entrance 3)
-  ↓ Assign event staff
-  ↓ Publish Event
-
-           ↓
-
-STUDENT MOBILE (Expo React Native)
-Login (a23-35524@student.mseuf.edu.ph - Ron Vincent Cada)
-  ↓ Discover Event
-  ↓ View Event Details
-  ↓ Register (Pessimistic row lock strictly guarantees confirmed <= capacity)
-  ↓ Receive Opaque Digital Ticket
-  ↓ Display High-Contrast QR Code
-
-           ↓
-
-STAFF PHONE — ENTRANCE 1 (Two-Stage Mobile Scanner)
-Login (staff.gate_a@mseuf.edu.ph)
-  ↓ Select Assigned Event (MSEUF University Intramurals 2026)
-  ↓ Select Entrance 1
-  ↓ Scan Ticket
-  ↓ [✓] VALID TICKET (read-only preview)
-  ↓ Verify attendee identity
-  ↓ CONFIRM ADMISSION
-  ↓ [✓] ADMITTED (recorded transactionally)
-
-           ↓
-
-STAFF PHONE — ENTRANCE 2 (Anti-Passback)
-Login (staff.gate_b@mseuf.edu.ph)
-  ↓ Scan exact same ticket at Entrance 2
-  ↓ [!] ALREADY CHECKED IN (Report previous admission: Entrance 1, previous timestamp)
-  ↓ No duplicate admission recorded
-           ↓
-
-ORGANIZER WEB (Attendance View)
-Dashboard updates in real-time
-  ↓ Checked-in count increments
-  ↓ Gate throughput breakdown reflects admission
-  ↓ Live audit feed records timestamp & gate
-```
-
-## System Scope: Implemented Now vs Planned Second Half
-
-### Implemented Now (First-Half Presentation Build)
-
-- **Venue LAN Authoritative Admission**: Event-day scanners operate over the venue LAN against an authoritative Laravel/PostgreSQL Event Node. Ingress removes the public internet from the critical event-day admission path, but still requires the venue LAN and Event Node (it is not independently offline).
-- **Two-Stage Admission**: Scanners execute read-only preview -> explicit attendee identity verification -> transactional admission confirmation. Previews never consume tickets or mutate state.
-- **Physical Anti-Passback**: A ticket once admitted remains admitted; credential rotation or repeat scans cannot reset physical admission.
-- **Authoritative Authorization Recheck**: Entrance scanner confirmation re-reads staff assignment, gate authorization, and active access point status within the database transaction before recording admission.
-- **Idempotency Across Ambiguous Retries**: One logical confirmation attempt owns a unique `client_scan_id`. If network or Event Node communication is interrupted, the pending preview and scan ID are preserved for identical-key retry.
-- **Concurrency-Safe Capacity & Admission**: Pessimistic row-level locking strictly guarantees confirmed registrations cannot exceed capacity, verified by live multi-process PostgreSQL tests.
-- **Multi-Day & Ongoing Event Discovery**: Published events remain discoverable while `ends_at >= now`.
-- **Authenticated Attendee Event State**: Event discovery and detail endpoints require `auth:sanctum`, reliably returning attendee registration status and ticket summaries.
-- **Role-Enforced Self-Registration**: Attendee self-registration is restricted server-side to provisioned student-role accounts; staff, organizers, and admins cannot consume attendee capacity.
-- **Credential Privacy**: QR payloads are only exposed to the ticket owner when the ticket is active and registration is confirmed. The mobile client presents an explicit unavailable state rather than constructing synthetic fallback QR credentials.
-
-### Planned Second Half
-
-- Institutional student registration using a single-use email verification link; directory ingestion is not required.
-- Cloud / Event Node split and post-event synchronization/reconciliation.
-- Offline cached student ticket wallet.
-- Scanner QR pairing to Event Node.
-- Guest and alumni tickets; walk-in passes.
-- Ticket transfer and ownership rotation.
-- In-venue presence, exit, and re-entry tracking.
-- Online payment gateway integrations.
-
----
-
-## Target Full-System Architecture (Planned Second Half)
-
-The current 50% milestone above is intentionally a single local vertical slice. The agreed full-system direction separates cloud student ticketing from LAN-based event admission:
+Staff scanners connect to the Event Node over the venue LAN. Public internet is not required to admit attendees, but the Event Node and venue LAN must be available. The mobile app keeps student cloud sessions and Event Node staff sessions separate. Students can display tickets cached after an earlier successful online sync; that cache does not grant registration or admission authority.
 
 ```text
-Student App --Internet--> Ingress Cloud
-  auth / discover / register / tickets / transfer
-                           |
-                           | final snapshot after registration closes
-                           v
-Staff Scanners --LAN----> Event Node <---- Offline cached student QR
-                           |
-                           v
-                       PostgreSQL
-
-After event: Event Node --> Cloud reconciliation
+Student app --HTTPS--> Cloud runtime --organizer tools and ticketing
+                             |
+                             | encrypted snapshot, receipts, authority grant
+                             v
+Staff scanners --venue LAN--> Event Node --local PostgreSQL
+                                  |
+                                  | authenticated retryable sync after reconnect
+                                  v
+                              Cloud runtime
 ```
 
-Key planned rules:
+### Implemented capabilities
 
-- verified MSEUF students activate institutional accounts and keep the recurring account-based ticket wallet experience;
-- students never configure Event Node IP addresses;
-- previously authenticated students can open cached tickets offline;
-- scanners pair to the Event Node by QR, with manual address entry only as a staff fallback;
-- registration closes before admission finalization;
-- late attendees become Event Node walk-ins and can receive printed QR/code passes;
-- alumni and external guests can receive organizer-issued or paid tickets by email without creating a MSEUF account;
-- student, guest-email, invitation, and walk-in tickets share the same static opaque credential model; TOTP is not planned;
-- tickets remain linked to the current attendee identity, with optional stronger ID/photo verification per event;
-- entry, exit, current-presence, and event-configurable re-entry tracking are planned so organizers can distinguish who is currently inside;
-- attendance reporting can distinguish verified Envergans from external guests;
-- ticket transfer changes ownership and rotates the credential before finalization.
+- Institutional student signup verifies control of an `@student.mseuf.edu.ph` email with a single use link. The student number remains self reported and does not prove enrollment.
+- Cloud registration enforces event capacity transactionally. Student tickets use static opaque QR credentials.
+- Organizers can issue printable guest and alumni tickets. Event staff can register walk ins on the Event Node under the same capacity and ticket validation rules.
+- Staff authenticate with Event Node credentials or pair using a one use QR code. Admission scans preview ticket and attendee details without changing state. Only an explicit staff confirmation records an entry or exit.
+- Events can allow or prohibit re entry and can require staff to confirm an approved ID check for every movement. The system does not collect attendee photos.
+- Ticket transfers require recipient acceptance, rotate the QR credential, and retain an organizer audit history. Transfers close when the event snapshot is prepared.
+- Event Nodes retain admission records while the cloud is unavailable and synchronize them with authenticated, idempotent batches after connectivity returns.
+- Organizers can view current attendance and download a private CSV roster with attendee and movement data.
+- Production configuration requires debug and demo mode off, uses exact CORS origin allowlists, supports trusted proxy configuration, and defaults session cookies to secure under HTTPS.
 
-This section describes the target design, not features already implemented in the 50% milestone. See [Second-half target architecture](docs/second-half-architecture.md) and ADRs 011-017 in [Architecture Decision Records](docs/design-decisions.md).
+### Remaining limits
+
+Snapshot delivery is a manual operator workflow. Safe recovery or authority transfer after a node grant is not implemented. Snapshot and imported roster retention and deletion need an institution approved policy. Online guest payments are not implemented. Real device, venue network, and end to end verification remains deferred to the project owner.
+
+See [the current architecture](docs/second-half-architecture.md), [deployment guide](docs/deployment.md), [API reference](docs/api.md), and [implementation roadmap](docs/roadmap.md) for operational details and remaining work.
 
 ---
 
-## Technology Stack & Exact Versions
+## Stack versions
 
 | Component | Technology | Exact Version | Selection Justification |
 | :--- | :--- | :--- | :--- |
@@ -137,10 +60,10 @@ This section describes the target design, not features already implemented in th
 | **Database** | PostgreSQL | `18.4` | Native `timestamptz`, JSONB, atomic transaction isolation, robust row-level locking. |
 | **Web UI** | Laravel Blade | Built-in | Server-rendered admin console optimized for desktop/tablet event management without SPA overhead. |
 | **Authentication** | Laravel Sanctum | `4.3.3` | Lightweight bearer token generation and revocation for mobile devices. |
-| **Mobile Framework** | React Native / Expo | Expo `57.0.26`, RN `0.86.3` | Cross-platform runtime with robust native hardware APIs. |
-| **Mobile Navigation** | Expo Router | `57.0.24` | File-based routing matching modern React Native standards. |
-| **Secure Token Storage**| `expo-secure-store` | `57.0.4` | Hardware-backed keystore/keychain encryption for mobile credentials. |
-| **Camera Barcode Scan**| `expo-camera` | `57.0.6` | CameraView component with high-throughput native QR code detection. |
+| **Mobile Framework** | React Native / Expo | Expo `58.0.23`, RN `0.88.1` | Cross-platform mobile runtime. |
+| **Mobile Navigation** | Expo Router | `58.0.30` | File-based routing. |
+| **Secure Token Storage**| `expo-secure-store` | `58.0.2` | Native secure storage for mobile credentials. |
+| **Camera Barcode Scan**| `expo-camera` | `58.0.14` | Native QR code scanning. |
 | **QR Code Generation** | `react-native-qrcode-svg` | `6.3.26` | Maintained pure vector SVG QR code generation without remote image dependencies. |
 | **Vector Primitives** | `react-native-svg` | `15.15.5` | Native SVG rendering engine backing the QR component. |
 | **Concurrency Verification** | `php scripts/verify_pgsql_concurrency.php` | — | Two-process barrier harness proving final-seat and same-ticket races on real PostgreSQL. |
@@ -166,7 +89,7 @@ ingress/
 │   │   └── seeders/      # Synthetic demonstration accounts and campus events
 │   ├── resources/views/  # Organizer Blade layouts & attendance command center
 │   ├── public/images/    # Generated Ingress brand assets (lockup, mark, favicon)
-│   └── tests/Feature/    # 83 feature tests covering the current backend guarantees
+│   └── tests/Feature/    # Laravel feature tests for backend behavior
 ├── mobile/               # Expo React Native Mobile Application
 │   ├── app/              # Expo Router file-based pages
 │   │   ├── (attendee)/   # Discover catalog, Event detail, Ticket wallet, QR view, Profile
@@ -213,7 +136,7 @@ php artisan tinker --execute="\App\Models\User::create(['name'=>'Event Administr
 
 All demo accounts use the standard password: `password`. The mobile demo quick-select and pre-filled password appear only when the app is built with `EXPO_PUBLIC_INGRESS_DEMO_MODE=true` (see `mobile/.env.example`).
 
-> **Transport security**: the LAN procedure in this README and in `docs/lan-demo.md` uses plain HTTP over a controlled local network, which is fine for a prototype demonstration. Production Event Node traffic must use HTTPS/TLS — passwords, bearer tokens, QR credentials, and identity data must not cross the network in cleartext. See ADR 009 in `docs/design-decisions.md`.
+> **Transport security**: the LAN procedure in this README and in `docs/lan-demo.md` permits plain HTTP only for local development and demo builds. Production cloud and Event Node traffic must use trusted HTTPS certificates. Do not send passwords, bearer tokens, QR credentials, or identity data over production cleartext connections. See ADR 009 in `docs/design-decisions.md`.
 
 ---
 
@@ -236,7 +159,7 @@ Keep these files ASCII-only. Windows PowerShell 5.1 reads BOM-less files as ANSI
 
 ---
 
-## Quick Start & Verification Instructions
+## Quick start and checks
 
 ### 1. Database Setup (PostgreSQL 18)
 PostgreSQL runs on port `5433` (or default `5432`) with database `ingress`:
@@ -330,22 +253,17 @@ cd mobile
 node tests/session.test.mjs
 ```
 
-### 4. Mobile Client (Expo React Native)
-
-> **Current 50% prototype:** the steps below still point both student and staff roles at the same local Event Node. The planned second-half architecture removes Event Node configuration from the student UI and keeps local pairing/configuration on the staff scanner side only.
+### 4. Mobile app (Expo React Native)
 
 ```bash
 cd mobile
 npm install
-cp .env.example .env      # optional: preset EXPO_PUBLIC_API_URL for this build
+cp .env.example .env
 npx expo start
 ```
-- On the mobile login screen, tap **Change Server IP**.
-- Enter your laptop's LAN IP address, for example `http://<LAN_IP>:8000/api/v1`.
-  The starting value can also be preset at build time with the `EXPO_PUBLIC_API_URL`
-  environment variable in `mobile/.env`, so each demo build ships with its own Event
-  Node address instead of a hardcoded developer machine.
-- Tap **Test Connection** &rarr; **Save URL**.
+- Set `EXPO_PUBLIC_API_URL` to the cloud API base URL for student sign in, event discovery, registration, and ticket refresh.
+- Staff sign in separately to an Event Node using its one use pairing QR code or its HTTPS API address. The scanner requires the venue LAN and the node.
+- For local synthetic demo accounts, set `EXPO_PUBLIC_INGRESS_DEMO_MODE=true` and enable them on the backend. For a local HTTP legacy server, point `EXPO_PUBLIC_API_URL` to its HTTP address and set `EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE=true` before building. Use the same opt-in for a local HTTP Event Node. The node client accepts HTTP only for localhost or private LAN addresses. Android's native cleartext switch applies to the whole development build, so keep this flag false for production builds, where cloud and staff connections require HTTPS.
 
 ---
 
@@ -363,16 +281,16 @@ eas build -p android --profile preview
 **Important Operational Notes:**
 - **Build Creation**: EAS Build compiles the native Android package in the cloud, so an internet connection is required while generating and downloading the APK.
 - **No Expo Go or Metro Dependency**: The resulting `.apk` embeds the JavaScript bundle. Once installed, it launches directly on Android without requiring Expo Go or a running Metro bundler.
-- **LAN Communication**: The installed app communicates directly with the Laravel REST API over the local Wi-Fi or mobile hotspot.
-- **Network Requirement**: Both the Android phone and the laptop hosting Laravel must be connected to the same local network. Start the backend bound to all interfaces (`0.0.0.0:8000`), for example with `powershell -File scripts\start-web.ps1`.
-- **Server URL Configuration**: On the login screen of the installed app, tap **Change Server IP**, enter `http://<LAPTOP_LAN_IP>:8000/api/v1` (using the laptop's real Wi-Fi IPv4 address from `find-ip.ps1`, **not** `localhost`), tap **Test Connection**, and tap **Save URL**.
-- **Native Cleartext HTTP Support**: Standalone Android releases disable unencrypted HTTP by default. Ingress configures native `android.usesCleartextTraffic: true` via the `expo-build-properties` plugin in `mobile/app.json` so the APK can connect to the local event server over plain HTTP.
+- **Attendee API**: Set `EXPO_PUBLIC_API_URL` to the cloud's HTTPS API before building. The attendee wallet can display tickets cached before the venue loses internet.
+- **Event Node access**: Staff pair with the local Event Node over venue Wi-Fi. The node must use HTTPS with a certificate trusted by the phone for production.
+- **Local HTTP development**: Set `EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE=true` before a local development build that connects to an HTTP node. The app accepts this only for localhost or private LAN addresses. Android applies its native cleartext allowance to the whole development build. Production builds must keep this flag false and use HTTPS.
 
 ---
-## Detailed Documentation Links
+## Documentation
 
 - [System Architecture Specification](docs/architecture.md)
-- [Second-Half Target Architecture](docs/second-half-architecture.md)
+- [Current architecture and runtime boundaries](docs/second-half-architecture.md)
+- [Deployment and operations](docs/deployment.md)
 - [Implementation Roadmap](docs/roadmap.md)
 - [REST API Reference](docs/api.md)
 - [Classroom LAN Defense Guide](docs/lan-demo.md)

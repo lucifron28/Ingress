@@ -2,6 +2,7 @@
 
 namespace App\Actions;
 
+use App\Models\Event;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -38,6 +39,11 @@ class PrepareAdmissionBatch
                 || (int) $authority->version !== (int) $import->version || ! hash_equals($authority->sha256, $import->sha256)) {
                 $this->invalid();
             }
+            $event = DB::table('events')->where('id', $import->event_id)->first();
+            if (! $event) {
+                $this->invalid();
+            }
+            $requiresIdentityCheck = $event->identity_verification_level === Event::IDENTITY_CHECK;
             $expected = ['protocol' => 1, 'node_id' => $nodeId, 'snapshot_id' => $import->snapshot_id,
                 'event_id' => $cloudEventId, 'version' => (int) $import->version, 'sha256' => $import->sha256];
             if ($this->grants->verify($authority->grant) !== $expected) {
@@ -68,7 +74,7 @@ class PrepareAdmissionBatch
                 ->whereNotExists(fn ($query) => $query->selectRaw('1')->from('node_walk_in_issuances as w')
                     ->whereColumn('w.ticket_id', 'a.ticket_id')->whereNull('w.synced_at'))
                 ->orderBy('a.id')->limit(100)
-                ->get(['a.id', 'a.client_scan_id', 'a.credential_version', 'a.direction', 'a.admitted_at', 'g.event_id as gate_event_id',
+                ->get(['a.id', 'a.client_scan_id', 'a.credential_version', 'a.direction', 'a.identity_check_confirmed', 'a.admitted_at', 'g.event_id as gate_event_id',
                     'ti.cloud_id as cloud_ticket_id', 'gi.cloud_id as cloud_gate_id', 'si.cloud_id as cloud_staff_id']);
             if ($rows->isEmpty()) {
                 return null;
@@ -81,9 +87,11 @@ class PrepareAdmissionBatch
                 $items[] = ['admission_id' => (int) $row->id, 'ticket_id' => (int) $row->cloud_ticket_id,
                     'gate_id' => (int) $row->cloud_gate_id, 'staff_id' => (int) $row->cloud_staff_id,
                     'scan_id' => $row->client_scan_id, 'credential_version' => (int) $row->credential_version,
-                    'direction' => $row->direction, 'admitted_at' => CarbonImmutable::parse($row->admitted_at, 'UTC')->utc()->toISOString()];
+                    'direction' => $row->direction,
+                    'admitted_at' => CarbonImmutable::parse($row->admitted_at, 'UTC')->utc()->toISOString()]
+                    + ($requiresIdentityCheck ? ['identity_check_confirmed' => (bool) $row->identity_check_confirmed] : []);
             }
-            $data = ['schema_version' => 2, 'batch_id' => (string) Str::uuid(), 'node_id' => $nodeId,
+            $data = ['schema_version' => $requiresIdentityCheck ? 3 : 2, 'batch_id' => (string) Str::uuid(), 'node_id' => $nodeId,
                 'event_id' => $cloudEventId, 'snapshot_id' => $import->snapshot_id, 'version' => (int) $import->version,
                 'snapshot_sha256' => $import->sha256, 'admissions' => $items];
             $payload = json_encode($data, JSON_THROW_ON_ERROR);

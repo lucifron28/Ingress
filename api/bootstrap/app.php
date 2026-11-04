@@ -1,14 +1,17 @@
 <?php
 
+use App\Http\Middleware\ApplySecurityHeaders;
 use App\Http\Middleware\EnsureNodeStaffToken;
 use App\Http\Middleware\EnsureOrganizer;
 use App\Http\Middleware\EnsureRuntimeDatabase;
 use App\Http\Middleware\EnsureStaff;
 use App\Http\Middleware\RequireRuntime;
+use App\Http\Middleware\TrustConfiguredProxies;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Exceptions\ThrottleRequestsException;
+use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Http\Request;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -19,6 +22,8 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->replace(TrustProxies::class, TrustConfiguredProxies::class);
+        $middleware->append(ApplySecurityHeaders::class);
         $middleware->web(prepend: [EnsureRuntimeDatabase::class]);
         $middleware->api(prepend: [EnsureRuntimeDatabase::class]);
         $middleware->alias([
