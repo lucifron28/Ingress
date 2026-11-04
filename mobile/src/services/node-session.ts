@@ -151,8 +151,8 @@ export async function pairNodeStaff(code: NodePairingCode): Promise<NodeSession>
   const response = await request<{ token: string; user: UserProfile; node_staff: boolean; node_id: string }>(parsed.url, '/auth/node-staff/pair', null, {
     method: 'POST', body: JSON.stringify({ node_id: parsed.node, token: parsed.token, device_name: 'Ingress-Scanner' }),
   });
-  if (response.node_id !== parsed.node) {
-    if (typeof response.token === 'string' && response.token.length > 0 && response.token.length <= 256) {
+  if (response?.node_id !== parsed.node) {
+    if (typeof response?.token === 'string' && response.token.length > 0 && response.token.length <= 256) {
       try { await request(parsed.url, '/auth/logout', response.token, { method: 'POST' }); } catch { /* Best effort. */ }
     }
     throw new Error('The Event Node identity did not match the pairing code.');

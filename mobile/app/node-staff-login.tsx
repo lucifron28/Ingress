@@ -48,10 +48,14 @@ export default function NodeStaffLoginScreen() {
   const startPairing = async () => {
     setError(null);
     setPairCode(null);
-    const result = permission?.granted ? permission : await requestPermission();
-    if (!result.granted) { setError('Camera access is required to scan a pairing code.'); return; }
-    scanHandled.current = false;
-    setScanning(true);
+    try {
+      const result = permission?.granted ? permission : await requestPermission();
+      if (!result.granted) { setError('Camera access is required to scan a pairing code.'); return; }
+      scanHandled.current = false;
+      setScanning(true);
+    } catch {
+      setError('Camera access is unavailable. Try again.');
+    }
   };
 
   const scanned = (raw: string) => {

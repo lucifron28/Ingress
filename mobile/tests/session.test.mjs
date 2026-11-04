@@ -207,6 +207,10 @@ globalThis.fetch = async (url) => {
 let mismatchRejected = false;
 try { await pairNodeStaff(pairingCode); } catch { mismatchRejected = true; }
 check('a mismatched pairing response is rejected and its issued token is revoked', mismatchRejected && rejectedNodeRevoked && (await getNodeSession()) === null);
+globalThis.fetch = async () => new Response('null', { status: 200 });
+let emptyPairRejected = false;
+try { await pairNodeStaff(pairingCode); } catch (error) { emptyPairRejected = error.message.includes('identity did not match'); }
+check('an invalid pairing response fails without storing a session', emptyPairRejected && (await getNodeSession()) === null);
 let pairRevokedOnFailure = false;
 globalThis.fetch = async (url) => {
   if (String(url).endsWith('/auth/logout')) { pairRevokedOnFailure = true; return new Response('{}', { status: 200 }); }
