@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Actions\NodeStaffAccess;
+use App\Actions\NodeStaffPairing;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Api\V1\UserResource;
 use App\Models\User;
@@ -15,6 +16,23 @@ use Illuminate\Validation\ValidationException;
 
 class NodeStaffAuthController extends Controller
 {
+    public function pair(Request $request, NodeStaffPairing $pairing): JsonResponse
+    {
+        if (! app()->environment(['local', 'testing']) && ! $request->secure()) {
+            abort(403, 'HTTPS is required.');
+        }
+        $data = $request->validate([
+            'node_id' => ['required', 'string', 'regex:/\A[a-zA-Z0-9_-]{1,64}\z/'],
+            'token' => ['required', 'string', 'regex:/\A[a-f0-9]{64}\z/'],
+            'device_name' => ['nullable', 'string', 'max:255'],
+        ]);
+        $session = $pairing->redeem($data['token'], $data['node_id'], $data['device_name'] ?? 'node-staff');
+
+        return response()->json(['token' => $session['token'], 'token_type' => 'Bearer',
+            'user' => new UserResource($session['user']), 'node_staff' => true, 'node_id' => config('ingress.node_id')])
+            ->header('Cache-Control', 'no-store, private');
+    }
+
     public function login(Request $request, NodeStaffAccess $access): JsonResponse
     {
         if (! app()->environment(['local', 'testing']) && ! $request->secure()) {

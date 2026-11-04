@@ -27,6 +27,7 @@ use App\Actions\AdmissionSyncEnvelope;
 use App\Actions\AuthorityGrant;
 use App\Actions\ImportReceivedSnapshot;
 use App\Actions\ManageNodeStaffCredential;
+use App\Actions\NodeStaffPairing;
 use App\Actions\PrepareEventSnapshot;
 use App\Actions\ReceiveSnapshot;
 use App\Actions\RegisterForEvent;
@@ -1554,6 +1555,53 @@ $assert(($batchResults[0]['ok'] ?? false) && ($batchResults[1]['ok'] ?? false), 
 $assert(! empty($batchResults[0]['batch_id']) && $batchResults[0]['batch_id'] === ($batchResults[1]['batch_id'] ?? null), 'both workers reused one batch ID');
 $assert(! empty($batchResults[0]['package_hash']) && $batchResults[0]['package_hash'] === ($batchResults[1]['package_hash'] ?? null), 'both workers returned the same encrypted package');
 $assert(DB::table('node_admission_batches')->where('event_id', $nodeEventId)->count() === 1, 'one pending batch exists');
+echo "\n";
+
+// =============================================================================
+// CASE AD - A pairing code is consumed at most once
+// =============================================================================
+echo "CASE AD: concurrent redemption of one scanner pairing code\n";
+config(['ingress.mode' => 'node', 'ingress.node_id' => 'race-node']);
+DB::table('received_event_heads')->where('event_id', $authPayload['event']['id'])->update(['version' => 1]);
+app(ManageNodeStaffCredential::class)->provision($authCloudUser);
+$pairCode = app(NodeStaffPairing::class)->issue($authCloudUser)['token'];
+$pairResults = $runConcurrently([
+    ['redeem_pairing', ['node_id' => 'race-node', 'token' => $pairCode]],
+    ['redeem_pairing', ['node_id' => 'race-node', 'token' => $pairCode]],
+], $childScript, $testDatabase);
+$assert(count(array_filter($pairResults, fn ($result) => ($result['ok'] ?? false) === true)) === 1, 'one scanner redeemed the code');
+$assert(count(array_filter($pairResults, fn ($result) => ($result['reason'] ?? null) === 'validation_error')) === 1, 'the other redemption was rejected');
+$assert(DB::table('personal_access_tokens')->where('tokenable_id', $localUser)->count() === 1, 'one node session was issued');
+echo "\n";
+
+// =============================================================================
+// CASE AE - Pairing waits for credential rotation
+// =============================================================================
+echo "CASE AE: scanner pairing waits for credential rotation\n";
+$rotationPair = app(NodeStaffPairing::class)->issue($authCloudUser)['token'];
+$pairRotationConnection = $rawConnection($testDatabase);
+$pairRotationConnection->beginTransaction();
+$pairRotationConnection->query('select id from runtime_identity where id = 1 for update');
+$pairRotationConnection->prepare('delete from node_staff_pairings where user_id = ?')->execute([$localUser]);
+[$pairProcess, $pairPipes] = $spawnWorker('redeem_pairing', ['node_id' => 'race-node', 'token' => $rotationPair], $testDatabase, $childScript);
+$pairReady = trim((string) fgets($pairPipes[1])) === 'READY';
+fwrite($pairPipes[0], 'GO'.PHP_EOL);
+fflush($pairPipes[0]);
+$pairDeadline = microtime(true) + 20.0;
+$pairBlocked = 0;
+while (microtime(true) < $pairDeadline) {
+    $pairBlocked = $blockedBackends($pairRotationConnection, $testDatabase);
+    if ($pairBlocked > 0) {
+        break;
+    }
+    usleep(50_000);
+}
+$pairRotationConnection->commit();
+$rotatedPairResult = $collectWorker($pairProcess, $pairPipes);
+$assert($pairReady, 'pairing worker reached the barrier');
+$assert($pairBlocked > 0, 'pairing waited for credential rotation');
+$assert(($rotatedPairResult['reason'] ?? null) === 'validation_error', 'the invalidated code was rejected');
+$assert(DB::table('personal_access_tokens')->where('tokenable_id', $localUser)->count() === 1, 'no additional session was issued');
 echo "\n";
 
 // =============================================================================

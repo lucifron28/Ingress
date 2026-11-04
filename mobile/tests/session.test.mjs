@@ -70,7 +70,7 @@ const SecureStore = await import('expo-secure-store');
 const { Platform } = await import('react-native');
 const { canUseStaffEntry } = await import('../src/services/staff-access.ts');
 const { loadWallet, loadWalletTicket } = await import('../src/services/wallet-sync.ts');
-const { loginNodeStaff, getNodeSession, nodeRequest, logoutNodeStaff, normalizeNodeUrl, setNodeUnauthorizedHandler } = await import('../src/services/node-session.ts');
+const { loginNodeStaff, getNodeSession, nodeRequest, logoutNodeStaff, normalizeNodeUrl, pairNodeStaff, parseNodePairingCode, setNodeUnauthorizedHandler } = await import('../src/services/node-session.ts');
 const { apiRequest, DEMO_MODE, ApiError, setUnauthorizedHandler } = await import('../src/services/api-client.ts');
 
 let passed = 0;
@@ -184,6 +184,42 @@ check('node errors preserve admission status and prior gate', nodeConflict?.doma
 globalThis.fetch = async () => new Response('{}', { status: 200 });
 await logoutNodeStaff();
 check('node logout clears only the node session', (await getNodeSession()) === null && (await AuthStorage.getToken()) === scope.token && (await TicketWallet.read(scope)) !== null);
+const pairingRaw = JSON.stringify({ v: 1, url: 'https://node.example/api/v1', node: 'node-1', token: 'a'.repeat(64), expires: '2030-01-01T00:00:00Z' });
+const pairingCode = parseNodePairingCode(pairingRaw);
+let rejectedPairings = 0;
+for (const value of ['not-json', JSON.stringify({ ...pairingCode, url: 'http://node.example/api/v1' }), JSON.stringify({ ...pairingCode, token: 'bad' }), JSON.stringify({ ...pairingCode, extra: true })]) {
+  try { parseNodePairingCode(value); } catch { rejectedPairings++; }
+}
+check('pairing rejects malformed, insecure, and unexpected code data', rejectedPairings === 4);
+const pairCalls = [];
+globalThis.fetch = async (url, options) => {
+  pairCalls.push({ url: String(url), options });
+  return new Response(JSON.stringify({ token: 'paired-token', user: staffUser, node_staff: true, node_id: 'node-1' }), { status: 200 });
+};
+await pairNodeStaff(pairingCode);
+check('pairing exchanges one-time code over isolated HTTPS and stores only the session', pairCalls.length === 1 && pairCalls[0].url === 'https://node.example/api/v1/auth/node-staff/pair' && pairCalls[0].options.redirect === 'error' && pairCalls[0].options.credentials === 'omit' && !pairCalls[0].options.headers.Authorization && JSON.parse(pairCalls[0].options.body).token === pairingCode.token && (await getNodeSession())?.token === 'paired-token' && !(await SecureStore.getItemAsync('ingress_node_staff_session_v1')).includes(pairingCode.token) && (await AuthStorage.getToken()) === scope.token);
+await logoutNodeStaff();
+let rejectedNodeRevoked = false;
+globalThis.fetch = async (url) => {
+  if (String(url).endsWith('/auth/logout')) { rejectedNodeRevoked = true; return new Response('{}', { status: 200 }); }
+  return new Response(JSON.stringify({ token: 'untrusted-token', user: staffUser, node_staff: true, node_id: 'node-2' }), { status: 200 });
+};
+let mismatchRejected = false;
+try { await pairNodeStaff(pairingCode); } catch { mismatchRejected = true; }
+check('a mismatched pairing response is rejected and its issued token is revoked', mismatchRejected && rejectedNodeRevoked && (await getNodeSession()) === null);
+globalThis.fetch = async () => new Response('null', { status: 200 });
+let emptyPairRejected = false;
+try { await pairNodeStaff(pairingCode); } catch (error) { emptyPairRejected = error.message.includes('identity did not match'); }
+check('an invalid pairing response fails without storing a session', emptyPairRejected && (await getNodeSession()) === null);
+let pairRevokedOnFailure = false;
+globalThis.fetch = async (url) => {
+  if (String(url).endsWith('/auth/logout')) { pairRevokedOnFailure = true; return new Response('{}', { status: 200 }); }
+  return new Response(JSON.stringify({ token: 'unsaved-pair-token', user: staffUser, node_staff: true, node_id: 'node-1' }), { status: 200 });
+};
+SecureStore.failNextWrite('ingress_node_staff_session_v1');
+let pairStorageFailure = false;
+try { await pairNodeStaff(pairingCode); } catch { pairStorageFailure = true; }
+check('failed secure storage revokes a paired session and keeps the cloud wallet', pairStorageFailure && pairRevokedOnFailure && (await getNodeSession()) === null && (await TicketWallet.read(scope)) !== null);
 globalThis.fetch = async () => new Response(JSON.stringify({ token: 'node-token', user: staffUser, node_staff: true }), { status: 200 });
 await loginNodeStaff('https://node.example/api/v1', 'staff@example.test', 'secret');
 globalThis.fetch = async () => new Response('{"message":"Unauthenticated"}', { status: 401 });

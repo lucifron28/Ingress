@@ -104,13 +104,32 @@ async function request<T>(url: string, path: string, token: string | null, optio
   }
 }
 
-export async function loginNodeStaff(url: string, email: string, password: string): Promise<NodeSession> {
-  if (Platform.OS === 'web') throw new Error('Node staff sign-in is available in the mobile app.');
-  const baseUrl = normalizeNodeUrl(url);
-  const previous = await getNodeSession();
-  const response = await request<{ token: string; user: UserProfile; node_staff: boolean }>(baseUrl, '/auth/node-staff/login', null, {
-    method: 'POST', body: JSON.stringify({ email: email.trim(), password, device_name: 'Ingress-Scanner' }),
-  });
+export interface NodePairingCode {
+  v: 1;
+  url: string;
+  node: string;
+  token: string;
+  expires: string;
+}
+
+export function parseNodePairingCode(raw: string): NodePairingCode {
+  try {
+    if (raw.length > 1024) throw new Error();
+    const value: unknown = JSON.parse(raw);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error();
+    const code = value as NodePairingCode;
+    if (Object.keys(code).sort().join(',') !== 'expires,node,token,url,v' || code.v !== 1 ||
+        typeof code.node !== 'string' || !/^[a-zA-Z0-9_-]{1,64}$/.test(code.node) ||
+        typeof code.token !== 'string' || !/^[a-f0-9]{64}$/.test(code.token) ||
+        typeof code.expires !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(code.expires) ||
+        !Number.isFinite(Date.parse(code.expires)) || typeof code.url !== 'string') throw new Error();
+    return { ...code, url: normalizeNodeUrl(code.url) };
+  } catch {
+    throw new Error('This is not a valid Event Node pairing code.');
+  }
+}
+
+async function saveNodeSession(baseUrl: string, response: { token: string; user: UserProfile; node_staff: boolean }, previous: NodeSession | null): Promise<NodeSession> {
   const session = { url: baseUrl, token: response.token, user: response.user };
   if (response.node_staff !== true || !validSession(session)) throw new Error('The Event Node returned an invalid session.');
   try {
@@ -123,6 +142,32 @@ export async function loginNodeStaff(url: string, email: string, password: strin
     try { await request(previous.url, '/auth/logout', previous.token, { method: 'POST' }); } catch { /* Best effort. */ }
   }
   return session;
+}
+
+export async function pairNodeStaff(code: NodePairingCode): Promise<NodeSession> {
+  if (Platform.OS === 'web') throw new Error('Node staff pairing is available in the mobile app.');
+  const parsed = parseNodePairingCode(JSON.stringify(code));
+  const previous = await getNodeSession();
+  const response = await request<{ token: string; user: UserProfile; node_staff: boolean; node_id: string }>(parsed.url, '/auth/node-staff/pair', null, {
+    method: 'POST', body: JSON.stringify({ node_id: parsed.node, token: parsed.token, device_name: 'Ingress-Scanner' }),
+  });
+  if (response?.node_id !== parsed.node) {
+    if (typeof response?.token === 'string' && response.token.length > 0 && response.token.length <= 256) {
+      try { await request(parsed.url, '/auth/logout', response.token, { method: 'POST' }); } catch { /* Best effort. */ }
+    }
+    throw new Error('The Event Node identity did not match the pairing code.');
+  }
+  return saveNodeSession(parsed.url, response, previous);
+}
+
+export async function loginNodeStaff(url: string, email: string, password: string): Promise<NodeSession> {
+  if (Platform.OS === 'web') throw new Error('Node staff sign-in is available in the mobile app.');
+  const baseUrl = normalizeNodeUrl(url);
+  const previous = await getNodeSession();
+  const response = await request<{ token: string; user: UserProfile; node_staff: boolean }>(baseUrl, '/auth/node-staff/login', null, {
+    method: 'POST', body: JSON.stringify({ email: email.trim(), password, device_name: 'Ingress-Scanner' }),
+  });
+  return saveNodeSession(baseUrl, response, previous);
 }
 
 export async function nodeRequest<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {

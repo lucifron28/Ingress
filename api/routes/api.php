@@ -22,6 +22,8 @@ Route::prefix('v1')->group(function () {
         ->middleware(['runtime:legacy,cloud', 'throttle:login']);
     Route::post('/auth/node-staff/login', [NodeStaffAuthController::class, 'login'])
         ->middleware(['runtime:node', 'throttle:node-staff-login']);
+    Route::post('/auth/node-staff/pair', [NodeStaffAuthController::class, 'pair'])
+        ->middleware(['runtime:node', 'throttle:node-staff-pair']);
 
     // Authenticated API
     Route::middleware(['auth:sanctum', 'node.staff'])->group(function () {

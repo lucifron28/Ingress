@@ -12,7 +12,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Ingress requires camera access to scan student tickets at entrance gates."
+          "cameraPermission": "Ingress uses the camera to pair staff scanners and scan tickets at entrance gates."
         }
       ],
       "expo-secure-store",
@@ -29,7 +29,7 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSCameraUsageDescription": "Ingress requires camera access to scan student tickets at entrance gates.",
+        "NSCameraUsageDescription": "Ingress uses the camera to pair staff scanners and scan tickets at entrance gates.",
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true,
           "NSAllowsLocalNetworking": true

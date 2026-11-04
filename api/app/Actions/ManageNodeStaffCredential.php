@@ -35,6 +35,7 @@ class ManageNodeStaffCredential
                 DB::table('node_staff_credentials')->updateOrInsert(['user_id' => $user->id],
                     fn (bool $exists) => ['password_hash' => $hash, 'updated_at' => now()] + ($exists ? [] : ['created_at' => now()]));
             }
+            DB::table('node_staff_pairings')->where('user_id', $user->id)->delete();
             $user->tokens()->delete();
         });
     }

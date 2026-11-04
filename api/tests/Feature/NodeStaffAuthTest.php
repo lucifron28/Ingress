@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Actions\ImportReceivedSnapshot;
+use App\Actions\NodeStaffPairing;
 use App\Actions\ReceiveSnapshot;
 use App\Actions\SnapshotEnvelope;
 use App\Http\Middleware\EnsureRuntimeDatabase;
@@ -95,6 +96,46 @@ class NodeStaffAuthTest extends TestCase
         $this->withToken($token)->getJson('/api/v1/me')->assertUnauthorized();
     }
 
+    public function test_pairing_is_single_use_and_requires_current_assignment_and_credential(): void
+    {
+        $this->stage();
+        app(ImportReceivedSnapshot::class)->execute(10);
+        $this->provision();
+        $issued = app(NodeStaffPairing::class)->issue(101);
+        $this->assertDatabaseHas('node_staff_pairings', ['token_hash' => hash('sha256', $issued['token'])]);
+        $this->assertDatabaseMissing('node_staff_pairings', ['token_hash' => $issued['token']]);
+        $this->postJson('/api/v1/auth/node-staff/pair', ['node_id' => 'node-2', 'token' => $issued['token']])->assertStatus(422);
+        $response = $this->postJson('/api/v1/auth/node-staff/pair', ['node_id' => 'node-1', 'token' => $issued['token']])
+            ->assertOk()->assertHeader('Cache-Control', 'no-store, private')->assertJsonPath('node_id', 'node-1')->assertJsonPath('node_staff', true);
+        $this->assertDatabaseCount('node_staff_pairings', 0);
+        $this->postJson('/api/v1/auth/node-staff/pair', ['node_id' => 'node-1', 'token' => $issued['token']])->assertStatus(422);
+        $this->withToken($response->json('token'))->getJson('/api/v1/me')->assertOk();
+        $this->assertSame(0, Artisan::call('ingress:pair-node-staff', ['cloud_user_id' => '101', '--url' => 'https://node.example/api/v1']));
+        $output = Artisan::output();
+        $this->assertStringContainsString('Pair Student Staff', $output);
+        $this->assertStringContainsString('█', $output);
+        $this->assertSame(1, Artisan::call('ingress:pair-node-staff', ['cloud_user_id' => '101', '--url' => 'http://node.example/api/v1']));
+    }
+
+    public function test_pairing_expires_and_credential_rotation_or_assignment_removal_invalidates_it(): void
+    {
+        $this->stage();
+        app(ImportReceivedSnapshot::class)->execute(10);
+        $this->provision();
+        $expired = app(NodeStaffPairing::class)->issue(101);
+        $this->travel(4)->minutes();
+        $this->postJson('/api/v1/auth/node-staff/pair', ['node_id' => 'node-1', 'token' => $expired['token']])->assertStatus(422);
+        $old = app(NodeStaffPairing::class)->issue(101);
+        $new = app(NodeStaffPairing::class)->issue(101);
+        $this->postJson('/api/v1/auth/node-staff/pair', ['node_id' => 'node-1', 'token' => $old['token']])->assertStatus(422);
+        $this->provision();
+        $this->postJson('/api/v1/auth/node-staff/pair', ['node_id' => 'node-1', 'token' => $new['token']])->assertStatus(422);
+        $removed = app(NodeStaffPairing::class)->issue(101);
+        DB::table('event_staff')->delete();
+        $this->postJson('/api/v1/auth/node-staff/pair', ['node_id' => 'node-1', 'token' => $removed['token']])->assertStatus(422);
+        $this->assertDatabaseCount('personal_access_tokens', 0);
+    }
+
     public function test_rotation_and_revocation_invalidate_old_passwords_and_tokens(): void
     {
         $this->stage();
@@ -140,6 +181,7 @@ class NodeStaffAuthTest extends TestCase
         config(['ingress.mode' => 'cloud']);
         DB::table('runtime_identity')->delete();
         $this->postJson('/api/v1/auth/node-staff/login', ['email' => 'staff@example.test', 'password' => str_repeat('a', 32)])->assertStatus(503);
+        $this->postJson('/api/v1/auth/node-staff/pair', ['node_id' => 'node-1', 'token' => str_repeat('a', 64)])->assertStatus(503);
     }
 
     public function test_staff_tokens_expire_and_login_attempts_are_throttled(): void
@@ -162,9 +204,13 @@ class NodeStaffAuthTest extends TestCase
         $this->stage();
         app(ImportReceivedSnapshot::class)->execute(10);
         $password = $this->provision();
+        $pair = app(NodeStaffPairing::class)->issue(101);
         $this->withoutMiddleware(EnsureRuntimeDatabase::class);
         $this->app->detectEnvironment(fn () => 'production');
         $this->postJson('http://example.test/api/v1/auth/node-staff/login', ['email' => 'staff@example.test', 'password' => $password])->assertForbidden();
         $this->postJson('https://example.test/api/v1/auth/node-staff/login', ['email' => 'staff@example.test', 'password' => $password])->assertOk();
+        $this->postJson('http://example.test/api/v1/auth/node-staff/pair', ['node_id' => 'node-1', 'token' => $pair['token']])->assertForbidden();
+        $this->postJson('https://example.test/api/v1/auth/node-staff/pair', ['node_id' => 'node-1', 'token' => $pair['token']])
+            ->assertStatus(DB::connection()->getDriverName() === 'pgsql' ? 200 : 503);
     }
 }

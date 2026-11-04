@@ -16,6 +16,7 @@ use App\Actions\ExportSnapshot;
 use App\Actions\ImportReceivedSnapshot;
 use App\Actions\IssueImportReceipt;
 use App\Actions\NodeStaffAccess;
+use App\Actions\NodeStaffPairing;
 use App\Actions\PrepareAdmissionBatch;
 use App\Actions\PrepareEventSnapshot;
 use App\Actions\ReceiveAdmissionBatch;
@@ -114,6 +115,10 @@ try {
             'status' => $result['status'],
             'attempted_admission_insert' => $attemptedAdmissionInsert,
         ]);
+    } elseif ($mode === 'redeem_pairing') {
+        config(['ingress.mode' => 'node', 'ingress.node_id' => $payload['node_id']]);
+        $session = app(NodeStaffPairing::class)->redeem($payload['token'], $payload['node_id'], 'race-scanner');
+        $emit(['ok' => ! empty($session['token'])]);
     } elseif ($mode === 'prepare_admissions') {
         config(['ingress.mode' => 'node', 'ingress.node_id' => $payload['node_id'], 'ingress.node_sync_key' => $payload['secret'], 'ingress.authority_public_key' => $payload['public_key']]);
         $batch = app(PrepareAdmissionBatch::class)->execute($payload['event_id']);
