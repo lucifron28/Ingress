@@ -1,19 +1,19 @@
-# Ingress second-half target architecture
+# Ingress architecture and operating limits
 
-**Status:** Target architecture with implementation notes.
-**Current implementation:** Cloud and Event Node runtimes support snapshot transfer, assigned staff admission, admission synchronization, guest and alumni passes, node walk-ins, and entry/exit tracking. Verified students can transfer eligible tickets before snapshot preparation. Device and venue verification remains with the project owner. Admission requires the venue LAN and Event Node, but not public internet.
+**Status:** The cloud and Event Node architecture is implemented. Safe authority recovery, automatic snapshot delivery, data-retention automation, and payments remain unimplemented. Device and venue verification is deferred to the project owner.
+**Current implementation:** Cloud accounts, event registration, ticket transfers, organizer reporting, snapshot transfer, Event Node admission, guest and alumni passes, node walk ins, entry and exit tracking, and retryable admission synchronization are implemented. Students with a verified institutional email can transfer eligible tickets before snapshot preparation. Email activation verifies control of the institutional address, not current enrollment. Admission requires the venue LAN and Event Node, but not public internet.
 
-## Runtime boundary implemented so far
+## Runtime boundaries
 
 `INGRESS_RUNTIME=legacy` retains the single-server demo only when `APP_ENV` is `local` or `testing`. Cloud and node runtimes require PostgreSQL outside automated tests. Set a unique, stable `INGRESS_NODE_ID` on each node. Each database binds to the first runtime and node identity that uses it; a different identity receives HTTP 503. Configure separate PostgreSQL databases for cloud and each node. This binding prevents an accidental shared database, but it does not authenticate a node or prevent copies of a database from running independently.
 
-Cloud permits student registration and organizer event changes, but rejects scanner endpoints. The node rejects ordinary attendee registration and organizer operations; assigned staff can issue walk-ins after authority activation. An assigned staff member can preview and confirm admission on a node only after activating the signed authority grant. Node admissions synchronize to the cloud in authenticated, retryable batches. Physical device and venue verification remains pending.
+Cloud permits student registration and organizer event changes, but rejects scanner endpoints. The node rejects ordinary attendee registration and organizer operations; assigned staff can issue walk ins after authority activation. An assigned staff member can preview and confirm admission on a node only after activating the signed authority grant. Node admissions synchronize to the cloud in authenticated, retryable batches.
 
 On the cloud, an organizer can prepare a versioned snapshot after registration closes. Preparation locks the event while it captures event details, gates, staff assignments, registrations, and ticket verification hashes. The snapshot is encrypted with the cloud application key at rest. It contains neither QR secrets nor account password hashes. Invalidated snapshots still contain encrypted identity data; automatic retention and deletion are not implemented. Editing the event, gates, or staff assignments requires discarding the prepared snapshot; cancellation invalidates it. Concurrent preparation returns the same snapshot version. A later preparation after discard creates a new version.
 
 A prepared snapshot can be transferred as an encrypted file to one registered node. The cloud encrypts and authenticates the package with that node's transfer key. The node verifies the package, stages the payload encrypted with its own application key, and produces an authenticated receipt. The cloud verifies that receipt against the current snapshot and target node. Repeating receipt is idempotent. A node rejects an older version after receiving a newer one and rejects conflicting snapshots for the same event and version.
 
-This is a manual staging workflow. A receipt proves possession of the node transfer key and records the receiver's claim that it staged the package; it is not hardware attestation. Preparation and staging validate the snapshot schema, roster references, ticket credentials, and capacity. Events with existing admissions cannot be prepared because admission history is not yet included. An operator can import the current staged version into node event, roster, gate, and ticket records. The import maps cloud IDs to node-local IDs, uses inaccessible random passwords for imported accounts, and is transactional and idempotent. A separate authenticated import receipt records the node's claim that the current snapshot was imported. It does not provision staff credentials, finalize admission, or transfer authority. A newer staged snapshot can replace the node import before authority activation. The refresh locks the event, rejects any existing admissions or records outside the previous import, and rolls back on conflicts. It preserves the node event ID but may change node-local gate, staff, registration, and ticket IDs. Identity or venue conflicts stop the import without changing the event. Removed users and prior encrypted snapshots remain on the node until a retention process is implemented. Imported records contain personal data in the node database and require the same access controls and storage protection as the cloud database. The node can admit attendees after authority activation. There is no automatic delivery, retention policy, or safe recovery from a rolled-back node database. After both receipts, the cloud can issue a signed authority grant for exactly one snapshot and node. Issuing it locks cloud cancellation and snapshot discard. The node accepts the grant only for its current imported snapshot and refuses later snapshot replacement. The admission transaction rechecks the signed grant, current staff session, event assignment, and gate before recording an admission. Future user identity, staff credential, or ticket revocation changes must participate in the same lock and snapshot invalidation rules.
+This is a manual staging workflow. A receipt proves possession of the node transfer key and records the receiver's claim that it staged the package; it is not hardware attestation. Preparation and staging validate the snapshot schema, roster references, ticket credentials, and capacity. Events with existing admissions cannot be prepared because admission history is not included. An operator can import the current staged version into node event, roster, gate, and ticket records. The import maps cloud IDs to node-local IDs, uses random passwords for imported accounts, and is transactional and idempotent. A separate authenticated import receipt records the node's claim that the current snapshot was imported. It does not provision staff credentials, finalize admission, or transfer authority. A newer staged snapshot can replace the node import before authority activation. The refresh locks the event, rejects any existing admissions or records outside the previous import, and rolls back on conflicts. It preserves the node event ID but may change node-local gate, staff, registration, and ticket IDs. Identity or venue conflicts stop the import without changing the event. Removed users and prior encrypted snapshots remain on the node until a retention process is implemented. Imported records contain personal data in the node database and require the same access controls and storage protection as the cloud database. The node can admit attendees after authority activation. Automatic delivery, retention automation, and safe recovery after grant issuance are not implemented. After both receipts, the cloud can issue a signed authority grant for exactly one snapshot and node. Issuing it locks cloud cancellation and snapshot discard. The node accepts the grant only for its current imported snapshot and refuses later snapshot replacement. The admission transaction rechecks the signed grant, current staff session, event assignment, and gate before recording a movement. Any future user identity, staff credential, or ticket revocation changes must participate in the same locking and snapshot invalidation rules.
 
 ### Stage a snapshot on a node
 
@@ -40,7 +40,7 @@ Set `INGRESS_CLOUD_SYNC_URL` on the node to the cloud HTTPS API base, for exampl
 
 The node keeps each encrypted batch until it receives an authenticated cloud receipt. It retries the same batch after a lost connection or response and marks only the acknowledged admissions as synchronized. New admissions can continue during an upload and are sent in later batches. Each run sends at most 40 walk-ins, ten recovery records, and ten batches of 100 admissions per event. The command stops starting new uploads after eight minutes and resumes pending work on the next scheduled run. The scheduler lock lasts ten minutes. A database operation that blocks beyond that window can still extend the run. The cloud checks the active authority, frozen snapshot, ticket, gate, staff assignment, and idempotency identifiers before recording a batch in one transaction. A duplicate or rebatch of the same admission is safe; conflicting records stop the batch. Sync failures are recorded in the node application log. Cloud reports may lag while the node is offline.
 
-Imported preregistered student, guest, and alumni tickets are supported by this synchronization protocol. Node walk-ins use a separate authenticated receipt to establish their cloud ticket mapping before admission batches reference them. Movement history and authority recovery remain future work. Revoking a node transfer credential also prevents pending admissions from synchronizing. There is no credential recovery or rekey procedure yet, so retain the node database and investigate failed batches rather than deleting them or reassigning authority.
+Imported preregistered student, guest, and alumni tickets are supported by this synchronization protocol. Node walk-ins use a separate authenticated receipt to establish their cloud ticket mapping before admission batches reference them. Admission movements synchronize in authenticated batches; safe authority recovery remains future work. Revoking a node transfer credential also prevents pending admissions from synchronizing. There is no credential recovery or rekey procedure yet, so retain the node database and investigate failed batches rather than deleting them or reassigning authority.
 
 ### Provision node staff credentials
 
@@ -62,7 +62,7 @@ Student app
     | Internet
     v
 Ingress cloud
-- verified student account activation and authentication
+- institutional-email student account activation and authentication
 - event discovery
 - student registration
 - guest/alumni email ticket issuance
@@ -173,31 +173,31 @@ A server response of `401 Unauthorized` is different from a transport failure. A
 
 Logging out manually also clears sensitive cached ticket credentials.
 
-## 4. No Event Node configuration on the student side
+## 4. Student cloud access
 
 Students do not configure LAN addresses, Event Node IPs, or server URLs.
 
 The student app uses the configured cloud API for normal online operations and cached tickets when offline.
 
-The current 50% prototype exposes a server URL screen to all mobile roles because one server handles both sides. That is prototype behavior and is not the target full-system UX.
+Production student builds use the cloud API URL supplied at build time and do not expose an Event Node setting. The server URL screen is limited to legacy demo builds. Staff node sessions use separate secure storage and a separate Event Node URL.
 
 ## 5. Scanner connection and pairing
 
 Staff scanners communicate with the Event Node over the venue LAN.
 
-Normal scanner setup should not require staff to type an IP address. The Event Node will provide a **Pair Scanner** QR that can contain a short-lived setup payload such as:
+Normal scanner setup uses a **Pair Scanner** QR containing a short-lived setup payload:
 
 ```text
+schema version
 node identifier
-Event Node URL
+HTTPS Event Node API URL
 one-time pairing token
 expiration
-optional certificate fingerprint
 ```
 
 The pairing credential must not contain a permanent administrator password or reusable privileged secret.
 
-Manual Event Node address entry remains available only as a staff/admin fallback under advanced settings.
+Manual HTTPS Event Node address entry remains available to staff as a fallback. A development build can accept local HTTP only when its explicit flag is enabled and the host is localhost or a private LAN address.
 
 Automatic network discovery such as mDNS may be considered later, but it is not required for the first implementation because venue Wi-Fi multicast behavior can be inconsistent.
 
@@ -213,7 +213,7 @@ The Event Node remains responsible for role and gate authorization. Client-side 
 
 ## 7. Ticket credential design
 
-Ingress will keep the existing static opaque credential model and will **not add TOTP** for the planned full system.
+Ingress uses static opaque ticket credentials and does not use TOTP.
 
 Canonical ticket payload:
 
@@ -224,13 +224,13 @@ ingress:v1:<ticket_public_id>:<random_secret>
 Reasons for keeping a static opaque credential:
 
 - both preregistered mobile tickets and locally issued walk-in passes can use the same validation pipeline;
-- the Event Node already provides centralized one-time consumption and anti-passback across entrances;
+- the Event Node maintains one shared movement history and enforces anti-passback across entrances;
 - TOTP would add clock handling, rotating QR logic, secret synchronization, and a second ticket behavior without eliminating immediate screenshot sharing;
 - the scanner does not need to store ticket secrets or validate tickets independently.
 
 The QR contains no student PII.
 
-A copied QR cannot create multiple admissions because the Event Node atomically consumes the ticket once. A copied credential used by another person before the real owner is an identity problem, not an anti-passback problem. Ingress handles that through identity-linked tickets and configurable verification.
+A copied credential cannot create duplicate active entries because the Event Node checks each movement against the shared ticket history. A copied credential used by another person before the real owner is an identity problem, not an anti-passback problem. Events can require staff to compare the attendee with the name and identifier or confirm an approved ID check.
 
 ## 8. Identity-linked admission
 
@@ -254,7 +254,7 @@ The canonical scanner rule is:
 
 The read-only preview shows the attendee identity and current ticket state. For an entry, exit, or permitted re-entry, the server revalidates the ticket transactionally when staff confirms the action. A preview by itself must never change attendance state.
 
-Events may select a verification level:
+Events may select Standard identity details or an approved ID check:
 
 ### Standard
 - valid ticket credential;
@@ -265,15 +265,11 @@ Events may select a verification level:
 - everything in Standard;
 - staff confirmation against a school ID or other approved identification.
 
-### Enhanced
-- everything above;
-- attendee photo available to authorized admission staff when the event has a justified need for it.
-
-Photo collection is optional, not a default requirement. Events that collect photos must define who can view them, how long they are retained, and when they are deleted.
+An enhanced photo check is not implemented. Photo collection stays disabled until the institution approves access, retention, and deletion rules.
 
 ## 9. Registration deadline and admission finalization
 
-Events have a scheduled registration deadline. An organizer can also close registration explicitly on a published event. That cutoff is irreversible through the current UI and does not finalize admission or transfer authority. Existing tickets remain active, and the event can still be cancelled. Planned finalization must close registration before Event Node admission begins.
+Events have a scheduled registration deadline, and an organizer can close registration explicitly. Snapshot preparation requires registration to be closed. The organizer can discard a prepared snapshot and create a new version before issuing an authority grant. Once the cloud issues the grant, cancellation and snapshot changes are locked. Existing tickets remain active through the handoff.
 
 Before the deadline, students use the cloud to register normally.
 
@@ -281,7 +277,7 @@ After the deadline:
 
 - online registration is closed;
 - self-service ticket transfer is closed after finalization;
-- the final ticket snapshot is synchronized to the Event Node;
+- the organizer transfers the final encrypted ticket snapshot to the Event Node and confirms staging and import receipts;
 - attendees without a preregistered ticket use the walk-in process.
 
 This is a business rule, not merely a response to an internet outage. A student who missed the deadline is a walk-in even if their phone still has internet.
@@ -290,36 +286,26 @@ This is a business rule, not merely a response to an internet outage. A student 
 
 Before registration closes, an authorized organizer can enter a guest or alumni name and email on the event page and issue a pass. The attendee does not need a user account. The email identifies the registration for duplicate checks; the system does not verify the address or send the pass automatically. The organizer opens the protected pass page and prints or securely delivers it. Rendering the pass requires PHP XMLWriter. The page uses no-store headers and does not put the QR credential in its URL. Reprinting is available while the ticket is active and the event is not cancelled.
 
-Guest and alumni registrations share the event capacity lock with student registrations. Their opaque QR uses the same validation and admission path. A snapshot containing accountless attendees uses schema version 2; student-only version 1 snapshots remain supported. Both cloud and node must be upgraded before transferring a version 2 snapshot. Guest and alumni admissions synchronize back to the cloud using the same batch protocol.
+Guest and alumni registrations share the event capacity lock with student registrations. Their opaque QR uses the same validation and admission path. Standard events keep the prior snapshot schema for compatibility. Schema version 4 carries ID-check policy; both cloud and node must be upgraded before transferring an event that requires ID checks. Guest and alumni admissions synchronize back to the cloud using the same batch protocol.
 
 ## 10. Walk-in registration
 
 Walk-ins are a first-class registration source, not an anonymous attendance counter.
 
-The node staff app can issue a student, guest, or alumni walk-in pass for an assigned event with active node authority. A student ID is self-reported, not institutionally verified. The node checks email and student ID against existing event registrations and locks the event while enforcing capacity. The app stores the pending request in device-only secure storage before sending it, so a lost response can be retried with the same identifier. Assigned staff can recover an active pass by attendee email on the node. The node records the staff member and recovery time, then synchronizes that audit record after its issuance. Staff can display or print the QR; issuance and recovery do not admit the attendee. Physical printer and device verification remain pending.
+The node staff app can issue a student, guest, or alumni walk in pass for an assigned event with active node authority. A student ID is self reported, not institutionally verified. The node checks email and student ID against existing event registrations and locks the event while enforcing capacity. The app stores the pending request in device-only secure storage before sending it, so a lost response can be retried with the same identifier. Assigned staff can recover an active pass by attendee email on the node. The node records the staff member and recovery time, then synchronizes that audit record after issuance. Staff can display or print the QR; issuance and recovery do not admit the attendee. Physical printer and device verification remain pending.
 
 The node sends each walk-in in an encrypted package and retains it until the cloud returns an authenticated receipt. The cloud stores the ticket hash without the QR secret. The node then maps the cloud registration and ticket IDs and sends any admission through the regular admission sync. A conflicting identity or capacity failure leaves that walk-in pending for investigation. Admissions for tickets that already have cloud mappings can still synchronize. The printed pass includes the complete private QR payload for manual entry. The public ticket reference alone cannot authenticate a scan.
 
-Suggested source values:
+The implementation stores attendee type and walk-in kind separately. A walk in uses the same credential and scanner protocol as a preregistered ticket.
 
-```text
-student_registration
-guest_purchase
-organizer_invitation
-walk_in
-```
-
-The source describes how the attendee received the ticket. It does not change the credential or scanner protocol.
-
-A walk-in flow should:
+A walk-in flow:
 
 1. search or identify the attendee;
 2. check that the person does not already have an active registration/ticket for the event;
 3. check remaining event capacity under the same concurrency guarantees used elsewhere;
-4. optionally capture a photo when the event uses Enhanced verification;
-5. create the walk-in registration and ticket locally on the Event Node;
-6. issue a printed pass;
-7. admit the attendee only when the pass is scanned, unless an authorized Register & Admit workflow is explicitly used.
+4. create the walk-in registration and ticket locally on the Event Node;
+5. issue a printable pass;
+6. admit the attendee only when the pass is scanned, unless an authorized Register & Admit workflow is explicitly used.
 
 A normal printed walk-in pass contains:
 
@@ -354,7 +340,7 @@ Walk-in ticket creation and admission are separate operations by default so regi
 
 ## 11. Ticket transfer
 
-The cloud supports ticket transfer before snapshot preparation. Events opt in; new events default to disabled. Only verified student accounts can send or receive a transfer. Guest, alumni, and node walk-in tickets are excluded.
+The cloud supports ticket transfer before snapshot preparation. Events opt in; new events default to disabled. Only student accounts with a verified institutional email can send or receive a transfer. The email check does not prove current enrollment. Guest, alumni, and node walk-in tickets are excluded.
 
 A transfer changes ownership. It is not QR forwarding.
 
@@ -395,31 +381,26 @@ Walk-in passes do not need self-service transfer support.
 ## 12. Synchronization model
 
 ### Cloud to Event Node
-Before finalization, synchronize at minimum:
+After registration closes, the organizer stages a versioned encrypted snapshot on one registered node and returns its staging and import receipts to the cloud. The snapshot contains:
 
 - event metadata and lifecycle state;
-- capacity;
-- preregistered attendees;
-- tickets and verification material;
-- current ticket owner identity;
-- staff accounts and assignments;
-- venues/access points;
-- event verification policy.
+- capacity and registration cutoff;
+- preregistered student, guest, and alumni attendees;
+- ticket hashes and current ticket owner identity;
+- staff assignments and access points;
+- re-entry and identity verification policies.
 
 The Event Node records the finalized snapshot/version.
 
 ### Event Node to cloud
-After or during connectivity restoration, synchronize:
+The node retains records until the cloud returns an authenticated receipt. It synchronizes:
 
 - attendance movements (entry, exit, and re-entry);
-- walk-in registrations and tickets;
-- guest/alumni ticket issuance and attendee metadata;
-- walk-in identity/photo metadata where policy permits;
-- audit events;
-- attendance totals;
-- local ticket revocations or exceptional staff actions.
+- walk-in registrations and tickets through authenticated issuance receipts;
+- walk-in recovery records;
+- entry and exit movements in authenticated admission batches.
 
-Writes must use stable identifiers and idempotent synchronization so a retry cannot create duplicate admissions or walk-ins.
+The cloud derives attendance totals from imported movements. Stable identifiers and authenticated receipts make retries idempotent. Movement history and authority recovery are not transferred as general audit events.
 
 ## 13. Capacity rules
 
@@ -482,7 +463,7 @@ Use these claims:
 
 > Ingress uses opaque, cryptographically random ticket credentials. Attendance state is server-authoritative, so a ticket cannot be used for two simultaneous entries across connected entrances. Re-entry is allowed only after a recorded exit and only when the event policy permits it.
 
-> A ticket credential proves possession of the ticket, not identity. Events can require identity checks or photo verification when the risk justifies it.
+> A ticket credential proves possession of the ticket, not identity. Events can require staff to acknowledge checking an approved ID. The app does not collect or compare photos.
 
 Avoid these claims:
 
@@ -492,52 +473,25 @@ Avoid these claims:
 - "The scanner validates tickets offline."
 - "TOTP prevents screenshots."
 
-## 16. Planned data-model additions
+## 16. Current data model and deferred records
 
-Exact migrations are implementation work, but the target model will likely need:
+The current schema stores event identity and re-entry policies, student and accountless guest registrations, ticket credential versions, ticket transfers, versioned event snapshots, node import receipts, append-only admission movements, and synchronization receipts. Walk-in records retain their issue and recovery details. The admission movement stores the staff acknowledgment for an event's approved ID check.
 
-- registration/ticket source such as `student_registration`, `guest_purchase`, `organizer_invitation`, or `walk_in`;
-- an attendee abstraction that can represent a verified student or an external guest without requiring every attendee to own a login account;
-- attendee classification such as Envergan/student, alumni, or external guest for reporting;
-- finalization/snapshot version on the event;
-- Event Node synchronization state;
-- walk-in issuance metadata;
-- optional attendee photo reference and retention metadata;
-- ticket ownership/transfer records;
-- pending transfer state;
-- credential rotation/versioning on transfer;
-- human-readable fallback code for locally printed passes;
-- guest/alumni email delivery metadata and payment/reference status where applicable;
-- an append-only attendance movement model for `entry` and `exit`;
-- an event re-entry policy and a concurrency-safe way to derive current inside/outside state.
-
-Existing anti-passback and `credential_version` concepts should be reused instead of introducing a separate admission engine for walk-ins.
+The schema does not store attendee photos or photo-retention metadata. Paid guest tickets and email delivery are not implemented. Safe recovery or authority transfer after a node grant is also not implemented.
 
 ## 17. Implementation order
 
 See [the roadmap](roadmap.md) for the dependency order and current status.
 
-## 18. Guest and alumni email tickets
+## 18. Accountless guest and alumni passes
 
-Ingress is MSEUF-first, so verified students keep the richer account-based experience. Alumni, invited visitors, parents, partner-school attendees, and other external guests should not be forced to create a MSEUF account for occasional attendance.
+Organizers can issue guest and alumni passes before registration closes. The attendee needs no MSEUF account. The organizer prints or securely delivers the pass from its protected page. The app does not verify the email address or send the pass automatically.
 
-A guest ticket may be created by an organizer invitation or by a verified payment flow. The minimum attendee record should contain the event-specific identity needed for admission, for example:
+The attendee type is stored with the registration, so the organizer report can distinguish student accounts, guests, and alumni without inferring identity from an email domain. Guest and alumni tickets use the same opaque credential and Event Node validation pipeline as student tickets.
 
-```text
-name
-email
-organization / school (optional)
-attendee classification
-payment/reference status when applicable
-```
+Node staff can issue student, guest, or alumni walk-in passes after authority activation. The node checks capacity and existing event registrations before creating the pass. A student number entered for a walk-in remains self reported.
 
-The cloud issues the same opaque Ingress ticket credential and delivers it by email as a QR ticket or printable attachment. The recipient does not need the Ingress mobile app and does not need a TOTP secret.
-
-This is one reason Ingress keeps server-authoritative static opaque credentials: a ticket can be shown from the student wallet, an email, or a printed pass while the Event Node uses the same validation pipeline.
-
-Guest and alumni tickets must be distinguishable from verified MSEUF student tickets in reporting. The classification comes from the attendee/ticket record, not by guessing from the email domain.
-
-Payment integration is cloud-side and must create or activate a guest ticket only after the payment provider reports a verified successful payment. The exact payment provider is an implementation choice and is not required for the admission protocol.
+Paid ticket flows, automatic guest email delivery, and photo collection are not implemented. Email verification for student signup proves control of the institutional address, not student number ownership or current enrollment.
 
 ## 19. Entry, exit, and re-entry tracking
 
@@ -553,7 +507,7 @@ OUTSIDE --ENTRY--> INSIDE   (re-entry, only when policy allows)
 
 The Event Node locks the ticket before checking and writing a movement. The scanner selects a direction, receives a read-only preview, and records the transition only after staff confirms it. An `entry` while inside and an `exit` while outside are rejected. A later `entry` after exit is accepted only when `events.re_entry_allowed` is true. The default is false, and re-entry does not change registration capacity.
 
-The event setting is frozen into new snapshot schema version 3 when enabled. Snapshot versions 1 and 2 import with re-entry disabled, preserving their previous behavior.
+The re-entry policy is frozen into snapshot schema version 3 when enabled. Versions 1 and 2 import with re-entry disabled. Version 4 adds identity policy and carries the current re-entry setting.
 
 The event should expose a simple re-entry policy:
 
@@ -567,14 +521,14 @@ The organizer dashboard derives these values from confirmed registrations and ea
 - attendees who have ever entered and attendees not yet arrived;
 - attendees currently inside and attendees currently outside after entry;
 - entry movements after the first entry;
-- verified students currently inside;
+- student accounts currently inside;
 - guests and alumni currently inside.
 
-The movement history should preserve the access point, staff member, timestamp, movement direction, and idempotency identifier for audit.
+Each movement preserves the access point, staff member, timestamp, direction, ID-check acknowledgment, and idempotency identifier. The organizer can download a private CSV containing the confirmed roster and latest movement details. Keep exported personal data in an approved storage location.
 
-## 20. Non-goals
+## 20. Non-goals and remaining limits
 
-The second-half architecture does not require:
+Ingress does not require:
 
 - offline independent scanner validation;
 - distributing all ticket secrets to scanner phones;
@@ -588,12 +542,12 @@ The design intentionally keeps one local admission authority so duplicate admiss
 
 ### Pair a staff scanner
 
-After provisioning an assigned staff member's local credential, run `php artisan ingress:pair-node-staff CLOUD_USER_ID --url=https://node.example/api/v1` on the node. Show the terminal QR only to that staff member. It contains the node ID, HTTPS API address, and a random one-use code that expires after three minutes. It does not contain the staff password or node transfer key. Issuing a new code, rotating the credential, or revoking it invalidates older unused codes. A terminal that supports ANSI colors and block characters is needed to display the QR.
+After provisioning an assigned staff member's local credential, run `php artisan ingress:pair-node-staff CLOUD_USER_ID --url=https://node.example/api/v1` on the node. Show the terminal QR only to that staff member. It contains the node ID, API address, and a random one-use code that expires after three minutes. It does not contain the staff password or node transfer key. Issuing a new code, rotating the credential, or revoking it invalidates older unused codes. A terminal that supports ANSI colors and block characters is needed to display the QR.
 
-In the native app, select **Scan pairing code**, scan the operator's QR, and confirm the displayed node ID and address with the operator before pairing. The app uses normal HTTPS certificate validation and rejects redirects. The node checks the current assignment and local credential when exchanging the code for a 12-hour node staff session. The server enforces expiry. If the exchange response is lost, request a new code because the first may already be consumed. A QR code is a bearer credential: anyone who sees it before use can redeem it, so do not photograph or share it. The node ID shown by the app is a confirmation aid, not hardware attestation or certificate pinning.
+In the native app, select **Scan pairing code**, scan the operator's QR, and confirm the displayed node ID and address with the operator before pairing. Production connections use HTTPS with normal certificate validation, and the client rejects redirects. A local development build may use HTTP only when `EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE=true` and the address is localhost or a private LAN host. The node checks the current assignment and local credential when exchanging the code for a 12-hour node staff session. The server enforces expiry. If the exchange response is lost, request a new code because the first may already be consumed. A QR code is a bearer credential: anyone who sees it before use can redeem it, so do not photograph or share it. The node ID shown by the app is a confirmation aid, not hardware attestation or certificate pinning.
 
 ## Node staff mobile session
 
-Staff can enter a trusted HTTPS node API address and authenticate with a node-local credential. The address and token are stored in native secure storage only after successful authentication; passwords are not persisted. Requests omit cookies and reject redirects. A saved session must be resumed against the node on the venue LAN. Node and cloud sessions are independent, so node sign-out does not remove the cloud ticket wallet. If the node is unreachable at sign-out, the local token is removed but its server token can remain valid until expiry.
+Staff can enter a trusted node API address and authenticate with a node-local credential. Production addresses must use HTTPS. A local development build may use HTTP only under the opt-in described above. The address and token are stored in native secure storage only after successful authentication; passwords are not persisted. Requests omit cookies and reject redirects. A saved session must be resumed against the node on the venue LAN. Node and cloud sessions are independent, so node sign-out does not remove the cloud ticket wallet. If the node is unreachable at sign-out, the local token is removed but its server token can remain valid until expiry.
 
 The user profile staff-assignment flag controls navigation only; node authentication checks the current assignment. Older cached profiles without the flag can still reach the sign-in form. The general server settings screen is available only in demo builds. The scanner can pair using a one-use QR or sign in manually. The staff member must confirm the node address and identity with the operator.

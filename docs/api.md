@@ -329,9 +329,9 @@ Identical shape, but the `qr_payload` key is **absent**.
 
 ### 3.4 Ticket Transfers
 
-Transfers are available only on the legacy or cloud runtime. The event must be published, have transfers enabled, and have no prepared admission snapshot. The sender and recipient must be verified student accounts. The recipient cannot already hold a registration for the event, including an accountless guest registration with the same email.
+Transfers are available only on the legacy or cloud runtime. The event must be published, have transfers enabled, and have no prepared admission snapshot. The sender and recipient must have student accounts with verified institutional email addresses. This verifies email control, not enrollment. The recipient cannot already hold a registration for the event, including an accountless guest registration with the same email.
 
-`POST /tickets/{id}/transfers` accepts `recipient`, which can be the verified student's email address or student number. It creates a pending request; the current owner retains the ticket and QR until acceptance. `GET /me/ticket-transfers` returns pending requests for the authenticated sender and recipient. The recipient uses `POST /ticket-transfers/{id}/accept` or `/decline`; the sender can cancel with `DELETE /ticket-transfers/{id}`. Acceptance changes the registration owner and rotates the ticket credential in one transaction. Decline and cancellation leave ownership unchanged. Snapshot preparation or disabling event transfers expires pending requests.
+`POST /tickets/{id}/transfers` accepts `recipient`, which can be the recipient's verified institutional email address or student number. It creates a pending request; the current owner retains the ticket and QR until acceptance. `GET /me/ticket-transfers` returns pending requests for the authenticated sender and recipient. The recipient uses `POST /ticket-transfers/{id}/accept` or `/decline`; the sender can cancel with `DELETE /ticket-transfers/{id}`. Acceptance changes the registration owner and rotates the ticket credential in one transaction. Decline and cancellation leave ownership unchanged. Snapshot preparation or disabling event transfers expires pending requests.
 
 The organizer event page retains transfer status and transition timestamps for audit. History is paginated at 100 requests per page.
 
@@ -379,7 +379,7 @@ Lists events where the authenticated staff member is assigned to scan tickets.
 ### 4.2 Preview an entry or exit (read-only)
 Read-only validation checks the ticket and current presence before staff confirmation. It does not create an admission movement.
 
-> **Important**: Ticket validation does not create a movement. Entry or exit occurs only after authorized event staff confirms the attendee identity against their university ID. Profile photos are optional (nullable) and are never encoded in the QR code.
+> **Important**: Ticket preview is read-only. The event's identity policy is either `standard` or `id_check`. Standard shows the attendee name and identifier; `id_check` requires an authorized staff member to acknowledge checking an approved ID before a movement can be recorded. Student email verification and a self-reported student number do not establish enrollment. Photo collection is not available until an approved privacy and retention policy exists.
 
 - **Method**: `POST`
 - **Endpoint**: `/staff/events/{event_id}/admissions/preview`
@@ -401,13 +401,14 @@ Read-only validation checks the ticket and current presence before staff confirm
 {
   "status": "valid",
   "message": "Valid Ticket",
-  "detail": "Verify the attendee identity before confirming admission.",
+  "detail": "Compare the attendee name and identifier before confirming.",
   "direction": "entry",
   "ticket": {
     "public_id": "ING-A92B48EF12",
     "attendee_name": "Ron Vincent Cada",
     "student_id": "A23-35524",
-    "profile_photo_url": null
+    "profile_photo_url": null,
+    "identity_verification_level": "standard"
   }
 }
 ```
@@ -447,9 +448,11 @@ The authoritative transaction runs after staff confirmation. It revalidates the 
   "access_point_id": 1,
   "qr_payload": "ingress:v1:ING-A92B48EF12:6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
   "client_scan_id": "c1f38e3a-4e2a-4a6c-9a1b-1234567890ab",
-  "direction": "entry"
+  "direction": "entry",
+  "identity_check_confirmed": false
 }
 ```
+`identity_check_confirmed` is required and must be `true` when the event uses `id_check`. It is stored with the movement and synchronized to the cloud. Standard events should omit it or send `false`.
 #### Response 1: Ticket Valid (`200 OK`)
 ```json
 {
@@ -459,6 +462,7 @@ The authoritative transaction runs after staff confirmation. It revalidates the 
   "admission": {
     "id": 1,
     "direction": "entry",
+    "identity_check_confirmed": false,
     "admitted_at": "2026-10-01T01:42:00.000000Z",
     "access_point": "Entrance 1",
     "scanned_by": "Staff Alex Rivera"
@@ -472,6 +476,7 @@ The authoritative transaction runs after staff confirmation. It revalidates the 
 ```
 
 An exit confirmation returns `status: "exited"`, `message: "Exit Recorded"`, and `admission.direction: "exit"`.
+An `id_check` event rejects confirmation with HTTP `422` and `status: "identity_check_required"` until the staff acknowledgment is present.
 
 #### Response 2: Duplicate Admission / Anti-Passback (`409 Conflict`)
 ```json
@@ -632,11 +637,13 @@ The authenticated user resource includes `is_event_staff`, indicating whether th
 
 ### Event Node admission synchronization
 
-`POST /node-sync/admissions` is available only on the cloud runtime and requires HTTPS outside local and testing environments. The node sends an encrypted, authenticated batch as `application/octet-stream` with its ID in `X-Ingress-Node`. Batch schema version 2 includes each movement's `direction`; schema version 1 remains readable as entry-only history. The cloud checks the node's active event authority, frozen re-entry policy, and movement sequence before applying the batch. A successful response returns a batch ID and authenticated receipt. Repeating the same batch returns the same receipt without duplicating movements. Invalid credentials, conflicting records, or malformed batches are rejected without partial writes.
+`POST /node-sync/admissions` is available only on the cloud runtime and requires HTTPS outside local and testing environments. The node sends an encrypted, authenticated batch as `application/octet-stream` with its ID in `X-Ingress-Node`. Batch schema version 3 includes movement direction and the identity-check acknowledgment. Versions 1 and 2 remain readable, with no identity-check acknowledgment. The cloud checks the node's active event authority, frozen re-entry and identity policies, and movement sequence before applying the batch. A successful response returns a batch ID and authenticated receipt. Repeating the same batch returns the same receipt without duplicating movements. Invalid credentials, conflicting records, or malformed batches are rejected without partial writes.
 
 ### Organizer attendance feed
 
-`GET /organizer/events/{event}/attendance/feed` reports confirmed registrations, attendees who have ever entered, current inside and outside counts, attendees not yet arrived, re-entry movements, and current inside counts for verified students versus guests and alumni. The feed's `recent_admissions` list contains both `entry` and `exit` movements.
+`GET /organizer/events/{event}/attendance/feed` reports confirmed registrations, attendees who have ever entered, current inside and outside counts, attendees not yet arrived, re-entry movements, and current inside counts for student accounts versus guests and alumni. The feed's `recent_admissions` list contains both `entry` and `exit` movements.
+
+`GET /organizer/events/{event}/attendance.csv` downloads the full confirmed roster with current presence, entry/exit counts, last movement, gate, staff member, and the last ID-check acknowledgment. It is restricted to an organizer authorized for the event, uses `private, no-store`, and escapes spreadsheet formulas in attendee-controlled fields. The export contains personal information and must be stored and shared accordingly.
 
 ### Organizer-issued guest and alumni passes
 

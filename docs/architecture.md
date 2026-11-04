@@ -5,100 +5,31 @@
 
 ---
 
-## 1. Current 50% deployment topology
+## 1. Deployment topology
 
-The current 50% milestone is a local-first, server-authoritative prototype. One Laravel/PostgreSQL Event Node currently serves organizer, student, and scanner traffic so the implemented vertical slice can be demonstrated on a single LAN.
-
-This is **not** the final full-system topology. The agreed second-half target separates cloud student ticketing from local event-day admission. See [Second-half target architecture](second-half-architecture.md) for the canonical plan.
-
-```
-                           +----------------------------------------+
-                           |          Ingress Event Server          |
-                           |       (Laptop on Campus Wi-Fi)         |
-                           |                                        |
-                           |   +--------------------------------+   |
-                           |   |     Laravel 13 API & Blade     |   |
-                           |   |   - Organizer Admin Console    |   |
-                           |   |   - Sanctum Token Auth         |   |
-                           |   |   - Two-Stage Admission Engine |   |
-                           |   +---------------+----------------+   |
-                           |                   |                    |
-                           |   +---------------v----------------+   |
-                           |   |         PostgreSQL 18          |   |
-                           |   |   - lockForUpdate() Capacity   |   |
-                           |   |   - Atomic Anti-Passback       |   |
-                           |   |   - Idempotency Constraints    |   |
-                           |   +--------------------------------+   |
-                           +-------------------+--------------------+
-                                               |
-                                    Campus Wi-Fi / Local Subnet
-                                        (No Internet Needed)
-                                               |
-                  +----------------------------+----------------------------+
-                  |                                                         |
-        +---------v---------+                                     +---------v---------+
-        |   Attendee Phone  |                                     |    Staff Phone    |
-        | Expo React Native |                                     | Expo React Native |
-        |                   |                                     |                   |
-        | - Discover Events |                                     | - Select Gate     |
-        | - Register (Safe) |                                     | - Scan QR Ticket  |
-        | - Render SVG QR   |                                     | - Instant Feedback|
-        +-------------------+                                     +-------------------+
-```
-
-### Server Role (Authoritative Node)
-- **Host**: Laptop connected to local campus router / AP (bound to `0.0.0.0:8000`).
-- **Backend**: Laravel 13 on PHP 8.4 (Laravel Herd / CLI runtime).
-- **Database**: PostgreSQL 18 running on `127.0.0.1:5433` (isolated local cluster).
-- **Organizer Interface**: Server-rendered Laravel Blade web templates.
-- **Client Interface**: RESTful JSON API authenticated via Laravel Sanctum bearer tokens.
-
-### Peripheral Role (Zero-Trust Scanners & Attendees)
-- **Framework**: Expo SDK 57 (React Native 0.86).
-- **Scanner Philosophy**: Scanners are **untrusted capture peripherals**. A scanner never determines ticket validity autonomously. It captures the optical payload, generates a unique UUID `client_scan_id`, and dispatches it to the server. If the server is unreachable, the scanner **fails closed** (`SERVER UNAVAILABLE`).
-
----
-
-### Target full-system direction (planned)
-
-The remaining 50% will move to a hybrid model:
+Ingress runs as a cloud application and one or more separate Event Node applications. Each runtime has a separate PostgreSQL database and application key. The cloud handles accounts, event discovery, registration, ticket transfers, and organizer reporting. An Event Node receives one encrypted event snapshot and becomes the admission authority after the organizer confirms its staging and import receipts and activates the signed authority grant.
 
 ```text
-Student app --Internet--> Ingress cloud
-                         - student authentication
-                         - event discovery
-                         - student registration
-                         - ticket issuance/transfer
-                                  |
-                                  | finalized ticket snapshot
-                                  v
-Staff scanners --LAN------> Event Node
-Student cached QR --------> Event Node
-                                  |
-                                  v
-                             PostgreSQL
-
-After the event: Event Node --> cloud reconciliation
+Student app --HTTPS--> Cloud runtime --PostgreSQL
+                           |
+                           | encrypted snapshot and signed authority grant
+                           v
+Staff scanners --venue LAN--> Event Node --PostgreSQL
+                                   |
+                                   | authenticated admission and walk-in sync
+                                   v
+                               Cloud runtime
 ```
 
-Key decisions:
+The snapshot transfer is a manual operator workflow. After authority activation, the Event Node records admissions and walk ins locally. Staff scanners need the venue LAN and the Event Node, but admission does not require public internet. Student tickets cached after online synchronization remain display only. They do not allow offline registration or admission.
 
-- Students will not configure or connect to the Event Node. Student authentication and ticketing are cloud based.
-- A previously authenticated student can restore a cached, read-only session and display a cached ticket without internet.
-- Staff scanners remain server-authoritative over the venue LAN and fail closed when the Event Node is unreachable.
-- Scanner setup will use Event Node QR pairing. Manual IP entry remains a staff/admin fallback, not a student-facing setting.
-- Online registration closes before admission finalization. A final cloud snapshot is synchronized to the Event Node.
-- Attendees arriving after finalization use a walk-in flow on the Event Node.
-- Walk-ins receive locally issued printed passes with an opaque QR plus a human-readable fallback code.
-- Both online and walk-in tickets use static opaque random credentials. TOTP is not part of the target architecture.
-- Tickets are linked to attendee identity. Events may require school-ID checks or optional photo verification.
-- Ticket transfer is planned before finalization. Accepted transfers change ownership and rotate the credential so the old QR stops working.
+Staff authenticate to the Event Node with local credentials or a one use pairing QR. Student accounts and Event Node staff sessions use separate mobile sessions. Production connections use HTTPS. A local development build may opt into HTTP for local or private LAN node addresses.
 
-The existing sections below document the implemented 50% admission engine unless a section explicitly says it is planned.
+The organizer attendance page reports current presence and movement counts and provides a private CSV export. Events can require staff to confirm an approved ID check. The system does not collect photos. See [deployment and operating limits](second-half-architecture.md) and the [deployment guide](deployment.md) for recovery, retention, and production configuration details.
 
 ---
 
-## 2. Core Entities & Database Schema
+## 2. Core entities and database schema
 
 ```
  +--------------------+       +--------------------+       +--------------------+
@@ -242,7 +173,7 @@ Ticket issued (active, credential_version = 1)
   │
   ├──► Admitted at venue gate (admissions row recorded)
   │
-  ├──► Transferred (planned future milestone, controlled ownership and credential rotation)
+  ├──► Transferred (recipient accepts, then ownership and credential rotate atomically)
   │
   └──► Revoked (administrative invalidation by organizer/admin)
 ```
@@ -305,7 +236,7 @@ ingress:v1:<ticket_public_id>:<random_secret>
 
 So the security of a stolen database rests on `APP_KEY` staying secret. It must live only in the server environment (`api/.env`), never in the repository, a backup that also contains the dump, or client code. Rotating `APP_KEY` invalidates every `encrypted_secret`, so treat it as a long-lived production secret.
 
-This is a deliberate trade-off for the 50% milestone: one-way-only storage would be marginally safer against a combined leak, but would make the ticket unrecoverable for the attendee. A later milestone may move to per-ticket key derivation if the stronger property is required.
+The app needs to display a ticket again after login, so the server retains an encrypted QR payload that it can return only to the ticket owner. A per-ticket key derivation scheme could reduce the risk of a combined database and application-key leak, but the current implementation does not use one.
 
 ---
 
@@ -402,7 +333,7 @@ The current implementation reflects this deliberately:
 - `users.role` is a **coarse portal flag** used for routing and portal-level access (which app area you land in, whether the organizer console is reachable). Its constants (`admin`, `organizer`, `staff`, `student`) are a short-term convenience, not the responsibility model.
 - The **responsibility model lives in `event_staff`**: a per-event assignment row with an optional specific gate. `AdmitTicket` authorizes a scan from `isAdmin() || event.organizer_id === user.id || an event_staff row exists` and never from `users.role` alone. A student who is assigned as staff for one event can therefore scan that event without gaining any other staff capability.
 
-### Known conflation, deferred to the second half
+### Remaining role-routing limitation
 
 Two places still read `users.role` where they should read a responsibility:
 
