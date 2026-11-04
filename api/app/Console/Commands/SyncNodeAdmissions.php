@@ -51,11 +51,17 @@ class SyncNodeAdmissions extends Command
             return self::FAILURE;
         }
         $failed = false;
+        // Leave time for the last HTTP request before the scheduler's 10-minute lock expires.
+        $deadline = hrtime(true) + 480_000_000_000;
+        $hasTime = static fn (): bool => hrtime(true) < $deadline;
         foreach ($events as $eventId) {
+            if (! $hasTime()) {
+                break;
+            }
             try {
-                for ($number = 0; $number < 40; $number++) {
+                for ($number = 0; $number < 40 && $hasTime(); $number++) {
                     $walkIn = $prepareWalkIn->execute((int) $eventId);
-                    if ($walkIn === null) {
+                    if ($walkIn === null || ! $hasTime()) {
                         break;
                     }
                     $response = Http::acceptJson()->withHeaders(['X-Ingress-Node' => $nodeId])
@@ -76,9 +82,9 @@ class SyncNodeAdmissions extends Command
                 $this->error("Walk-in synchronization failed for event {$eventId}; the pending issuance will be retried.");
             }
             try {
-                for ($number = 0; $number < 10; $number++) {
+                for ($number = 0; $number < 10 && $hasTime(); $number++) {
                     $recovery = $recoveries->prepare((int) $eventId);
-                    if ($recovery === null) {
+                    if ($recovery === null || ! $hasTime()) {
                         break;
                     }
                     $response = Http::acceptJson()->withHeaders(['X-Ingress-Node' => $nodeId])
@@ -98,9 +104,9 @@ class SyncNodeAdmissions extends Command
                 $this->error("Walk-in recovery synchronization failed for event {$eventId}; the pending record will be retried.");
             }
             try {
-                for ($batchNumber = 0; $batchNumber < 10; $batchNumber++) {
+                for ($batchNumber = 0; $batchNumber < 10 && $hasTime(); $batchNumber++) {
                     $batch = $prepare->execute((int) $eventId);
-                    if ($batch === null) {
+                    if ($batch === null || ! $hasTime()) {
                         break;
                     }
                     $response = Http::acceptJson()->withHeaders(['X-Ingress-Node' => $nodeId])
