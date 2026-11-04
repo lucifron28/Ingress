@@ -36,6 +36,7 @@ class Event extends Model
         'starts_at',
         'ends_at',
         're_entry_allowed',
+        'ticket_transfers_allowed',
         'status',
         'banner_path',
     ];
@@ -52,6 +53,7 @@ class Event extends Model
             'starts_at' => 'datetime',
             'ends_at' => 'datetime',
             're_entry_allowed' => 'boolean',
+            'ticket_transfers_allowed' => 'boolean',
         ];
     }
 
@@ -85,6 +87,11 @@ class Event extends Model
     public function registrations(): HasMany
     {
         return $this->hasMany(Registration::class);
+    }
+
+    public function ticketTransfers(): HasMany
+    {
+        return $this->hasMany(TicketTransfer::class);
     }
 
     public function isDraft(): bool

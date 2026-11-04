@@ -374,7 +374,7 @@ Before finalization, the Event Node receives the staff accounts, roles, gate ass
 ## ADR 017: Ticket Transfer Changes Ownership and Rotates Credentials
 
 ### Status
-Planned for the second half.
+Implemented in Phase 10.
 
 ### Context
 Attendees commonly give away a ticket when they can no longer attend. Without an official transfer path, users are encouraged to forward QR screenshots, which preserves the wrong identity and creates avoidable admission disputes.
@@ -392,7 +392,7 @@ A transfer:
 
 Until the recipient accepts, the original owner keeps the ticket. Scanner staff see the current owner, not the full transfer history.
 
-Events may disable transfer, limit the number of transfers, or require organizer approval. Self-service transfer closes when the event is finalized for admission. Walk-in passes do not require self-service transfer support.
+Events default to transfers disabled and may enable them in event settings. This version supports transfers between verified student accounts, without a transfer-count limit or organizer approval step. Self-service transfer closes at snapshot preparation. Pending requests expire when the event disables transfers or prepares its snapshot. Guest, alumni, and walk-in passes do not support self-service transfer.
 ---
 
 ## ADR 018: MSEUF-First Student Accounts with Guest and Alumni Email Tickets

@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\V1\NodeStaffAuthController;
 use App\Http\Controllers\Api\V1\RegistrationController;
 use App\Http\Controllers\Api\V1\StaffAdmissionController;
 use App\Http\Controllers\Api\V1\TicketController;
+use App\Http\Controllers\Api\V1\TicketTransferController;
 use App\Http\Controllers\StudentEmailVerificationController;
 use Illuminate\Support\Facades\Route;
 
@@ -42,6 +43,13 @@ Route::prefix('v1')->group(function () {
         Route::post('/events/{event}/registration', [RegistrationController::class, 'store'])->middleware('runtime:legacy,cloud');
         Route::get('/me/tickets', [TicketController::class, 'myTickets']);
         Route::get('/tickets/{ticket}', [TicketController::class, 'show']);
+        Route::middleware('runtime:legacy,cloud')->group(function () {
+            Route::get('/me/ticket-transfers', [TicketTransferController::class, 'index']);
+            Route::post('/tickets/{ticket}/transfers', [TicketTransferController::class, 'store']);
+            Route::post('/ticket-transfers/{ticketTransfer}/accept', [TicketTransferController::class, 'accept']);
+            Route::post('/ticket-transfers/{ticketTransfer}/decline', [TicketTransferController::class, 'decline']);
+            Route::delete('/ticket-transfers/{ticketTransfer}', [TicketTransferController::class, 'cancel']);
+        });
 
         // Staff Admission & Multi-Gate Scanning
         Route::prefix('staff')->middleware('runtime:legacy,node')->group(function () {

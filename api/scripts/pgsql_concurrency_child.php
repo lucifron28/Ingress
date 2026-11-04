@@ -29,8 +29,10 @@ use App\Actions\RegisterForEvent;
 use App\Actions\SyncWalkInRecovery;
 use App\Actions\TransferEventAuthority;
 use App\Http\Controllers\Api\V1\NodeStaffAuthController;
+use App\Http\Controllers\Api\V1\TicketTransferController;
 use App\Http\Controllers\StudentEmailVerificationController;
 use App\Http\Middleware\EnsureRuntimeDatabase;
+use App\Models\TicketTransfer;
 use App\Models\User;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Http\Request;
@@ -195,6 +197,12 @@ try {
         config(['ingress.mode' => 'cloud']);
         $snapshot = app(PrepareEventSnapshot::class)->execute($payload['event_id']);
         $emit(['ok' => true, 'id' => $snapshot['id'], 'version' => $snapshot['version']]);
+    } elseif ($mode === 'ticket_transfer_accept') {
+        config(['ingress.mode' => 'cloud']);
+        $request = Request::create('/api/v1/ticket-transfers/'.$payload['transfer_id'].'/accept', 'POST');
+        $request->setUserResolver(fn () => User::findOrFail($payload['recipient_id']));
+        $response = app(TicketTransferController::class)->accept($request, TicketTransfer::findOrFail($payload['transfer_id']));
+        $emit(['ok' => $response->getStatusCode() === 200, 'http_code' => $response->getStatusCode()]);
     } elseif ($mode === 'node_staff_login') {
         $app->detectEnvironment(fn () => 'testing');
         config(['ingress.mode' => 'node', 'ingress.node_id' => $payload['node_id']]);

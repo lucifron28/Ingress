@@ -1,6 +1,6 @@
 # Implementation roadmap
 
-Status is relative to `main` at `47feca7`. A checked item requires a merged change and the listed automated verification. Device and venue verification remains deferred to the project owner where noted.
+Status is relative to `main` at `9226683`. Phase 10 is in progress. A checked item requires a merged change and the listed automated verification. Device and venue verification remains deferred to the project owner where noted.
 
 ## Baseline
 
@@ -20,8 +20,8 @@ Status is relative to `main` at `47feca7`. A checked item requires a merged chan
 6. [ ] Add idempotent Event Node to cloud reconciliation, retries, and recovery. Preregistered student, guest, and alumni admissions synchronize in authenticated batches with scheduled retries and duplicate protection. The walk-in branch adds receipt-based walk-in synchronization; integration verification and authority recovery remain pending.
 7. [ ] Add institutional email verification and account completion. The cloud issues a single-use link to an `@student.mseuf.edu.ph` address and creates an account after form submission without a directory import. Mail delivery configuration and device verification remain to be checked in deployment.
 8. [x] Add guest and alumni tickets, walk-ins, capacity enforcement, and printable QR passes using the shared validation engine. Organizers can issue and print accountless guest and alumni passes before registration closes. PR #34 merged as `47feca7`; CI passed. Device verification remains deferred.
-9. [ ] Add entry, exit, re-entry policies, and current-presence reporting. Implementation is on `feature/entry-exit-presence`; Laravel tests (203 passed, 1 skipped), TypeScript, and PostgreSQL concurrency checks (134 assertions) pass. The PR and merge are pending; device verification remains deferred.
-10. [ ] Add pre-finalization transfers with recipient acceptance, credential rotation, and audit history.
+9. [x] Add entry, exit, re-entry policies, and current-presence reporting. PR #35 merged as `9226683`; Laravel tests passed (203 passed, 1 skipped), TypeScript passed, and PostgreSQL concurrency checks passed (134 assertions). All three post-merge CI jobs passed. Device verification remains deferred.
+10. [ ] Add pre-finalization transfers with recipient acceptance, credential rotation, and audit history. Implementation is underway on `feature/ticket-transfers`.
 11. [ ] Complete reporting, identity policies, security hardening, deployment instructions, and real-device verification.
 12. [ ] Test 500 to 1,000 or more attendees, concurrent gates, LAN disconnection, restart, and synchronization recovery. Record setup, results, and limits.
 

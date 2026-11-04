@@ -74,6 +74,7 @@ export interface WalletTicket {
     id: number;
     title: string;
     status?: string;
+    ticket_transfers_allowed?: boolean;
     venue?: { name: string; location: string | null } | null;
     starts_at: string;
     ends_at: string;

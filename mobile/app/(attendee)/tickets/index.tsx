@@ -10,9 +10,11 @@ import {
   View,
 } from 'react-native';
 import { loadWallet } from '../../../src/services/wallet-sync';
+import { cancelTicketTransfer, loadTicketTransfers, respondToTicketTransfer } from '../../../src/services/ticket-transfer-sync';
 
 import { useAuth } from '../../../src/context/AuthContext';
 import { WalletTicket } from '../../../src/services/auth-storage';
+import type { TicketTransfer } from '../../../src/services/ticket-transfer-sync';
 
 type TicketItem = WalletTicket;
 
@@ -25,6 +27,9 @@ export default function MyTicketsScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [transfers, setTransfers] = useState<TicketTransfer[]>([]);
+  const [transferMessage, setTransferMessage] = useState<string | null>(null);
+  const [busyTransferId, setBusyTransferId] = useState<number | null>(null);
 
   const fetchTickets = async () => {
     const request = ++requestId.current;
@@ -37,6 +42,11 @@ export default function MyTicketsScreen() {
       setTickets(result.tickets);
       setOfflineSince(result.offlineSince);
       setCacheUnavailable(!result.saved);
+      try {
+        setTransfers(await loadTicketTransfers());
+      } catch {
+        setTransfers([]);
+      }
     } catch (err: unknown) {
       if (request !== requestId.current) return;
       const errorObj = err as { status?: number; message?: string };
@@ -48,6 +58,22 @@ export default function MyTicketsScreen() {
         setIsLoading(false);
         setIsRefreshing(false);
       }
+    }
+  };
+
+  const handleTransferAction = async (transfer: TicketTransfer, action: 'accept' | 'decline' | 'cancel') => {
+    setBusyTransferId(transfer.id);
+    setTransferMessage(null);
+    try {
+      if (action === 'cancel') await cancelTicketTransfer(transfer.id);
+      else await respondToTicketTransfer(transfer.id, action);
+      setTransferMessage(action === 'accept' ? 'Ticket transfer accepted. Your ticket is now in your wallet.' :
+        action === 'decline' ? 'Ticket transfer declined.' : 'Transfer request cancelled.');
+      await fetchTickets();
+    } catch (error: unknown) {
+      setTransferMessage((error as { message?: string })?.message || 'Could not update the transfer request.');
+    } finally {
+      setBusyTransferId(null);
     }
   };
 
@@ -102,6 +128,34 @@ export default function MyTicketsScreen() {
     </Pressable>
   );
 
+  const renderTransfer = (transfer: TicketTransfer) => (
+    <View key={transfer.id} style={styles.transferCard}>
+      <Text style={styles.transferTitle}>{transfer.ticket.event.title || 'Event ticket'}</Text>
+      <Text style={styles.transferDetail}>
+        {transfer.direction === 'incoming'
+          ? `${transfer.sender.name} offered you a ticket.`
+          : `Waiting for ${transfer.recipient.name} to accept.`}
+      </Text>
+      <Text style={styles.transferRef}>Ref: {transfer.ticket.public_id}</Text>
+      <View style={styles.transferActions}>
+        {transfer.direction === 'incoming' ? (
+          <>
+            <Pressable disabled={busyTransferId === transfer.id} style={styles.transferPrimaryButton} onPress={() => handleTransferAction(transfer, 'accept')}>
+              <Text style={styles.transferPrimaryText}>{busyTransferId === transfer.id ? 'Please wait…' : 'Accept'}</Text>
+            </Pressable>
+            <Pressable disabled={busyTransferId === transfer.id} style={styles.transferSecondaryButton} onPress={() => handleTransferAction(transfer, 'decline')}>
+              <Text style={styles.transferSecondaryText}>Decline</Text>
+            </Pressable>
+          </>
+        ) : (
+          <Pressable disabled={busyTransferId === transfer.id} style={styles.transferSecondaryButton} onPress={() => handleTransferAction(transfer, 'cancel')}>
+            <Text style={styles.transferSecondaryText}>Cancel request</Text>
+          </Pressable>
+        )}
+      </View>
+    </View>
+  );
+
   if (isLoading) {
     return (
       <View style={styles.centerContainer}>
@@ -131,6 +185,17 @@ export default function MyTicketsScreen() {
         data={tickets}
         keyExtractor={(item) => item.id.toString()}
         renderItem={renderTicketCard}
+        ListHeaderComponent={(
+          <View>
+            {transferMessage && <Text style={styles.transferMessage}>{transferMessage}</Text>}
+            {transfers.length > 0 && (
+              <View style={styles.transferSection}>
+                <Text style={styles.transferSectionTitle}>Ticket transfers</Text>
+                {transfers.map(renderTransfer)}
+              </View>
+            )}
+          </View>
+        )}
         contentContainerStyle={styles.listContainer}
         refreshControl={
           <RefreshControl
@@ -267,6 +332,73 @@ const styles = StyleSheet.create({
     color: '#800000',
     fontSize: 13,
     fontWeight: '700',
+  },
+  transferSection: {
+    marginBottom: 16,
+  },
+  transferSectionTitle: {
+    color: '#0f172a',
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 10,
+  },
+  transferCard: {
+    backgroundColor: '#fff7ed',
+    borderColor: '#fed7aa',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 10,
+  },
+  transferTitle: {
+    color: '#0f172a',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  transferDetail: {
+    color: '#475569',
+    fontSize: 13,
+    marginTop: 4,
+  },
+  transferRef: {
+    color: '#64748b',
+    fontSize: 11,
+    fontFamily: 'monospace',
+    marginTop: 4,
+  },
+  transferActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  transferPrimaryButton: {
+    backgroundColor: '#800000',
+    borderRadius: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  transferPrimaryText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  transferSecondaryButton: {
+    backgroundColor: '#fff',
+    borderColor: '#cbd5e1',
+    borderWidth: 1,
+    borderRadius: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  transferSecondaryText: {
+    color: '#334155',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  transferMessage: {
+    color: '#166534',
+    fontSize: 13,
+    marginBottom: 10,
   },
   emptyContainer: {
     padding: 40,
