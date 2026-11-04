@@ -471,6 +471,10 @@ class SnapshotTransferTest extends TestCase
             config(['ingress.mode' => 'cloud', 'ingress.node_id' => null, 'ingress.node_sync_key' => null]);
             $walkInReceipt = $this->call('POST', '/api/v1/node-sync/walk-ins', [], [], [], $headers, $walkInPackage['package'])->assertOk()->json();
             $this->call('POST', '/api/v1/node-sync/walk-ins', [], [], [], $headers, $walkInPackage['package'])->assertOk()->assertExactJson($walkInReceipt);
+            $conflictingWalkIn = json_decode(app(AdmissionSyncEnvelope::class)->open($walkInPackage['package'], $secret), true, 8, JSON_THROW_ON_ERROR);
+            $conflictingWalkIn['name'] = 'Changed Name';
+            $conflictingPackage = app(AdmissionSyncEnvelope::class)->seal(json_encode($conflictingWalkIn, JSON_THROW_ON_ERROR), $secret);
+            $this->call('POST', '/api/v1/node-sync/walk-ins', [], [], [], $headers, $conflictingPackage)->assertStatus(422);
             $this->assertDatabaseCount('cloud_walk_in_receipts', 1);
             $this->assertNull(DB::table('tickets')->where('id', $walkInReceipt['ticket_id'])->value('encrypted_secret'));
             DB::setDefaultConnection('authority_node');

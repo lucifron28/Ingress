@@ -161,4 +161,24 @@ class NodeAdmissionTest extends TestCase
         ])->assertOk()->assertJsonPath('status', 'admitted');
         $this->assertDatabaseCount('admissions', 1);
     }
+
+    public function test_walk_in_rejects_conflicting_retries_and_duplicate_attendees(): void
+    {
+        app(ActivateEventAuthority::class)->execute($this->grant);
+        $url = "/api/v1/staff/events/{$this->eventId}/walk-ins";
+        $details = ['client_request_id' => (string) Str::uuid(), 'name' => 'Walk In',
+            'email' => 'walkin@example.test', 'kind' => 'student', 'student_id' => '456'];
+        $this->withToken($this->token)->postJson($url, $details)->assertOk();
+        $this->withToken($this->token)->postJson($url, array_merge($details, ['name' => 'Other Name']))->assertStatus(422);
+        $this->withToken($this->token)->postJson($url, array_merge($details, [
+            'client_request_id' => (string) Str::uuid(), 'email' => 'other@example.test',
+        ]))->assertStatus(422);
+        $this->withToken($this->token)->postJson($url, array_merge($details, [
+            'client_request_id' => (string) Str::uuid(), 'student_id' => '789',
+        ]))->assertStatus(422);
+        $this->assertDatabaseCount('node_walk_in_issuances', 1);
+        DB::table('node_staff_credentials')->delete();
+        $this->withToken($this->token)->postJson($url, $details)->assertUnauthorized();
+        $this->assertDatabaseCount('node_walk_in_issuances', 1);
+    }
 }
