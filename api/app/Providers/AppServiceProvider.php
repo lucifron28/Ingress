@@ -32,6 +32,8 @@ class AppServiceProvider extends ServiceProvider
             );
         }
 
+        RateLimiter::for('node-staff-pair', fn (Request $request) => Limit::perMinute(20)->by('node-pair:'.$request->ip()));
+
         RateLimiter::for('node-staff-login', function (Request $request) {
             $email = $request->input('email');
             $normalized = is_string($email) ? Str::lower(trim($email)) : '';
