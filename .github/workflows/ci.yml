@@ -86,6 +86,20 @@ jobs:
           DB_PASSWORD: password
         run: php scripts/verify_pgsql_concurrency.php
 
+      - name: Run PostgreSQL Load and Recovery Verification
+        working-directory: api
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_DATABASE: postgres
+          DB_USERNAME: postgres
+          DB_PASSWORD: password
+          INGRESS_LOAD_DB: ingress_load_recovery
+          INGRESS_LOAD_ATTENDEES: 1000
+          INGRESS_LOAD_WORKERS: 4
+        run: php scripts/verify_load_recovery.php
+
   mobile-tests:
     name: Mobile Tests & Typecheck
     runs-on: ubuntu-latest
