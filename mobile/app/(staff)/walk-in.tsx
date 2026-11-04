@@ -112,7 +112,7 @@ export default function WalkInScreen() {
       const base64 = await new Promise<string>((resolve) => qrImage.toDataURL(resolve));
       if (!/^[A-Za-z0-9+/=]+$/.test(base64)) throw new Error('Could not prepare the QR image.');
       const student = pending?.student_id ? `<p>Student ID: ${escapeHtml(pending.student_id)}</p>` : '';
-      await Print.printAsync({ html: `<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{font-family:sans-serif;text-align:center;padding:32px}img{width:240px;height:240px}</style></head><body><h1>${escapeHtml(eventTitle ?? 'Event pass')}</h1><p>WALK-IN</p><p>${escapeHtml(pass.attendee_name)}</p>${student}<img alt="Ticket QR code" src="data:image/png;base64,${base64}"><p>${escapeHtml(pass.public_id)}</p><p>Keep this pass private. Present it at the event entrance.</p></body></html>` });
+      await Print.printAsync({ html: `<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{font-family:sans-serif;text-align:center;padding:32px}img{width:240px;height:240px}.code{font-family:monospace;font-size:10px;overflow-wrap:anywhere}</style></head><body><h1>${escapeHtml(eventTitle ?? 'Event pass')}</h1><p>WALK-IN</p><p>${escapeHtml(pass.attendee_name)}</p>${student}<img alt="Ticket QR code" src="data:image/png;base64,${base64}"><p>${escapeHtml(pass.public_id)}</p><p>Manual entry code, keep private:</p><p class="code">${escapeHtml(pass.qr_payload)}</p><p>Keep this pass private. Present it at the event entrance.</p></body></html>` });
     } catch { setError('Could not open the print dialog. Check the printer and try again.'); }
     finally { setBusy(false); }
   };

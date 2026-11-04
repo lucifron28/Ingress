@@ -298,7 +298,7 @@ Walk-ins are a first-class registration source, not an anonymous attendance coun
 
 The node staff app can issue a student, guest, or alumni walk-in pass for an assigned event with active node authority. A student ID is self-reported, not institutionally verified. The node checks email and student ID against existing event registrations and locks the event while enforcing capacity. The app stores the pending request in device-only secure storage before sending it, so a lost response can be retried with the same identifier. Staff can display or print the QR; issuance does not admit the attendee. Physical printer and device verification remain pending.
 
-The node sends each walk-in in an encrypted package and retains it until the cloud returns an authenticated receipt. The cloud stores the ticket hash without the QR secret. The node then maps the cloud registration and ticket IDs and sends any admission through the regular admission sync. A conflicting identity or capacity failure stops synchronization for investigation. The printed reference identifies the ticket but is not sufficient to authenticate a scan on its own; manual entry currently requires the complete QR payload.
+The node sends each walk-in in an encrypted package and retains it until the cloud returns an authenticated receipt. The cloud stores the ticket hash without the QR secret. The node then maps the cloud registration and ticket IDs and sends any admission through the regular admission sync. A conflicting identity or capacity failure stops synchronization for investigation. The printed pass includes the complete private QR payload for manual entry. The public ticket reference alone cannot authenticate a scan.
 
 Suggested source values:
 
