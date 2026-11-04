@@ -40,7 +40,7 @@ Set `INGRESS_CLOUD_SYNC_URL` on the node to the cloud HTTPS API base, for exampl
 
 The node keeps each encrypted batch until it receives an authenticated cloud receipt. It retries the same batch after a lost connection or response and marks only the acknowledged admissions as synchronized. New admissions can continue during an upload and are sent in later batches. Each run sends at most ten batches of 100 admissions per event. The cloud checks the active authority, frozen snapshot, ticket, gate, staff assignment, and idempotency identifiers before recording a batch in one transaction. A duplicate or rebatch of the same admission is safe; conflicting records stop the batch. Sync failures are recorded in the node application log. Cloud reports may lag while the node is offline.
 
-Only imported preregistered tickets are supported by this synchronization protocol. Walk-ins, guest records, movement history, and authority recovery remain future work. Revoking a node transfer credential also prevents pending admissions from synchronizing. There is no credential recovery or rekey procedure yet, so retain the node database and investigate failed batches rather than deleting them or reassigning authority.
+Imported preregistered student, guest, and alumni tickets are supported by this synchronization protocol. Walk-ins, movement history, and authority recovery remain future work. Revoking a node transfer credential also prevents pending admissions from synchronizing. There is no credential recovery or rekey procedure yet, so retain the node database and investigate failed batches rather than deleting them or reassigning authority.
 
 ### Provision node staff credentials
 
@@ -285,6 +285,12 @@ After the deadline:
 - attendees without a preregistered ticket use the walk-in process.
 
 This is a business rule, not merely a response to an internet outage. A student who missed the deadline is a walk-in even if their phone still has internet.
+
+### Organizer-issued guest and alumni passes
+
+Before registration closes, an authorized organizer can enter a guest or alumni name and email on the event page and issue a pass. The attendee does not need a user account. The email identifies the registration for duplicate checks; the system does not verify the address or send the pass automatically. The organizer opens the protected pass page and prints or securely delivers it. Rendering the pass requires PHP XMLWriter. The page uses no-store headers and does not put the QR credential in its URL. Reprinting is available while the ticket is active and the event is not cancelled.
+
+Guest and alumni registrations share the event capacity lock with student registrations. Their opaque QR uses the same validation and admission path. A snapshot containing accountless attendees uses schema version 2; student-only version 1 snapshots remain supported. Both cloud and node must be upgraded before transferring a version 2 snapshot. Guest and alumni admissions synchronize back to the cloud using the same batch protocol. Walk-in issuance on the node is not implemented yet.
 
 ## 10. Walk-in registration
 

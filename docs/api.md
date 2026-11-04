@@ -614,3 +614,7 @@ The authenticated user resource includes `is_event_staff`, indicating whether th
 ### Event Node admission synchronization
 
 `POST /node-sync/admissions` is available only on the cloud runtime and requires HTTPS outside local and testing environments. The node sends an encrypted, authenticated batch as `application/octet-stream` with its ID in `X-Ingress-Node`. The cloud checks that node's active event authority and the frozen snapshot before applying the batch. A successful response returns a batch ID and authenticated receipt. Repeating the same batch returns the same receipt without duplicating admissions. Invalid credentials, conflicting records, or malformed batches are rejected without partial writes.
+
+### Organizer-issued guest and alumni passes
+
+The cloud organizer interface accepts `POST /organizer/events/{event}/guests` from an authorized organizer with `guest_name`, `guest_email`, and `attendee_type` (`guest` or `alumni`). It creates a registration without a user account and redirects to an authenticated printable pass. The pass response is private and non-cacheable. The organizer must deliver it securely; email delivery is not implemented. Registration cutoff, duplicate identity checks, and event capacity apply.
