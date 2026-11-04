@@ -84,6 +84,20 @@ class GuestTicketTest extends TestCase
         }
     }
 
+    public function test_cloud_guest_pass_list_excludes_node_issued_walk_ins(): void
+    {
+        $this->actingAs($this->owner)->post("/organizer/events/{$this->event->id}/guests", [
+            'guest_name' => 'Cloud Guest', 'guest_email' => 'cloud@example.test', 'attendee_type' => 'guest',
+        ])->assertRedirect();
+        Registration::create([
+            'event_id' => $this->event->id, 'user_id' => null, 'attendee_type' => 'walk_in', 'walk_in_kind' => 'guest',
+            'guest_name' => 'Node Walk In', 'guest_email' => 'node@example.test', 'status' => Registration::STATUS_CONFIRMED,
+        ]);
+        $this->get("/organizer/events/{$this->event->id}")->assertOk()
+            ->assertSee('Cloud Guest')->assertDontSee('Node Walk In');
+        $this->get("/organizer/events/{$this->event->id}/attendance")->assertOk()->assertSee('Node Walk In');
+    }
+
     public function test_version_two_snapshot_rejects_invalid_guest_identity(): void
     {
         $this->actingAs($this->owner)->post("/organizer/events/{$this->event->id}/guests", [

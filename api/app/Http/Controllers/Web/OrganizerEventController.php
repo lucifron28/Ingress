@@ -143,7 +143,7 @@ class OrganizerEventController extends Controller
         $event->load(['venue', 'accessPoints', 'staffAssignments.user', 'staffAssignments.accessPoint']);
         $staffUsers = User::where('role', User::ROLE_STAFF)->orderBy('name')->get();
         $guestRegistrations = config('ingress.mode') === 'cloud' && Auth::user()->can('update', $event)
-            ? $event->registrations()->whereNull('user_id')->with('ticket')->orderBy('id')->get() : collect();
+            ? $event->registrations()->whereIn('attendee_type', ['guest', 'alumni'])->with('ticket')->orderBy('id')->get() : collect();
         $receiptNodeId = null;
         $importReceiptNodeId = null;
         $authority = DB::table('cloud_event_authorities')->where('event_id', $event->id)->first();
