@@ -2,17 +2,21 @@
 
 namespace Tests\Feature;
 
+use App\Actions\IssueGuestTicket;
 use App\Actions\PrepareEventSnapshot;
 use App\Actions\ValidateSnapshotPayload;
+use App\Http\Controllers\Web\GuestTicketController;
 use App\Models\Event;
 use App\Models\Registration;
 use App\Models\User;
 use App\Models\Venue;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 class GuestTicketTest extends TestCase
@@ -57,6 +61,27 @@ class GuestTicketTest extends TestCase
         $this->actingAs($other)->post("/organizer/events/{$this->event->id}/guests", $data)->assertForbidden();
         $this->actingAs($this->owner)->post("/organizer/events/{$this->event->id}/cancel")->assertRedirect();
         $this->get($pass)->assertNotFound();
+    }
+
+    public function test_guest_pass_requires_https_outside_local_or_testing(): void
+    {
+        $this->actingAs($this->owner)->post("/organizer/events/{$this->event->id}/guests", [
+            'guest_name' => 'Guest', 'guest_email' => 'guest@example.test', 'attendee_type' => 'guest',
+        ])->assertRedirect();
+        $registration = Registration::where('event_id', $this->event->id)->firstOrFail();
+        $this->app->detectEnvironment(fn () => 'production');
+        $controller = app(GuestTicketController::class);
+        foreach ([
+            fn () => $controller->show(Request::create('http://example.test/pass'), $this->event, $registration),
+            fn () => $controller->store(Request::create('http://example.test/guests', 'POST'), $this->event, app(IssueGuestTicket::class)),
+        ] as $request) {
+            try {
+                $request();
+                $this->fail('An unencrypted guest operation was accepted.');
+            } catch (HttpException $exception) {
+                $this->assertSame(403, $exception->getStatusCode());
+            }
+        }
     }
 
     public function test_version_two_snapshot_rejects_invalid_guest_identity(): void

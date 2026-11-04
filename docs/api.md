@@ -617,4 +617,4 @@ The authenticated user resource includes `is_event_staff`, indicating whether th
 
 ### Organizer-issued guest and alumni passes
 
-The cloud organizer interface accepts `POST /organizer/events/{event}/guests` from an authorized organizer with `guest_name`, `guest_email`, and `attendee_type` (`guest` or `alumni`). It creates a registration without a user account and redirects to an authenticated printable pass. The pass response is private and non-cacheable. The organizer must deliver it securely; email delivery is not implemented. Registration cutoff, duplicate identity checks, and event capacity apply.
+The cloud organizer interface accepts `POST /organizer/events/{event}/guests` from an authorized organizer with `guest_name`, `guest_email`, and `attendee_type` (`guest` or `alumni`). It creates a registration without a user account and redirects to an authenticated printable pass. Issuance and pass viewing require HTTPS outside local and testing environments. The pass response is private and non-cacheable. The organizer must deliver it securely; email delivery is not implemented. Registration cutoff, duplicate identity checks, and event capacity apply.

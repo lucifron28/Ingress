@@ -20,6 +20,7 @@ class GuestTicketController extends Controller
     public function store(Request $request, Event $event, IssueGuestTicket $action): RedirectResponse
     {
         Gate::authorize('update', $event);
+        abort_if(! $request->secure() && ! app()->environment(['local', 'testing']), 403, 'HTTPS is required.');
         $data = $request->validate([
             'guest_name' => ['required', 'string', 'max:255'],
             'guest_email' => ['required', 'email', 'max:255'],
@@ -30,9 +31,10 @@ class GuestTicketController extends Controller
         return redirect()->route('organizer.events.guest-pass', [$event, $registration]);
     }
 
-    public function show(Event $event, Registration $registration): Response
+    public function show(Request $request, Event $event, Registration $registration): Response
     {
         Gate::authorize('update', $event);
+        abort_if(! $request->secure() && ! app()->environment(['local', 'testing']), 403, 'HTTPS is required.');
         $registration->load('ticket');
         abort_unless((int) $registration->event_id === (int) $event->id && $registration->user_id === null
             && in_array($registration->attendee_type, ['guest', 'alumni'], true)
