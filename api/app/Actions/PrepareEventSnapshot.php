@@ -5,6 +5,7 @@ namespace App\Actions;
 use App\Models\Admission;
 use App\Models\Event;
 use App\Models\Registration;
+use App\Models\TicketTransfer;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -46,6 +47,15 @@ class PrepareEventSnapshot
                 && now()->lte($event->registration_closes_at) && now()->lte($event->ends_at)) {
                 throw ValidationException::withMessages(['registration' => 'Close registration before preparing a snapshot.']);
             }
+
+            TicketTransfer::where('event_id', $event->id)
+                ->where('status', TicketTransfer::STATUS_PENDING)
+                ->update([
+                    'status' => TicketTransfer::STATUS_EXPIRED,
+                    'pending_ticket_id' => null,
+                    'expired_at' => now(),
+                    'updated_at' => now(),
+                ]);
 
             $event->load(['venue', 'organizer', 'accessPoints', 'staffAssignments.user']);
             $registrations = Registration::with(['user', 'ticket'])->where('event_id', $event->id)->orderBy('id')->get();

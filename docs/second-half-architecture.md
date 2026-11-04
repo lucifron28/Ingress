@@ -1,7 +1,7 @@
 # Ingress second-half target architecture
 
 **Status:** Target architecture with implementation notes.
-**Current implementation:** Cloud and Event Node runtimes support snapshot transfer, assigned staff admission, and admission synchronization. Organizers can issue guest and alumni passes. The walk-in branch adds node issuance and synchronization; it has not yet been merged or verified. Ticket transfers and entry/exit tracking remain planned. Admission requires the venue LAN and Event Node, but not public internet.
+**Current implementation:** Cloud and Event Node runtimes support snapshot transfer, assigned staff admission, admission synchronization, guest and alumni passes, node walk-ins, and entry/exit tracking. Verified students can transfer eligible tickets before snapshot preparation. Device and venue verification remains with the project owner. Admission requires the venue LAN and Event Node, but not public internet.
 
 ## Runtime boundary implemented so far
 
@@ -354,7 +354,7 @@ Walk-in ticket creation and admission are separate operations by default so regi
 
 ## 11. Ticket transfer
 
-Ticket transfer is planned for the second half because users commonly give a ticket to another person when they can no longer attend.
+The cloud supports ticket transfer before snapshot preparation. Events opt in; new events default to disabled. Only verified student accounts can send or receive a transfer. Guest, alumni, and node walk-in tickets are excluded.
 
 A transfer changes ownership. It is not QR forwarding.
 
@@ -383,10 +383,12 @@ Rules:
 - a completed transfer generates a new credential so the old owner's saved QR becomes invalid;
 - transfer history is retained for organizer audit;
 - scanner staff see the current owner, not the full transfer history;
-- transfers may be disabled, limited, or require organizer approval per event;
+- an event may disable transfers; this version does not impose a transfer count limit or organizer approval step;
 - self-service transfers stop when the event is finalized for admission.
 
-A transferred ticket must use the recipient's identity and, when applicable, the recipient's photo.
+A request appears in the recipient's online ticket wallet. The sender can cancel a pending request, and the recipient can accept or decline it. Disabling transfers expires pending requests. Snapshot preparation also expires pending requests while holding the event lock, so acceptance and finalization serialize. A transferred ticket uses the recipient account's name, email, and student number. The current account model has no attendee photo field.
+
+The organizer event page paginates transfer history at 100 requests per page and shows sender, recipient, ticket reference, status, and transition timestamps. Scanner staff see only the current ticket owner.
 
 Walk-in passes do not need self-service transfer support.
 

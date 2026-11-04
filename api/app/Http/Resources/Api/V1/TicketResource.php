@@ -34,6 +34,7 @@ class TicketResource extends JsonResource
                 'id' => $event?->id,
                 'title' => $event?->title,
                 'status' => $event?->status,
+                'ticket_transfers_allowed' => (bool) $event?->ticket_transfers_allowed && $event?->snapshot_prepared_at === null,
                 'venue' => $event?->venue ? [
                     'id' => $event->venue->id,
                     'name' => $event->venue->name,

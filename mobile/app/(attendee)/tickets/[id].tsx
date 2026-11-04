@@ -6,10 +6,12 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 import { loadWalletTicket } from '../../../src/services/wallet-sync';
+import { apiRequest } from '../../../src/services/api-client';
 
 import { useAuth } from '../../../src/context/AuthContext';
 import { WalletTicket } from '../../../src/services/auth-storage';
@@ -24,6 +26,9 @@ export default function TicketDetailScreen() {
   const [ticket, setTicket] = useState<TicketDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [recipientIdentifier, setRecipientIdentifier] = useState('');
+  const [transferBusy, setTransferBusy] = useState(false);
+  const [transferMessage, setTransferMessage] = useState<string | null>(null);
 
   const fetchTicket = async () => {
     const request = ++requestId.current;
@@ -72,6 +77,24 @@ export default function TicketDetailScreen() {
       });
     } catch {
       return isoString;
+    }
+  };
+
+  const requestTransfer = async () => {
+    if (!ticket || !recipientIdentifier.trim()) return;
+    setTransferBusy(true);
+    setTransferMessage(null);
+    try {
+      const response = await apiRequest<{ message: string }>(`/tickets/${ticket.id}/transfers`, {
+        method: 'POST',
+        body: JSON.stringify({ recipient: recipientIdentifier.trim() }),
+      });
+      setTransferMessage(response.message);
+      setRecipientIdentifier('');
+    } catch (error: unknown) {
+      setTransferMessage((error as { message?: string })?.message || 'Could not send the transfer request.');
+    } finally {
+      setTransferBusy(false);
     }
   };
 
@@ -194,6 +217,27 @@ export default function TicketDetailScreen() {
             Present this QR code to event staff for identity verification. Entry, exit, and re-entry follow the event policy and require staff confirmation.
           </Text>
         </View>
+
+        {ticket.event.ticket_transfers_allowed && ticket.status === 'active' && ticket.qr_payload && !offlineSince && (
+          <View style={styles.transferSection}>
+            <Text style={styles.instructionTitle}>Transfer this ticket</Text>
+            <Text style={styles.instructionText}>Enter the email of another verified student. Your ticket stays yours until they accept.</Text>
+            <TextInput
+              accessibilityLabel="Recipient student email or student number"
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="email-address"
+              placeholder="Student email or student number"
+              value={recipientIdentifier}
+              onChangeText={setRecipientIdentifier}
+              style={styles.transferInput}
+            />
+            <Pressable disabled={transferBusy || !recipientIdentifier.trim()} onPress={requestTransfer} style={[styles.transferButton, (transferBusy || !recipientIdentifier.trim()) && styles.transferButtonDisabled]}>
+              <Text style={styles.transferButtonText}>{transferBusy ? 'Sending…' : 'Send transfer request'}</Text>
+            </Pressable>
+            {transferMessage && <Text accessibilityRole="alert" style={styles.transferMessage}>{transferMessage}</Text>}
+          </View>
+        )}
       </View>
     </ScrollView>
   );
@@ -367,6 +411,42 @@ const styles = StyleSheet.create({
   footerNote: {
     padding: 16,
     backgroundColor: '#ffffff',
+  },
+  transferSection: {
+    padding: 16,
+    backgroundColor: '#fff7ed',
+    borderTopWidth: 1,
+    borderTopColor: '#fed7aa',
+  },
+  transferInput: {
+    backgroundColor: '#fff',
+    borderColor: '#cbd5e1',
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: 10,
+    marginBottom: 8,
+    color: '#0f172a',
+  },
+  transferButton: {
+    backgroundColor: '#800000',
+    padding: 11,
+    borderRadius: 6,
+    alignItems: 'center',
+  },
+  transferButtonDisabled: {
+    opacity: 0.55,
+  },
+  transferButtonText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  transferMessage: {
+    color: '#7f1d1d',
+    fontSize: 12,
+    marginTop: 8,
   },
   instructionTitle: {
     fontSize: 11,

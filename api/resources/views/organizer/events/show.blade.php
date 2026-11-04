@@ -158,6 +158,23 @@
             </section>
         @endif
     @endif
+    @if (auth()->user()->can('update', $event))
+        <section class="card" style="grid-column: 1 / -1;">
+            <h2>Ticket transfer history</h2>
+            <p>{{ $event->ticket_transfers_allowed ? 'Transfers are enabled until the event snapshot is prepared.' : 'Transfers are disabled.' }} History is paginated at 100 requests.</p>
+            @forelse ($ticketTransfers as $transfer)
+                <p>{{ $transfer->ticket_public_id }} &middot; {{ $transfer->from_name }} ({{ $transfer->from_email }}) &rarr; {{ $transfer->recipient_name }} ({{ $transfer->recipient_email }}) &middot; {{ ucfirst($transfer->status) }} &middot; Requested {{ $transfer->requested_at->format('M d, Y h:i A') }}
+                    @if ($transfer->accepted_at) &middot; Accepted {{ $transfer->accepted_at->format('M d, Y h:i A') }} @endif
+                    @if ($transfer->declined_at) &middot; Declined {{ $transfer->declined_at->format('M d, Y h:i A') }} @endif
+                    @if ($transfer->cancelled_at) &middot; Cancelled {{ $transfer->cancelled_at->format('M d, Y h:i A') }} @endif
+                    @if ($transfer->expired_at) &middot; Expired {{ $transfer->expired_at->format('M d, Y h:i A') }} @endif
+                </p>
+            @empty
+                <p>No ticket transfer requests.</p>
+            @endforelse
+            {{ $ticketTransfers->links() }}
+        </section>
+    @endif
     <!-- Event Details Card -->
     <div class="card">
         <h2 style="font-size: 1.1rem; font-weight: 600; color: var(--neutral-dark); margin-bottom: 1rem; border-bottom: 1px solid var(--neutral-border); padding-bottom: 0.5rem;">

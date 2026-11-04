@@ -34,15 +34,18 @@ use App\Actions\RecoverNodeWalkIn;
 use App\Actions\RegisterForEvent;
 use App\Actions\SnapshotEnvelope;
 use App\Actions\SyncWalkInRecovery;
+use App\Http\Controllers\Api\V1\TicketTransferController;
 use App\Models\AccessPoint;
 use App\Models\Admission;
 use App\Models\Event;
 use App\Models\EventStaff;
 use App\Models\Registration;
 use App\Models\Ticket;
+use App\Models\TicketTransfer;
 use App\Models\User;
 use App\Models\Venue;
 use Illuminate\Contracts\Console\Kernel;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -933,6 +936,143 @@ $assert($cutoffWorkerReady, 'the registration worker reached the barrier');
 $assert($cutoffBlocked > 0, 'registration waited for the cutoff event lock');
 $assert(($cutoffResult['reason'] ?? null) === 'validation_error', 'registration rejected the committed cutoff');
 $assert(Registration::where('event_id', $cutoffEvent->id)->count() === 0, 'no registration was issued after cutoff');
+echo "\n";
+
+// =============================================================================
+// CASE Ticket Transfer - Snapshot finalization serializes against acceptance
+// =============================================================================
+echo "CASE Ticket Transfer: finalization expires an acceptance waiting on the event lock\n";
+$transferRaceEvent = Event::create([
+    'organizer_id' => $organizer->id, 'venue_id' => $venue->id,
+    'title' => 'Transfer finalization race', 'slug' => "transfer-finalization-race-{$suffix}",
+    'capacity' => 10, 'registration_opens_at' => now()->subDay(),
+    'registration_closes_at' => now()->addDay(),
+    'starts_at' => now(), 'ends_at' => now()->addDay(), 'status' => Event::STATUS_PUBLISHED,
+    'ticket_transfers_allowed' => true,
+]);
+$transferSender = User::create([
+    'name' => 'Transfer Race Sender', 'email' => "transfer.sender.{$suffix}@mseuf.edu.ph",
+    'student_id' => "TRS-{$suffix}", 'role' => User::ROLE_STUDENT, 'email_verified_at' => now(),
+    'password' => Hash::make('password'),
+]);
+$transferRecipient = User::create([
+    'name' => 'Transfer Race Recipient', 'email' => "transfer.recipient.{$suffix}@mseuf.edu.ph",
+    'student_id' => "TRR-{$suffix}", 'role' => User::ROLE_STUDENT, 'email_verified_at' => now(),
+    'password' => Hash::make('password'),
+]);
+$transferTicket = (new RegisterForEvent)->execute($transferSender, $transferRaceEvent->id)['ticket'];
+$transferRaceEvent->update(['registration_closed_at' => now()]);
+$pendingTransfer = TicketTransfer::create([
+    'event_id' => $transferRaceEvent->id, 'ticket_id' => $transferTicket->id,
+    'ticket_public_id' => $transferTicket->public_id, 'pending_ticket_id' => $transferTicket->id,
+    'from_user_id' => $transferSender->id, 'recipient_user_id' => $transferRecipient->id,
+    'from_name' => $transferSender->name, 'from_email' => $transferSender->email,
+    'recipient_name' => $transferRecipient->name, 'recipient_email' => $transferRecipient->email,
+    'status' => TicketTransfer::STATUS_PENDING, 'requested_at' => now(),
+]);
+DB::beginTransaction();
+DB::table('events')->where('id', $transferRaceEvent->id)->lockForUpdate()->first();
+[$transferAcceptProcess, $transferAcceptPipes] = $spawnWorker('ticket_transfer_accept', [
+    'transfer_id' => $pendingTransfer->id, 'recipient_id' => $transferRecipient->id,
+], $testDatabase, $childScript);
+$transferAcceptWorkerReady = trim((string) fgets($transferAcceptPipes[1])) === 'READY';
+fwrite($transferAcceptPipes[0], 'GO'.PHP_EOL);
+fflush($transferAcceptPipes[0]);
+$transferAcceptDeadline = microtime(true) + 20.0;
+$transferAcceptBlocked = 0;
+while (microtime(true) < $transferAcceptDeadline) {
+    $transferAcceptBlocked = $blockedBackends(DB::connection()->getPdo(), $testDatabase);
+    if ($transferAcceptBlocked > 0) {
+        break;
+    }
+    usleep(50_000);
+}
+$previousMode = config('ingress.mode');
+config(['ingress.mode' => 'cloud']);
+app(PrepareEventSnapshot::class)->execute($transferRaceEvent->id);
+DB::commit();
+config(['ingress.mode' => $previousMode]);
+$transferAcceptResult = $collectWorker($transferAcceptProcess, $transferAcceptPipes);
+echo '  worker: '.json_encode($transferAcceptResult).PHP_EOL;
+$assert($transferAcceptWorkerReady, 'the transfer acceptance worker reached the barrier');
+$assert($transferAcceptBlocked > 0, 'transfer acceptance waited for snapshot finalization on the event lock');
+$assert(($transferAcceptResult['reason'] ?? null) === 'validation_error', 'acceptance rejected after finalization expired the request');
+$assert(TicketTransfer::findOrFail($pendingTransfer->id)->status === TicketTransfer::STATUS_EXPIRED, 'snapshot finalization expired the pending transfer');
+$assert($transferTicket->fresh()->registration->user_id === $transferSender->id, 'the original ticket owner retained the ticket');
+echo "\n";
+
+// =============================================================================
+// CASE Ticket Transfer Acceptance - Acceptance commits before snapshot capture
+// =============================================================================
+echo "CASE Ticket Transfer Acceptance: a waiting snapshot captures accepted ownership and credential\n";
+$acceptedBeforeSnapshotEvent = Event::create([
+    'organizer_id' => $organizer->id, 'venue_id' => $venue->id,
+    'title' => 'Transfer acceptance race', 'slug' => "transfer-acceptance-race-{$suffix}",
+    'capacity' => 10, 'registration_opens_at' => now()->subDay(),
+    'registration_closes_at' => now()->addDay(),
+    'starts_at' => now(), 'ends_at' => now()->addDay(), 'status' => Event::STATUS_PUBLISHED,
+    'ticket_transfers_allowed' => true,
+]);
+$acceptRaceSender = User::create([
+    'name' => 'Acceptance Race Sender', 'email' => "accept.sender.{$suffix}@mseuf.edu.ph",
+    'student_id' => "ARS-{$suffix}", 'role' => User::ROLE_STUDENT,
+    'password' => Hash::make('password'),
+]);
+$acceptRaceRecipient = User::create([
+    'name' => 'Acceptance Race Recipient', 'email' => "accept.recipient.{$suffix}@mseuf.edu.ph",
+    'student_id' => "ARR-{$suffix}", 'role' => User::ROLE_STUDENT,
+    'password' => Hash::make('password'),
+]);
+$acceptRaceSender->forceFill(['email_verified_at' => now()])->save();
+$acceptRaceRecipient->forceFill(['email_verified_at' => now()])->save();
+$acceptRaceTicket = (new RegisterForEvent)->execute($acceptRaceSender, $acceptedBeforeSnapshotEvent->id)['ticket'];
+$acceptedBeforeSnapshotEvent->update(['registration_closed_at' => now()]);
+$acceptRaceTransfer = TicketTransfer::create([
+    'event_id' => $acceptedBeforeSnapshotEvent->id, 'ticket_id' => $acceptRaceTicket->id,
+    'ticket_public_id' => $acceptRaceTicket->public_id, 'pending_ticket_id' => $acceptRaceTicket->id,
+    'from_user_id' => $acceptRaceSender->id, 'recipient_user_id' => $acceptRaceRecipient->id,
+    'from_name' => $acceptRaceSender->name, 'from_email' => $acceptRaceSender->email,
+    'recipient_name' => $acceptRaceRecipient->name, 'recipient_email' => $acceptRaceRecipient->email,
+    'status' => TicketTransfer::STATUS_PENDING, 'requested_at' => now(),
+]);
+DB::beginTransaction();
+DB::table('events')->where('id', $acceptedBeforeSnapshotEvent->id)->lockForUpdate()->first();
+$acceptRequest = Request::create('/api/v1/ticket-transfers/'.$acceptRaceTransfer->id.'/accept', 'POST');
+$acceptRequest->setUserResolver(fn () => $acceptRaceRecipient);
+$previousMode = config('ingress.mode');
+config(['ingress.mode' => 'cloud']);
+$acceptResponse = app(TicketTransferController::class)->accept($acceptRequest, TicketTransfer::findOrFail($acceptRaceTransfer->id));
+[$acceptanceSnapshotProcess, $acceptanceSnapshotPipes] = $spawnWorker('snapshot', [
+    'event_id' => $acceptedBeforeSnapshotEvent->id,
+], $testDatabase, $childScript);
+$acceptanceSnapshotWorkerReady = trim((string) fgets($acceptanceSnapshotPipes[1])) === 'READY';
+fwrite($acceptanceSnapshotPipes[0], 'GO'.PHP_EOL);
+fflush($acceptanceSnapshotPipes[0]);
+$acceptanceSnapshotDeadline = microtime(true) + 20.0;
+$acceptanceSnapshotBlocked = 0;
+while (microtime(true) < $acceptanceSnapshotDeadline) {
+    $acceptanceSnapshotBlocked = $blockedBackends(DB::connection()->getPdo(), $testDatabase);
+    if ($acceptanceSnapshotBlocked > 0) {
+        break;
+    }
+    usleep(50_000);
+}
+DB::commit();
+config(['ingress.mode' => $previousMode]);
+$acceptanceSnapshotResult = $collectWorker($acceptanceSnapshotProcess, $acceptanceSnapshotPipes);
+echo '  worker: '.json_encode($acceptanceSnapshotResult).PHP_EOL;
+$acceptanceSnapshotRecord = DB::table('event_snapshots')->where('event_id', $acceptedBeforeSnapshotEvent->id)->first();
+$acceptedSnapshotPayload = $acceptanceSnapshotRecord
+    ? json_decode(Crypt::decryptString($acceptanceSnapshotRecord->payload_ciphertext), true)
+    : null;
+$snapshotRegistration = $acceptedSnapshotPayload['registrations'][0] ?? null;
+$assert($acceptResponse->getStatusCode() === 200, 'recipient acceptance committed before snapshot finalization');
+$assert($acceptanceSnapshotWorkerReady, 'the snapshot worker reached the barrier');
+$assert($acceptanceSnapshotBlocked > 0, 'snapshot preparation waited for transfer acceptance on the event lock');
+$assert(($acceptanceSnapshotResult['ok'] ?? false) && $acceptedSnapshotPayload !== null, 'snapshot preparation completed after acceptance');
+$assert($acceptRaceTicket->fresh()->registration->user_id === $acceptRaceRecipient->id, 'the recipient owns the ticket after acceptance');
+$assert((int) ($snapshotRegistration['attendee']['id'] ?? 0) === $acceptRaceRecipient->id, 'the snapshot contains the accepted owner');
+$assert(($snapshotRegistration['ticket']['qr_hash'] ?? null) === $acceptRaceTicket->fresh()->qr_hash, 'the snapshot contains the rotated credential hash');
 echo "\n";
 
 // =============================================================================

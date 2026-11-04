@@ -88,6 +88,17 @@
                 </label>
             </div>
 
+            <div class="form-group" style="margin-top: 0.5rem;">
+                <input type="hidden" name="ticket_transfers_allowed" value="0">
+                <label style="display: flex; align-items: flex-start; gap: 0.5rem;">
+                    <input type="checkbox" name="ticket_transfers_allowed" value="1" {{ old('ticket_transfers_allowed') ? 'checked' : '' }}>
+                    <span>
+                        <strong>Allow ticket transfers</strong>
+                        <span style="display: block; color: var(--neutral-muted); font-size: 0.8rem;">Verified students can transfer an unadmitted ticket to another verified student before the event snapshot is prepared.</span>
+                    </span>
+                </label>
+            </div>
+
             <div style="border-top: 1px solid var(--neutral-border); padding-top: 1.25rem; margin-top: 1rem; display: flex; justify-content: flex-end; gap: 0.75rem;">
                 <a href="{{ route('organizer.events.index') }}" class="btn-secondary">Cancel</a>
                 <button type="submit" class="btn-primary">Create Event (Draft)</button>

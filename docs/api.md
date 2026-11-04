@@ -239,7 +239,7 @@ Transactionally reserves a seat with a row lock and issues a digital ticket. Reg
 ---
 
 ### 3.2 My Tickets (Ticket Wallet)
-Returns all tickets issued to the authenticated student. The response includes `qr_payload` only for an active ticket with a confirmed registration whose event has not been cancelled. Each ticket includes the event's current `status`.
+Returns all tickets issued to the authenticated student. The response includes `qr_payload` only for an active ticket with a confirmed registration whose event has not been cancelled. Each ticket includes the event's current `status` and effective `ticket_transfers_allowed` policy; the policy is false after snapshot preparation.
 
 - **Method**: `GET`
 - **Endpoint**: `/me/tickets`
@@ -279,7 +279,7 @@ Returns all tickets issued to the authenticated student. The response includes `
 
 
 ### 3.3 Ticket Details
-Retrieves single ticket details. The reusable `qr_payload` is returned **only to the attendee who owns an active ticket with a confirmed registration for an event that has not been cancelled**. The event includes its current `status`.
+Retrieves single ticket details. The reusable `qr_payload` is returned **only to the attendee who owns an active ticket with a confirmed registration for an event that has not been cancelled**. The event includes its current `status` and effective `ticket_transfers_allowed` policy.
 
 - **Method**: `GET`
 - **Endpoint**: `/tickets/{id}`
@@ -326,6 +326,14 @@ Identical shape, but the `qr_payload` key is **absent**.
   "message": "Unauthorized access to ticket details."
 }
 ```
+
+### 3.4 Ticket Transfers
+
+Transfers are available only on the legacy or cloud runtime. The event must be published, have transfers enabled, and have no prepared admission snapshot. The sender and recipient must be verified student accounts. The recipient cannot already hold a registration for the event, including an accountless guest registration with the same email.
+
+`POST /tickets/{id}/transfers` accepts `recipient`, which can be the verified student's email address or student number. It creates a pending request; the current owner retains the ticket and QR until acceptance. `GET /me/ticket-transfers` returns pending requests for the authenticated sender and recipient. The recipient uses `POST /ticket-transfers/{id}/accept` or `/decline`; the sender can cancel with `DELETE /ticket-transfers/{id}`. Acceptance changes the registration owner and rotates the ticket credential in one transaction. Decline and cancellation leave ownership unchanged. Snapshot preparation or disabling event transfers expires pending requests.
+
+The organizer event page retains transfer status and transition timestamps for audit. History is paginated at 100 requests per page.
 
 ---
 

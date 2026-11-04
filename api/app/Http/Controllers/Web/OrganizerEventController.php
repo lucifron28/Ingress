@@ -12,6 +12,7 @@ use App\Models\AccessPoint;
 use App\Models\Event;
 use App\Models\EventStaff;
 use App\Models\Registration;
+use App\Models\TicketTransfer;
 use App\Models\User;
 use App\Models\Venue;
 use Illuminate\Http\RedirectResponse;
@@ -93,6 +94,7 @@ class OrganizerEventController extends Controller
             'starts_at' => ['required', 'date'],
             'ends_at' => ['required', 'date', 'after:starts_at'],
             're_entry_allowed' => ['sometimes', 'boolean'],
+            'ticket_transfers_allowed' => ['sometimes', 'boolean'],
         ]);
 
         $slug = Str::slug($validated['title']).'-'.Str::random(6);
@@ -109,6 +111,7 @@ class OrganizerEventController extends Controller
             'starts_at' => $validated['starts_at'],
             'ends_at' => $validated['ends_at'],
             're_entry_allowed' => (bool) ($validated['re_entry_allowed'] ?? false),
+            'ticket_transfers_allowed' => (bool) ($validated['ticket_transfers_allowed'] ?? false),
             'status' => Event::STATUS_DRAFT,
         ]);
 
@@ -146,6 +149,8 @@ class OrganizerEventController extends Controller
         $staffUsers = User::where('role', User::ROLE_STAFF)->orderBy('name')->get();
         $guestRegistrations = config('ingress.mode') === 'cloud' && Auth::user()->can('update', $event)
             ? $event->registrations()->whereIn('attendee_type', ['guest', 'alumni'])->with('ticket')->orderBy('id')->get() : collect();
+        $ticketTransfers = Auth::user()->can('update', $event)
+            ? TicketTransfer::where('event_id', $event->id)->orderByDesc('requested_at')->paginate(100) : collect();
         $walkInRecoveries = config('ingress.mode') === 'cloud' && Auth::user()->can('update', $event)
             ? DB::table('cloud_walk_in_recoveries as recovery')
                 ->join('cloud_walk_in_receipts as issuance', fn ($join) => $join->on('issuance.node_id', '=', 'recovery.node_id')
@@ -177,7 +182,7 @@ class OrganizerEventController extends Controller
                 ->whereNull('event_snapshots.invalidated_at')->value('event_snapshot_import_receipts.node_id');
         }
 
-        return view('organizer.events.show', compact('event', 'staffUsers', 'receiptNodeId', 'importReceiptNodeId', 'authority', 'guestRegistrations', 'walkInRecoveries'));
+        return view('organizer.events.show', compact('event', 'staffUsers', 'receiptNodeId', 'importReceiptNodeId', 'authority', 'guestRegistrations', 'walkInRecoveries', 'ticketTransfers'));
     }
 
     /**
@@ -209,6 +214,7 @@ class OrganizerEventController extends Controller
             'starts_at' => ['required', 'date'],
             'ends_at' => ['required', 'date', 'after:starts_at'],
             're_entry_allowed' => ['sometimes', 'boolean'],
+            'ticket_transfers_allowed' => ['sometimes', 'boolean'],
         ]);
 
         // Use the registration lock boundary so capacity cannot drop below a concurrent signup.
@@ -226,7 +232,18 @@ class OrganizerEventController extends Controller
                 ]);
             }
 
+            $wasTransferEnabled = $lockedEvent->ticket_transfers_allowed;
             $lockedEvent->update($validated);
+            if ($wasTransferEnabled && ! $lockedEvent->ticket_transfers_allowed) {
+                TicketTransfer::where('event_id', $lockedEvent->id)
+                    ->where('status', TicketTransfer::STATUS_PENDING)
+                    ->update([
+                        'status' => TicketTransfer::STATUS_EXPIRED,
+                        'pending_ticket_id' => null,
+                        'expired_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+            }
         });
 
         return redirect()->route('organizer.events.show', $event)
@@ -396,6 +413,14 @@ class OrganizerEventController extends Controller
             $lockedEvent->status = Event::STATUS_CANCELLED;
             $lockedEvent->snapshot_prepared_at = null;
             $lockedEvent->save();
+            TicketTransfer::where('event_id', $lockedEvent->id)
+                ->where('status', TicketTransfer::STATUS_PENDING)
+                ->update([
+                    'status' => TicketTransfer::STATUS_EXPIRED,
+                    'pending_ticket_id' => null,
+                    'expired_at' => now(),
+                    'updated_at' => now(),
+                ]);
         });
 
         return redirect()->route('organizer.events.show', $event)
