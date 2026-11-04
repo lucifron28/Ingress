@@ -618,3 +618,9 @@ The authenticated user resource includes `is_event_staff`, indicating whether th
 ### Organizer-issued guest and alumni passes
 
 The cloud organizer interface accepts `POST /organizer/events/{event}/guests` from an authorized organizer with `guest_name`, `guest_email`, and `attendee_type` (`guest` or `alumni`). It creates a registration without a user account and redirects to an authenticated printable pass. Issuance and pass viewing require HTTPS outside local and testing environments. The pass response is private and non-cacheable. The organizer must deliver it securely; email delivery is not implemented. Registration cutoff, duplicate identity checks, and event capacity apply.
+
+### Node walk-in issuance
+
+`POST /staff/events/{event}/walk-ins` requires an assigned node staff session and active authority for the event. Send `client_request_id` as a UUID, `name`, `email`, and `kind` as `student`, `guest`, or `alumni`. Include `student_id` for a student and omit it for other kinds. The node locks the event, checks existing registrations and remaining capacity, and returns `public_id`, `attendee_name`, and `qr_payload` with a private, no-store response. The request ID must be reused with the same details when retrying. Issuance does not admit the attendee; scan preview and explicit confirmation remain required.
+
+`POST /node-sync/walk-ins` accepts an encrypted node package on the cloud runtime under the same HTTPS and node-header rules as admission synchronization. The cloud checks the active authority, frozen snapshot, staff assignment, identity conflicts, and capacity. The response binds cloud registration and ticket IDs to the issuance and payload with an authenticated receipt. A retry of the same issuance returns the same IDs. The node synchronizes the walk-in before sending its admissions.
