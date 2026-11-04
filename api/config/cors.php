@@ -1,5 +1,7 @@
 <?php
 
+$allowedOrigins = env('INGRESS_CORS_ALLOWED_ORIGINS', env('APP_URL', 'http://localhost'));
+
 return [
 
     /*
@@ -19,7 +21,7 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => ['*'],
+    'allowed_origins' => array_values(array_filter(array_map('trim', explode(',', $allowedOrigins)))),
 
     'allowed_origins_patterns' => [],
 

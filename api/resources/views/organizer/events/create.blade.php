@@ -99,6 +99,15 @@
                 </label>
             </div>
 
+            <div class="form-group" style="margin-top: 0.5rem;">
+                <label for="identity_verification_level" class="form-label">Attendee identity check</label>
+                <select id="identity_verification_level" name="identity_verification_level" class="form-select" required>
+                    <option value="standard" {{ old('identity_verification_level', 'standard') === 'standard' ? 'selected' : '' }}>Standard — compare the attendee name and identifier</option>
+                    <option value="id_check" {{ old('identity_verification_level') === 'id_check' ? 'selected' : '' }}>Approved ID — require staff to confirm an ID check</option>
+                </select>
+                <p style="color: var(--neutral-muted); font-size: 0.8rem; margin-top: 0.4rem;">A student number is self-reported unless separately verified. Photo collection is unavailable until an approved access and retention policy exists.</p>
+            </div>
+
             <div style="border-top: 1px solid var(--neutral-border); padding-top: 1.25rem; margin-top: 1rem; display: flex; justify-content: flex-end; gap: 0.75rem;">
                 <a href="{{ route('organizer.events.index') }}" class="btn-secondary">Cancel</a>
                 <button type="submit" class="btn-primary">Create Event (Draft)</button>

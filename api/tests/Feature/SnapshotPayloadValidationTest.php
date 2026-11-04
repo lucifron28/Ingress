@@ -136,6 +136,21 @@ class SnapshotPayloadValidationTest extends TestCase
         }
     }
 
+    public function test_schema_four_carries_both_reentry_and_identity_policies(): void
+    {
+        $payload = $this->payload();
+        $payload['schema_version'] = 4;
+        $payload['event']['re_entry_allowed'] = false;
+        $payload['event']['identity_verification_level'] = 'id_check';
+        $payload['registrations'][0]['attendee']['kind'] = 'student';
+
+        $this->assertSame($payload, app(ValidateSnapshotPayload::class)->execute(json_encode($payload, JSON_THROW_ON_ERROR)));
+
+        $payload['event']['identity_verification_level'] = 'photo';
+        $this->expectException(ValidationException::class);
+        app(ValidateSnapshotPayload::class)->execute(json_encode($payload, JSON_THROW_ON_ERROR));
+    }
+
     public function test_authenticated_malformed_payload_is_not_staged_or_acknowledged(): void
     {
         $payload = $this->payload();

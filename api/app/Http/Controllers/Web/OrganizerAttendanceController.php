@@ -9,7 +9,9 @@ use App\Models\Registration;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Str;
 use Illuminate\View\View;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class OrganizerAttendanceController extends Controller
 {
@@ -86,6 +88,75 @@ class OrganizerAttendanceController extends Controller
             'gate_stats' => $gateStats,
             'recent_admissions' => $recent,
         ]);
+    }
+
+    /** Download the complete current roster and its latest movement details. */
+    public function export(Event $event): StreamedResponse
+    {
+        Gate::authorize('update', $event);
+        $filename = Str::slug($event->slug ?: $event->title).'-attendance.csv';
+
+        return response()->streamDownload(function () use ($event) {
+            $output = fopen('php://output', 'wb');
+            fputcsv($output, [
+                'Registration ID', 'Attendee Type', 'Name', 'Student ID', 'Email', 'Ticket Reference',
+                'Presence', 'Entries', 'Exits', 'Last Movement', 'Last Movement At', 'Last Gate',
+                'Last Scanned By', 'Identity Policy', 'Last ID Check Confirmed',
+            ], ',', '"', '', "\r\n");
+
+            Registration::with(['user', 'ticket.admissions.accessPoint', 'ticket.admissions.scannedBy'])
+                ->where('event_id', $event->id)
+                ->where('status', Registration::STATUS_CONFIRMED)
+                ->orderBy('id')
+                ->chunkById(250, function ($registrations) use ($output, $event) {
+                    foreach ($registrations as $registration) {
+                        $movements = $registration->ticket?->admissions?->sortBy('id')->values() ?? collect();
+                        $last = $movements->last();
+                        $presence = match ($last?->direction) {
+                            Admission::DIRECTION_ENTRY => 'inside',
+                            Admission::DIRECTION_EXIT => 'outside',
+                            default => 'not_arrived',
+                        };
+                        $fields = [
+                            $registration->id,
+                            $registration->walk_in_kind ?: $registration->attendee_type,
+                            $registration->attendeeName(),
+                            $registration->attendeeStudentId(),
+                            $registration->attendeeEmail(),
+                            $registration->ticket?->public_id,
+                            $presence,
+                            $movements->where('direction', Admission::DIRECTION_ENTRY)->count(),
+                            $movements->where('direction', Admission::DIRECTION_EXIT)->count(),
+                            $last?->direction,
+                            $last?->admitted_at?->toISOString(),
+                            $last?->accessPoint?->name,
+                            $last?->scannedBy?->name,
+                            $event->identity_verification_level,
+                            $event->identity_verification_level === Event::IDENTITY_CHECK && $last
+                                ? ($last->identity_check_confirmed ? 'yes' : 'no')
+                                : null,
+                        ];
+
+                        fputcsv($output, array_map($this->spreadsheetSafe(...), $fields), ',', '"', '', "\r\n");
+                    }
+                });
+
+            fclose($output);
+        }, $filename, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Cache-Control' => 'private, no-store',
+            'X-Content-Type-Options' => 'nosniff',
+        ]);
+    }
+
+    private function spreadsheetSafe(mixed $value): string
+    {
+        $value = (string) ($value ?? '');
+        $first = ltrim($value, " \t\r\n\0\x0B");
+
+        return preg_match('/\A[=+@\-]/u', $first) || preg_match('/\A[\t\r\n]/', $value)
+            ? "'".$value
+            : $value;
     }
 
     /**

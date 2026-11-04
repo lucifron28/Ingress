@@ -167,7 +167,7 @@
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
             <div>
                 <h2 style="font-size: 1.1rem; font-weight: 600; color: var(--neutral-dark);">Attendee Roster</h2>
-                <p style="font-size: 0.8rem; color: var(--neutral-muted);">Current attendee presence and last movement</p>
+                <p style="font-size: 0.8rem; color: var(--neutral-muted);">Current attendee presence and last movement. Identity policy: {{ $event->identity_verification_level === 'id_check' ? 'approved ID check' : 'standard identity details' }}.</p>
             </div>
 
             <!-- Search and Filter Form -->
@@ -185,6 +185,7 @@
                 @if (request()->hasAny(['search', 'status']))
                     <a href="{{ route('organizer.attendance', $event) }}" class="btn-secondary" style="height: 36px; padding: 0 0.85rem; font-size: 0.8rem;">Clear</a>
                 @endif
+                <a href="{{ route('organizer.attendance.export', $event) }}" class="btn-secondary" style="height: 36px; padding: 0 0.85rem; font-size: 0.8rem;">Export CSV</a>
             </form>
         </div>
     </div>

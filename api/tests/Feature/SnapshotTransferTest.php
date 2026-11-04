@@ -57,7 +57,7 @@ class SnapshotTransferTest extends TestCase
         ];
     }
 
-    private function cloudEvent(bool $withStaff = false, bool $reEntryAllowed = false): array
+    private function cloudEvent(bool $withStaff = false, bool $reEntryAllowed = false, bool $identityCheck = false): array
     {
         config(['ingress.mode' => 'cloud']);
         $owner = User::factory()->create(['role' => User::ROLE_ORGANIZER]);
@@ -68,6 +68,7 @@ class SnapshotTransferTest extends TestCase
             'capacity' => 20, 'registration_opens_at' => now()->subDay(), 'registration_closes_at' => now()->addDay(),
             'starts_at' => now(), 'ends_at' => now()->addDay(), 'status' => Event::STATUS_PUBLISHED,
             're_entry_allowed' => $reEntryAllowed,
+            'identity_verification_level' => $identityCheck ? Event::IDENTITY_CHECK : Event::IDENTITY_STANDARD,
         ]);
         $cloudStaffId = null;
         if ($withStaff) {
@@ -106,6 +107,11 @@ class SnapshotTransferTest extends TestCase
     public function test_encrypted_transfer_and_signed_receipt_across_separate_databases(): void
     {
         [$event, $owner, $qr, $secret] = $this->cloudEvent();
+        $snapshot = DB::table('event_snapshots')->where('event_id', $event->id)->firstOrFail();
+        $payload = json_decode(Crypt::decryptString($snapshot->payload_ciphertext), true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame(1, $payload['schema_version']);
+        $this->assertArrayNotHasKey('identity_verification_level', $payload['event']);
+
         $response = $this->actingAs($owner)->post("/organizer/events/{$event->id}/snapshot/export", ['node_id' => 'node-1'])
             ->assertOk()->assertHeader('Content-Type', 'application/octet-stream');
         $sealed = $response->getContent();
@@ -264,8 +270,8 @@ class SnapshotTransferTest extends TestCase
 
     public function test_authority_grant_freezes_cloud_and_activates_only_the_imported_node(): void
     {
-        [$event, $owner, $qr, $secret, $cloudStaffId, $secondQr, $guestQr] = $this->cloudEvent(true, true);
-        $this->assertSame(3, (int) DB::table('event_snapshots')->where('event_id', $event->id)->value('schema_version'));
+        [$event, $owner, $qr, $secret, $cloudStaffId, $secondQr, $guestQr] = $this->cloudEvent(true, true, true);
+        $this->assertSame(4, (int) DB::table('event_snapshots')->where('event_id', $event->id)->value('schema_version'));
         $keypair = sodium_crypto_sign_keypair();
         config([
             'ingress.authority_private_key' => base64_encode(sodium_crypto_sign_secretkey($keypair)),
@@ -295,7 +301,9 @@ class SnapshotTransferTest extends TestCase
             config(['ingress.mode' => 'node', 'ingress.node_id' => 'node-1', 'ingress.node_sync_key' => $secret]);
             $receipt = app(ReceiveSnapshot::class)->execute($sealed);
             $localId = app(ImportReceivedSnapshot::class)->execute($event->id);
-            $this->assertDatabaseHas('events', ['id' => $localId, 're_entry_allowed' => true]);
+            $this->assertDatabaseHas('events', [
+                'id' => $localId, 're_entry_allowed' => true, 'identity_verification_level' => Event::IDENTITY_CHECK,
+            ]);
             $this->assertDatabaseHas('registrations', ['event_id' => $localId, 'guest_email' => 'guest@example.test', 'user_id' => null]);
             $this->assertDatabaseMissing('users', ['email' => 'guest@example.test']);
             $importReceipt = app(IssueImportReceipt::class)->execute($event->id);
@@ -378,7 +386,7 @@ class SnapshotTransferTest extends TestCase
                 'email' => 'node-operator@example.test', 'password' => $password[1],
             ])->assertOk()->json('token');
             $gateId = DB::table('event_staff')->where('event_id', $localId)->value('access_point_id');
-            $scan = ['access_point_id' => $gateId, 'qr_payload' => $qr, 'client_scan_id' => 'integrated-scan'];
+            $scan = ['access_point_id' => $gateId, 'qr_payload' => $qr, 'client_scan_id' => 'integrated-scan', 'identity_check_confirmed' => true];
             $this->withToken($staffToken)->postJson("/api/v1/staff/events/{$localId}/admissions/preview", $scan)
                 ->assertOk()->assertJsonPath('status', 'valid');
             $this->assertDatabaseCount('admissions', 0);
@@ -386,22 +394,24 @@ class SnapshotTransferTest extends TestCase
                 ->assertOk()->assertJsonPath('status', 'admitted');
             $this->assertDatabaseCount('admissions', 1);
             $this->withToken($staffToken)->postJson("/api/v1/staff/events/{$localId}/admissions", [
-                'access_point_id' => $gateId, 'qr_payload' => $qr, 'client_scan_id' => 'integrated-exit', 'direction' => 'exit',
+                'access_point_id' => $gateId, 'qr_payload' => $qr, 'client_scan_id' => 'integrated-exit', 'direction' => 'exit', 'identity_check_confirmed' => true,
             ])->assertOk()->assertJsonPath('status', 'exited');
             $this->withToken($staffToken)->postJson("/api/v1/staff/events/{$localId}/admissions", [
-                'access_point_id' => $gateId, 'qr_payload' => $qr, 'client_scan_id' => 'integrated-reentry', 'direction' => 'entry',
+                'access_point_id' => $gateId, 'qr_payload' => $qr, 'client_scan_id' => 'integrated-reentry', 'direction' => 'entry', 'identity_check_confirmed' => true,
             ])->assertOk()->assertJsonPath('status', 'admitted');
             $this->assertSame(['entry', 'exit', 'entry'], Admission::where('ticket_id', Ticket::firstOrFail()->id)
                 ->orderBy('id')->pluck('direction')->all());
             $batch = app(PrepareAdmissionBatch::class)->execute($event->id);
             $this->assertNotNull($batch);
-            $this->assertSame(2, json_decode(app(AdmissionSyncEnvelope::class)->open($batch['package'], $secret), true, 16, JSON_THROW_ON_ERROR)['schema_version']);
+            $batchPayload = json_decode(app(AdmissionSyncEnvelope::class)->open($batch['package'], $secret), true, 16, JSON_THROW_ON_ERROR);
+            $this->assertSame(3, $batchPayload['schema_version']);
+            $this->assertTrue($batchPayload['admissions'][0]['identity_check_confirmed']);
             $this->assertSame(3, $batch['count']);
             $this->assertSame($batch, app(PrepareAdmissionBatch::class)->execute($event->id));
-            $secondScan = ['access_point_id' => $gateId, 'qr_payload' => $secondQr, 'client_scan_id' => 'second-scan'];
+            $secondScan = ['access_point_id' => $gateId, 'qr_payload' => $secondQr, 'client_scan_id' => 'second-scan', 'identity_check_confirmed' => true];
             $this->withToken($staffToken)->postJson("/api/v1/staff/events/{$localId}/admissions", $secondScan)
                 ->assertOk()->assertJsonPath('status', 'admitted');
-            $guestScan = ['access_point_id' => $gateId, 'qr_payload' => $guestQr, 'client_scan_id' => 'guest-scan'];
+            $guestScan = ['access_point_id' => $gateId, 'qr_payload' => $guestQr, 'client_scan_id' => 'guest-scan', 'identity_check_confirmed' => true];
             $this->withToken($staffToken)->postJson("/api/v1/staff/events/{$localId}/admissions/preview", $guestScan)
                 ->assertOk()->assertJsonPath('ticket.attendee_name', 'Guest Attendee');
             $this->withToken($staffToken)->postJson("/api/v1/staff/events/{$localId}/admissions", $guestScan)
@@ -488,7 +498,7 @@ class SnapshotTransferTest extends TestCase
             ])->assertOk()->assertJsonPath('qr_payload', $walkIn['qr_payload']);
             $this->assertNull(app(SyncWalkInRecovery::class)->prepare($event->id));
             $this->withToken($staffToken)->postJson("/api/v1/staff/events/{$localId}/admissions", [
-                'access_point_id' => $gateId, 'qr_payload' => $walkIn['qr_payload'], 'client_scan_id' => 'walk-in-scan',
+                'access_point_id' => $gateId, 'qr_payload' => $walkIn['qr_payload'], 'client_scan_id' => 'walk-in-scan', 'identity_check_confirmed' => true,
             ])->assertOk()->assertJsonPath('status', 'admitted');
             $this->assertNull(app(PrepareAdmissionBatch::class)->execute($event->id));
             $walkInPackage = app(PrepareWalkInSync::class)->execute($event->id);

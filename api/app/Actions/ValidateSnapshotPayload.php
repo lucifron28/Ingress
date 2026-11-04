@@ -86,14 +86,17 @@ class ValidateSnapshotPayload
             $this->invalid();
         }
         $payload = $this->object($payload, ['schema_version', 'snapshot_id', 'version', 'event', 'access_points', 'staff', 'registrations']);
-        if (! in_array($payload['schema_version'], [1, 2, 3], true) || ! is_string($payload['snapshot_id']) || ! Str::isUuid($payload['snapshot_id'])) {
+        if (! in_array($payload['schema_version'], [1, 2, 3, 4], true) || ! is_string($payload['snapshot_id']) || ! Str::isUuid($payload['snapshot_id'])) {
             $this->invalid();
         }
         $this->id($payload['version']);
         $eventKeys = ['id', 'title', 'slug', 'description', 'capacity', 'status', 'starts_at', 'ends_at',
             'registration_opens_at', 'registration_closes_at', 'registration_closed_at', 'venue', 'organizer'];
-        if ($payload['schema_version'] === 3) {
+        if ($payload['schema_version'] >= 3) {
             $eventKeys[] = 're_entry_allowed';
+        }
+        if ($payload['schema_version'] >= 4) {
+            $eventKeys[] = 'identity_verification_level';
         }
         $event = $this->object($payload['event'], $eventKeys);
         $this->id($event['id']);
@@ -105,6 +108,11 @@ class ValidateSnapshotPayload
             $this->invalid();
         }
         if ($payload['schema_version'] === 3 && $event['re_entry_allowed'] !== true) {
+            $this->invalid();
+        }
+        if ($payload['schema_version'] >= 4
+            && (! is_bool($event['re_entry_allowed'])
+                || ! in_array($event['identity_verification_level'], ['standard', 'id_check'], true))) {
             $this->invalid();
         }
         foreach (['starts_at', 'ends_at', 'registration_opens_at', 'registration_closes_at'] as $key) {

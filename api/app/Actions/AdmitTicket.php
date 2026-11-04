@@ -70,15 +70,16 @@ class AdmitTicket
             'http_code' => 200,
             'status' => 'valid',
             'message' => 'Valid Ticket',
-            'detail' => $direction === Admission::DIRECTION_EXIT
-                ? 'Verify the attendee identity before confirming exit.'
-                : 'Verify the attendee identity before confirming admission.',
+            'detail' => $context['event']->identity_verification_level === Event::IDENTITY_CHECK
+                ? 'Compare the attendee with an approved photo ID before confirming.'
+                : 'Compare the attendee name and identifier before confirming.',
             'direction' => $direction,
             'ticket' => [
                 'public_id' => $ticket->public_id,
                 'attendee_name' => $ticket->registration->attendeeName(),
                 'student_id' => $ticket->registration->attendeeStudentId(),
                 'profile_photo_url' => null,
+                'identity_verification_level' => $context['event']->identity_verification_level,
             ],
         ];
     }
@@ -105,7 +106,8 @@ class AdmitTicket
         int $accessPointId,
         string $qrPayload,
         string $clientScanId,
-        string $direction = Admission::DIRECTION_ENTRY
+        string $direction = Admission::DIRECTION_ENTRY,
+        bool $identityCheckConfirmed = false
     ): array {
         if (! in_array($direction, [Admission::DIRECTION_ENTRY, Admission::DIRECTION_EXIT], true)) {
             return ['http_code' => 422, 'status' => 'invalid_movement', 'message' => 'Invalid Movement',
@@ -150,7 +152,7 @@ class AdmitTicket
         }
 
         try {
-            return DB::transaction(function () use ($staff, $ticket, $accessPoint, $event, $clientScanId, $scannedSecret, $accessPointId, $direction) {
+            return DB::transaction(function () use ($staff, $ticket, $accessPoint, $event, $clientScanId, $scannedSecret, $accessPointId, $direction, $identityCheckConfirmed) {
                 if (config('ingress.mode') === 'node' && ! app(NodeAdmissionAccess::class)->allows($staff, $event->id, true)) {
                     return $this->nodeUnavailable();
                 }
@@ -225,6 +227,15 @@ class AdmitTicket
                     return $this->recordedMovementResponse($existingUnderLock, $lockedTicket);
                 }
 
+                if ($lockedEvent->identity_verification_level === Event::IDENTITY_CHECK && ! $identityCheckConfirmed) {
+                    return [
+                        'http_code' => 422,
+                        'status' => 'identity_check_required',
+                        'message' => 'Identity Check Required',
+                        'detail' => 'Confirm the approved ID check before recording this movement.',
+                    ];
+                }
+
                 $previousMovement = Admission::with(['accessPoint', 'scannedBy'])
                     ->where('ticket_id', $lockedTicket->id)->latest('id')->first();
                 $rejection = $this->movementRejection($lockedEvent, $previousMovement, $direction);
@@ -252,6 +263,8 @@ class AdmitTicket
                     'client_scan_id' => $clientScanId,
                     'credential_version' => $lockedTicket->credential_version,
                     'direction' => $direction,
+                    'identity_check_confirmed' => $lockedEvent->identity_verification_level === Event::IDENTITY_CHECK
+                        && $identityCheckConfirmed,
                     'admitted_at' => Carbon::now(),
                 ]);
 
@@ -322,6 +335,7 @@ class AdmitTicket
             'admission' => [
                 'id' => $admission->id,
                 'direction' => $admission->direction,
+                'identity_check_confirmed' => (bool) $admission->identity_check_confirmed,
                 'admitted_at' => $admission->admitted_at->toISOString(),
                 'access_point' => $accessPointName ?? $admission->accessPoint?->name ?? 'Access Point',
                 'scanned_by' => $staffName ?? $admission->scannedBy?->name ?? 'Staff',

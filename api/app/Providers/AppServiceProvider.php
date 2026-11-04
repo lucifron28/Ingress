@@ -32,6 +32,10 @@ class AppServiceProvider extends ServiceProvider
             );
         }
 
+        if (config('app.debug') && $this->app->environment('production')) {
+            throw new LogicException('APP_DEBUG must be disabled while APP_ENV=production.');
+        }
+
         RateLimiter::for('node-staff-pair', fn (Request $request) => Limit::perMinute(20)->by('node-pair:'.$request->ip()));
 
         RateLimiter::for('node-staff-login', function (Request $request) {
@@ -54,6 +58,11 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
         RateLimiter::for('student-complete', fn (Request $request) => Limit::perMinute(10)->by('student-complete:'.$request->ip()));
+
+        RateLimiter::for('ticket-transfer', fn (Request $request) => [
+            Limit::perMinute(10)->by('ticket-transfer-user:'.($request->user()?->id ?? $request->ip())),
+            Limit::perMinute(30)->by('ticket-transfer-ip:'.$request->ip()),
+        ]);
 
         // Email + IP keeps the limiter account-specific without penalizing the whole campus NAT.
         RateLimiter::for('login', function (Request $request) {

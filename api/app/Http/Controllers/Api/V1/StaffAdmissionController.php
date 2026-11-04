@@ -171,6 +171,7 @@ class StaffAdmissionController extends Controller
             'qr_payload' => ['required', 'string'],
             'client_scan_id' => ['required', 'string', 'max:64'],
             'direction' => ['sometimes', 'in:entry,exit'],
+            'identity_check_confirmed' => ['sometimes', 'boolean'],
         ]);
 
         $result = $admitTicket->execute(
@@ -179,7 +180,8 @@ class StaffAdmissionController extends Controller
             accessPointId: $validated['access_point_id'],
             qrPayload: $validated['qr_payload'],
             clientScanId: $validated['client_scan_id'],
-            direction: $validated['direction'] ?? 'entry'
+            direction: $validated['direction'] ?? 'entry',
+            identityCheckConfirmed: (bool) ($validated['identity_check_confirmed'] ?? false)
         );
 
         $httpCode = $result['http_code'] ?? 200;

@@ -45,7 +45,12 @@ class AdmissionMovementBatchValidationTest extends TestCase
             $this->movement(3, 'entry'),
         ]);
 
-        $this->assertSame($data, app(ValidateAdmissionBatch::class)->execute(json_encode($data, JSON_THROW_ON_ERROR)));
+        $expected = $data;
+        foreach ($expected['admissions'] as &$movement) {
+            $movement['identity_check_confirmed'] = false;
+        }
+
+        $this->assertSame($expected, app(ValidateAdmissionBatch::class)->execute(json_encode($data, JSON_THROW_ON_ERROR)));
     }
 
     public function test_version_one_normalizes_legacy_admissions_to_entries(): void
@@ -67,5 +72,13 @@ class AdmissionMovementBatchValidationTest extends TestCase
 
         $this->expectException(ValidationException::class);
         app(ValidateAdmissionBatch::class)->execute(json_encode($data, JSON_THROW_ON_ERROR));
+    }
+
+    public function test_version_three_preserves_the_required_identity_check_acknowledgment(): void
+    {
+        $movement = $this->movement(1, 'entry') + ['identity_check_confirmed' => true];
+        $data = $this->payload(3, [$movement]);
+
+        $this->assertSame($data, app(ValidateAdmissionBatch::class)->execute(json_encode($data, JSON_THROW_ON_ERROR)));
     }
 }

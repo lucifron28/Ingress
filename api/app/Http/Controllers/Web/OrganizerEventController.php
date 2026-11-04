@@ -94,6 +94,7 @@ class OrganizerEventController extends Controller
             'starts_at' => ['required', 'date'],
             'ends_at' => ['required', 'date', 'after:starts_at'],
             're_entry_allowed' => ['sometimes', 'boolean'],
+            'identity_verification_level' => ['sometimes', 'in:standard,id_check'],
             'ticket_transfers_allowed' => ['sometimes', 'boolean'],
         ]);
 
@@ -111,6 +112,7 @@ class OrganizerEventController extends Controller
             'starts_at' => $validated['starts_at'],
             'ends_at' => $validated['ends_at'],
             're_entry_allowed' => (bool) ($validated['re_entry_allowed'] ?? false),
+            'identity_verification_level' => $validated['identity_verification_level'] ?? Event::IDENTITY_STANDARD,
             'ticket_transfers_allowed' => (bool) ($validated['ticket_transfers_allowed'] ?? false),
             'status' => Event::STATUS_DRAFT,
         ]);
@@ -214,6 +216,7 @@ class OrganizerEventController extends Controller
             'starts_at' => ['required', 'date'],
             'ends_at' => ['required', 'date', 'after:starts_at'],
             're_entry_allowed' => ['sometimes', 'boolean'],
+            'identity_verification_level' => ['sometimes', 'in:standard,id_check'],
             'ticket_transfers_allowed' => ['sometimes', 'boolean'],
         ]);
 

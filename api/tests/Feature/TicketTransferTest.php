@@ -140,6 +140,25 @@ class TicketTransferTest extends TestCase
         $this->assertDatabaseCount('ticket_transfers', 0);
     }
 
+    public function test_returns_429_after_ten_transfer_requests_per_minute(): void
+    {
+        $this->actingAs($this->sender, 'sanctum');
+
+        for ($attempt = 1; $attempt <= 10; $attempt++) {
+            $response = $this->postJson("/api/v1/tickets/{$this->ticket->id}/transfers", [
+                'recipient' => $this->recipient->email,
+            ]);
+
+            $attempt === 1 ? $response->assertCreated() : $response->assertUnprocessable();
+        }
+
+        $this->postJson("/api/v1/tickets/{$this->ticket->id}/transfers", [
+            'recipient' => $this->recipient->email,
+        ])->assertTooManyRequests();
+
+        $this->assertDatabaseCount('ticket_transfers', 1);
+    }
+
     public function test_disabling_event_transfers_expires_pending_requests(): void
     {
         $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/tickets/{$this->ticket->id}/transfers", [

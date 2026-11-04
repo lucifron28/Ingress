@@ -45,10 +45,10 @@ Route::prefix('v1')->group(function () {
         Route::get('/tickets/{ticket}', [TicketController::class, 'show']);
         Route::middleware('runtime:legacy,cloud')->group(function () {
             Route::get('/me/ticket-transfers', [TicketTransferController::class, 'index']);
-            Route::post('/tickets/{ticket}/transfers', [TicketTransferController::class, 'store']);
-            Route::post('/ticket-transfers/{ticketTransfer}/accept', [TicketTransferController::class, 'accept']);
-            Route::post('/ticket-transfers/{ticketTransfer}/decline', [TicketTransferController::class, 'decline']);
-            Route::delete('/ticket-transfers/{ticketTransfer}', [TicketTransferController::class, 'cancel']);
+            Route::post('/tickets/{ticket}/transfers', [TicketTransferController::class, 'store'])->middleware('throttle:ticket-transfer');
+            Route::post('/ticket-transfers/{ticketTransfer}/accept', [TicketTransferController::class, 'accept'])->middleware('throttle:ticket-transfer');
+            Route::post('/ticket-transfers/{ticketTransfer}/decline', [TicketTransferController::class, 'decline'])->middleware('throttle:ticket-transfer');
+            Route::delete('/ticket-transfers/{ticketTransfer}', [TicketTransferController::class, 'cancel'])->middleware('throttle:ticket-transfer');
         });
 
         // Staff Admission & Multi-Gate Scanning

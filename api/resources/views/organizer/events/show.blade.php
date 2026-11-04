@@ -21,7 +21,7 @@
                     <span class="badge badge-neutral">{{ ucfirst($event->status) }}</span>
                 @endif
             </div>
-            <p style="color: var(--neutral-muted); font-size: 0.875rem;">Venue: <strong>{{ $event->venue->name }}</strong> &bull; Capacity: <strong class="mono">{{ $event->capacity }}</strong> &bull; Re-entry: <strong>{{ $event->re_entry_allowed ? 'Allowed' : 'Not allowed' }}</strong></p>
+            <p style="color: var(--neutral-muted); font-size: 0.875rem;">Venue: <strong>{{ $event->venue->name }}</strong> &bull; Capacity: <strong class="mono">{{ $event->capacity }}</strong> &bull; Re-entry: <strong>{{ $event->re_entry_allowed ? 'Allowed' : 'Not allowed' }}</strong> &bull; Identity: <strong>{{ $event->identity_verification_level === 'id_check' ? 'Approved ID check' : 'Standard details' }}</strong></p>
         </div>
 
         <div style="display: flex; gap: 0.5rem; align-items: center;">

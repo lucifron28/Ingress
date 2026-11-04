@@ -11,8 +11,8 @@ use App\Models\Ticket;
 use App\Models\User;
 use App\Models\Venue;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\Crypt;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -169,6 +169,42 @@ class AdmissionTest extends TestCase
             'ticket_id' => $this->ticket->id,
             'access_point_id' => $this->gateA->id,
             'client_scan_id' => $scanId,
+        ]);
+    }
+
+    public function test_required_identity_check_is_previewed_required_on_confirmation_and_audited(): void
+    {
+        $this->event->update(['identity_verification_level' => Event::IDENTITY_CHECK]);
+
+        $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions/preview", [
+                'access_point_id' => $this->gateA->id,
+                'qr_payload' => $this->validQrPayload,
+            ])
+            ->assertOk()
+            ->assertJsonPath('ticket.identity_verification_level', Event::IDENTITY_CHECK)
+            ->assertJsonPath('detail', 'Compare the attendee with an approved photo ID before confirming.');
+
+        $payload = [
+            'access_point_id' => $this->gateA->id,
+            'qr_payload' => $this->validQrPayload,
+            'client_scan_id' => 'id-check-scan',
+        ];
+        $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", $payload)
+            ->assertStatus(422)
+            ->assertJson(['status' => 'identity_check_required']);
+        $this->assertDatabaseCount('admissions', 0);
+
+        $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", $payload + ['identity_check_confirmed' => true])
+            ->assertOk()
+            ->assertJsonPath('status', 'admitted')
+            ->assertJsonPath('admission.identity_check_confirmed', true);
+        $this->assertDatabaseHas('admissions', [
+            'ticket_id' => $this->ticket->id,
+            'client_scan_id' => 'id-check-scan',
+            'identity_check_confirmed' => true,
         ]);
     }
 
@@ -525,6 +561,7 @@ class AdmissionTest extends TestCase
 
         $this->assertEquals(1, Admission::where('ticket_id', $this->ticket->id)->count());
     }
+
     public function test_staff_assigned_to_gate_a_cannot_scan_at_gate_b(): void
     {
         $response = $this->actingAs($this->staffGateA)
@@ -746,12 +783,13 @@ class AdmissionTest extends TestCase
             ->assertJson([
                 'status' => 'valid',
                 'message' => 'Valid Ticket',
-                'detail' => 'Verify the attendee identity before confirming admission.',
+                'detail' => 'Compare the attendee name and identifier before confirming.',
                 'ticket' => [
                     'public_id' => $this->ticket->public_id,
                     'attendee_name' => 'Ron Vincent Cada',
                     'student_id' => 'A23-35524',
                     'profile_photo_url' => null,
+                    'identity_verification_level' => Event::IDENTITY_STANDARD,
                 ],
             ]);
 
@@ -839,7 +877,7 @@ class AdmissionTest extends TestCase
     }
 
     public function test_unauthorized_staff_or_gate_mismatch_preview_is_rejected(): void
-        {
+    {
         // Unauthorized staff preview
         $this->actingAs($this->unauthorizedStaff)
             ->postJson("/api/v1/staff/events/{$this->event->id}/admissions/preview", [
