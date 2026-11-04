@@ -206,4 +206,24 @@ class NodeAdmissionTest extends TestCase
         $this->assertDatabaseCount('node_synced_admissions', 1);
         $this->assertNull(DB::table('node_walk_in_issuances')->value('synced_at'));
     }
+
+    public function test_walk_in_pass_recovery_requires_authority_and_records_the_staff_member(): void
+    {
+        $url = "/api/v1/staff/events/{$this->eventId}/walk-ins";
+        $this->withToken($this->token)->postJson($url.'/recover', ['email' => 'walkin@example.test'])->assertForbidden();
+        app(ActivateEventAuthority::class)->execute($this->grant);
+        $pass = $this->withToken($this->token)->postJson($url, [
+            'client_request_id' => (string) Str::uuid(), 'name' => 'Walk In', 'email' => 'walkin@example.test',
+            'kind' => 'student', 'student_id' => '456',
+        ])->assertOk()->json();
+        $this->withToken($this->token)->postJson($url.'/recover', ['email' => 'WALKIN@example.test'])
+            ->assertOk()->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonPath('qr_payload', $pass['qr_payload'])->assertJsonPath('student_id', '456');
+        $staffId = PersonalAccessToken::findToken($this->token)->tokenable_id;
+        $this->assertDatabaseHas('node_walk_in_recoveries', ['recovered_by_user_id' => $staffId]);
+        $this->withToken($this->token)->postJson($url.'/recover', ['email' => 'missing@example.test'])->assertStatus(422);
+        DB::table('tickets')->where('public_id', $pass['public_id'])->update(['status' => 'revoked']);
+        $this->withToken($this->token)->postJson($url.'/recover', ['email' => 'walkin@example.test'])->assertStatus(422);
+        $this->assertDatabaseCount('node_walk_in_recoveries', 1);
+    }
 }

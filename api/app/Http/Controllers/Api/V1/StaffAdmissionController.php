@@ -5,8 +5,10 @@ namespace App\Http\Controllers\Api\V1;
 use App\Actions\AdmitTicket;
 use App\Actions\IssueNodeWalkIn;
 use App\Actions\NodeAdmissionAccess;
+use App\Actions\RecoverNodeWalkIn;
 use App\Http\Controllers\Controller;
 use App\Models\Event;
+use App\Models\Ticket;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -23,11 +25,25 @@ class StaffAdmissionController extends Controller
         ]);
         $ticket = $issue->execute($request->user(), $event->id, $input['client_request_id'], $input['name'],
             $input['email'], $input['kind'], $input['student_id'] ?? null);
+
+        return $this->walkInPass($ticket);
+    }
+
+    public function recoverWalkIn(Request $request, Event $event, RecoverNodeWalkIn $recover): JsonResponse
+    {
+        $input = $request->validate(['email' => ['required', 'email', 'max:255']]);
+
+        return $this->walkInPass($recover->execute($request->user(), $event->id, $input['email']));
+    }
+
+    private function walkInPass(Ticket $ticket): JsonResponse
+    {
         $payload = $ticket->getQrPayload();
         abort_if($payload === null, 500, 'The ticket credential is unavailable.');
 
         return response()->json(['public_id' => $ticket->public_id, 'qr_payload' => $payload,
-            'attendee_name' => $ticket->registration->attendeeName()])->header('Cache-Control', 'no-store, private');
+            'attendee_name' => $ticket->registration->attendeeName(), 'student_id' => $ticket->registration->attendeeStudentId()])
+            ->header('Cache-Control', 'no-store, private');
     }
 
     /**
