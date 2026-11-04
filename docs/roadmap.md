@@ -1,6 +1,6 @@
 # Implementation roadmap
 
-Status is relative to `main` at `f85450290c135b229612164fede180d3db4d44be` (Phase 10 merged). A checked item requires a merged change and its listed automated verification. Device and venue verification is deferred to the project owner and does not block the current implementation phases.
+Status is relative to `main` at `d788667dfd6edc9ba8b96207e044d75289687caa` (Phase 11 merged). A checked item requires a merged change and its listed automated verification. Device and venue verification is deferred to the project owner and does not block the current implementation phases.
 
 ## Baseline
 
@@ -21,7 +21,7 @@ Status is relative to `main` at `f85450290c135b229612164fede180d3db4d44be` (Phas
 8. [x] Add guest and alumni tickets, walk-ins, capacity enforcement, and printable QR passes using the shared validation engine. Organizers can issue and print accountless guest and alumni passes before registration closes. PR #34 merged as `47feca7`; CI passed. Device verification remains deferred.
 9. [x] Add entry, exit, re-entry policies, and current-presence reporting. PR #35 merged as `9226683`; Laravel tests passed (203 passed, 1 skipped), TypeScript passed, and PostgreSQL concurrency checks passed (134 assertions). All three post-merge CI jobs passed. Device verification remains deferred.
 10. [x] Add pre-finalization transfers with recipient acceptance, credential rotation, and audit history. PR #36 merged as `f854502`; backend, mobile, TypeScript, PostgreSQL concurrency, and post-merge CI checks passed. Device verification remains deferred.
-11. [ ] Complete reporting, identity policies, security hardening, and deployment instructions. Implementation is underway on `feature/security-deployment-reporting`. Device and venue verification is deferred to the project owner.
-12. [ ] Test 500 to 1,000 or more attendees, concurrent gates, LAN disconnection, restart, and synchronization recovery. Record setup, results, and limits.
+11. [x] Complete reporting, identity policies, security hardening, and deployment instructions. PR #37 merged as `d788667`; backend tests passed (221 passed, 1 skipped, 1,641 assertions), PostgreSQL concurrency passed, mobile session checks passed (60), TypeScript passed, Expo Doctor passed (20/20), dependency alignment and composer/npm audits passed, and Android Kotlin compilation passed. All three PR and post-merge CI jobs passed. Device and venue verification remains deferred.
+12. [ ] Test 500 to 1,000 or more attendees, concurrent gates, LAN disconnection, restart, and synchronization recovery. Record setup, results, and limits. Implementation is underway on `feature/load-recovery-verification`.
 
 Each phase starts from current `main` and ends only after its focused PR passes required checks, is safely merged, and the resulting `main` CI passes. Update this checklist with the PR, merge commit, and evidence as work completes. Adjust ordering only when implementation dependencies require it.
