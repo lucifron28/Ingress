@@ -69,6 +69,12 @@ class SyncNodeAdmissions extends Command
                     }
                     $ackWalkIn->execute((int) $eventId, $body['issuance_id'], $body['registration_id'], $body['ticket_id'], $body['receipt']);
                 }
+            } catch (ConnectionException|ValidationException) {
+                $failed = true;
+                Log::warning('Walk-in synchronization failed; the pending issuance will be retried.', ['cloud_event_id' => (int) $eventId]);
+                $this->error("Walk-in synchronization failed for event {$eventId}; the pending issuance will be retried.");
+            }
+            try {
                 for ($batchNumber = 0; $batchNumber < 10; $batchNumber++) {
                     $batch = $prepare->execute((int) $eventId);
                     if ($batch === null) {

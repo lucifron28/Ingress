@@ -3,14 +3,17 @@
 namespace Tests\Feature;
 
 use App\Actions\ActivateEventAuthority;
+use App\Actions\AdmissionSyncEnvelope;
 use App\Actions\AuthorityGrant;
 use App\Actions\ImportReceivedSnapshot;
 use App\Actions\IssueNodeWalkIn;
+use App\Actions\PrepareAdmissionBatch;
 use App\Actions\ReceiveSnapshot;
 use App\Actions\SnapshotEnvelope;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use Illuminate\Validation\ValidationException;
@@ -180,5 +183,27 @@ class NodeAdmissionTest extends TestCase
         DB::table('node_staff_credentials')->delete();
         $this->withToken($this->token)->postJson($url, $details)->assertUnauthorized();
         $this->assertDatabaseCount('node_walk_in_issuances', 1);
+    }
+
+    public function test_failed_walk_in_sync_does_not_block_preregistered_admissions(): void
+    {
+        app(ActivateEventAuthority::class)->execute($this->grant);
+        $this->scan('', $this->gateId)->assertOk();
+        $this->withToken($this->token)->postJson("/api/v1/staff/events/{$this->eventId}/walk-ins", [
+            'client_request_id' => (string) Str::uuid(), 'name' => 'Walk In', 'email' => 'walkin@example.test', 'kind' => 'guest',
+        ])->assertOk();
+        $batch = app(PrepareAdmissionBatch::class)->execute(10);
+        $secret = config('ingress.node_sync_key');
+        $envelope = app(AdmissionSyncEnvelope::class);
+        $payload = $envelope->open($batch['package'], $secret);
+        $receipt = $envelope->receipt($batch['batch_id'], hash('sha256', $payload), $secret);
+        config(['ingress.cloud_sync_url' => 'https://cloud.example/api/v1']);
+        Http::fake([
+            'https://cloud.example/api/v1/node-sync/walk-ins' => Http::response([], 422),
+            'https://cloud.example/api/v1/node-sync/admissions' => Http::response(['batch_id' => $batch['batch_id'], 'receipt' => $receipt]),
+        ]);
+        $this->assertSame(1, Artisan::call('ingress:sync-admissions', ['event_id' => '10']));
+        $this->assertDatabaseCount('node_synced_admissions', 1);
+        $this->assertNull(DB::table('node_walk_in_issuances')->value('synced_at'));
     }
 }
