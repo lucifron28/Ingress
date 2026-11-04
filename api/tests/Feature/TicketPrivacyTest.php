@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Models\Venue;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Crypt;
 use Tests\TestCase;
 
 class TicketPrivacyTest extends TestCase
@@ -118,6 +119,15 @@ class TicketPrivacyTest extends TestCase
         $list = $this->getJson('/api/v1/me/tickets')->assertOk()
             ->assertJsonPath('data.0.event.status', 'cancelled');
         $this->assertArrayNotHasKey('qr_payload', $list->json('data.0'));
+    }
+
+    public function test_ticket_never_returns_a_secret_that_does_not_match_its_verification_hash(): void
+    {
+        $this->assertNotNull($this->ticket->getQrPayload());
+        $this->ticket->update(['encrypted_secret' => Crypt::encryptString(str_repeat('f', 64))]);
+        $this->assertNull($this->ticket->fresh()->getQrPayload());
+        $this->actingAs($this->student, 'sanctum')->getJson("/api/v1/tickets/{$this->ticket->id}")
+            ->assertOk()->assertJsonPath('ticket.qr_payload', null);
     }
 
     public function test_staff_cannot_inspect_attendee_ticket(): void

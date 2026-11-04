@@ -6,12 +6,14 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Crypt;
 
 class Ticket extends Model
 {
     use HasFactory;
 
     public const STATUS_ACTIVE = 'active';
+
     public const STATUS_REVOKED = 'revoked';
 
     protected $fillable = [
@@ -28,6 +30,7 @@ class Ticket extends Model
     protected $hidden = [
         'encrypted_secret',
     ];
+
     protected function casts(): array
     {
         return [
@@ -59,7 +62,12 @@ class Ticket extends Model
         }
 
         try {
-            $secret = \Illuminate\Support\Facades\Crypt::decryptString($this->encrypted_secret);
+            $secret = Crypt::decryptString($this->encrypted_secret);
+
+            if (! preg_match('/\A[a-fA-F0-9]{64}\z/', $secret) || ! $this->verifySecret($secret)) {
+                return null;
+            }
+
             return "ingress:v1:{$this->public_id}:{$secret}";
         } catch (\Throwable) {
             return null;
