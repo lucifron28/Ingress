@@ -37,7 +37,7 @@ class ActivateEventAuthority
             $link = DB::table('node_import_ids')->where('kind', 'event')->where('cloud_id', $metadata['event_id'])->first();
             if (! $head || ! $import || ! $event || ! $snapshot || ! $link
                 || (int) $link->local_id !== (int) $event->id || (int) $snapshot->event_id !== (int) $import->cloud_event_id
-                || (int) $snapshot->version !== (int) $import->version || (int) $snapshot->schema_version !== 1
+                || (int) $snapshot->version !== (int) $import->version || ! in_array((int) $snapshot->schema_version, [1, 2], true)
                 || ! hash_equals($snapshot->sha256, $import->sha256)
                 || ! hash_equals($snapshot->sha256, hash('sha256', Crypt::decryptString($snapshot->payload_ciphertext)))
                 || $event->status !== 'published' || $event->snapshot_prepared_at === null

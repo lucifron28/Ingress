@@ -14,6 +14,7 @@ use App\Actions\ActivateEventAuthority;
 use App\Actions\AdmitTicket;
 use App\Actions\ExportSnapshot;
 use App\Actions\ImportReceivedSnapshot;
+use App\Actions\IssueGuestTicket;
 use App\Actions\IssueImportReceipt;
 use App\Actions\NodeStaffAccess;
 use App\Actions\NodeStaffPairing;
@@ -115,6 +116,10 @@ try {
             'status' => $result['status'],
             'attempted_admission_insert' => $attemptedAdmissionInsert,
         ]);
+    } elseif ($mode === 'guest_registration') {
+        config(['ingress.mode' => 'cloud']);
+        $registration = app(IssueGuestTicket::class)->execute($payload['event_id'], 'Race Guest', $payload['email'], 'guest');
+        $emit(['ok' => true, 'registration_id' => $registration->id]);
     } elseif ($mode === 'redeem_pairing') {
         config(['ingress.mode' => 'node', 'ingress.node_id' => $payload['node_id']]);
         $session = app(NodeStaffPairing::class)->redeem($payload['token'], $payload['node_id'], 'race-scanner');

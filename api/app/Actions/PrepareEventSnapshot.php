@@ -49,6 +49,7 @@ class PrepareEventSnapshot
 
             $event->load(['venue', 'organizer', 'accessPoints', 'staffAssignments.user']);
             $registrations = Registration::with(['user', 'ticket'])->where('event_id', $event->id)->orderBy('id')->get();
+            $schemaVersion = $registrations->contains(fn ($registration) => $registration->user_id === null) ? 2 : 1;
             $id = (string) Str::uuid();
             $version = $event->snapshot_version + 1;
             $identity = fn ($user) => [
@@ -56,7 +57,7 @@ class PrepareEventSnapshot
                 'role' => $user->role,
             ];
             $payload = [
-                'schema_version' => 1, 'snapshot_id' => $id, 'version' => $version,
+                'schema_version' => $schemaVersion, 'snapshot_id' => $id, 'version' => $version,
                 'event' => [
                     'id' => $event->id, 'title' => $event->title, 'slug' => $event->slug,
                     'description' => $event->description, 'capacity' => $event->capacity,
@@ -80,8 +81,9 @@ class PrepareEventSnapshot
                     'id' => $registration->id, 'status' => $registration->status,
                     'created_at' => $registration->created_at->toISOString(),
                     'cancelled_at' => $registration->cancelled_at?->toISOString(),
-                    'attendee' => ['id' => $registration->user->id, 'name' => $registration->user->name,
-                        'email' => $registration->user->email, 'student_id' => $registration->user->student_id],
+                    'attendee' => ['id' => $registration->user?->id, 'name' => $registration->attendeeName(),
+                        'email' => $registration->attendeeEmail(), 'student_id' => $registration->attendeeStudentId()]
+                        + ($schemaVersion === 2 ? ['kind' => $registration->attendee_type] : []),
                     'ticket' => $registration->ticket ? [
                         'id' => $registration->ticket->id, 'public_id' => $registration->ticket->public_id,
                         'qr_hash' => $registration->ticket->qr_hash, 'status' => $registration->ticket->status,
@@ -96,7 +98,7 @@ class PrepareEventSnapshot
             $checksum = hash('sha256', $json);
             $preparedAt = now();
             DB::table('event_snapshots')->insert([
-                'id' => $id, 'event_id' => $event->id, 'version' => $version, 'schema_version' => 1,
+                'id' => $id, 'event_id' => $event->id, 'version' => $version, 'schema_version' => $schemaVersion,
                 'sha256' => $checksum, 'payload_ciphertext' => Crypt::encryptString($json),
                 'created_at' => $preparedAt, 'updated_at' => $preparedAt,
             ]);

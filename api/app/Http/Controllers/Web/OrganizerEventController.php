@@ -142,6 +142,8 @@ class OrganizerEventController extends Controller
 
         $event->load(['venue', 'accessPoints', 'staffAssignments.user', 'staffAssignments.accessPoint']);
         $staffUsers = User::where('role', User::ROLE_STAFF)->orderBy('name')->get();
+        $guestRegistrations = config('ingress.mode') === 'cloud' && Auth::user()->can('update', $event)
+            ? $event->registrations()->whereNull('user_id')->with('ticket')->orderBy('id')->get() : collect();
         $receiptNodeId = null;
         $importReceiptNodeId = null;
         $authority = DB::table('cloud_event_authorities')->where('event_id', $event->id)->first();
@@ -165,7 +167,7 @@ class OrganizerEventController extends Controller
                 ->whereNull('event_snapshots.invalidated_at')->value('event_snapshot_import_receipts.node_id');
         }
 
-        return view('organizer.events.show', compact('event', 'staffUsers', 'receiptNodeId', 'importReceiptNodeId', 'authority'));
+        return view('organizer.events.show', compact('event', 'staffUsers', 'receiptNodeId', 'importReceiptNodeId', 'authority', 'guestRegistrations'));
     }
 
     /**

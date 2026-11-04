@@ -70,8 +70,8 @@ class AdmitTicket
                 ],
                 'ticket' => [
                     'public_id' => $ticket->public_id,
-                    'attendee_name' => $ticket->registration->user->name,
-                    'student_id' => $ticket->registration->user->student_id,
+                    'attendee_name' => $ticket->registration->attendeeName(),
+                    'student_id' => $ticket->registration->attendeeStudentId(),
                 ],
             ];
         }
@@ -83,8 +83,8 @@ class AdmitTicket
             'detail' => 'Verify the attendee identity before confirming admission.',
             'ticket' => [
                 'public_id' => $ticket->public_id,
-                'attendee_name' => $ticket->registration->user->name,
-                'student_id' => $ticket->registration->user->student_id,
+                'attendee_name' => $ticket->registration->attendeeName(),
+                'student_id' => $ticket->registration->attendeeStudentId(),
                 'profile_photo_url' => null,
             ],
         ];
@@ -162,8 +162,8 @@ class AdmitTicket
                 ],
                 'ticket' => [
                     'public_id' => $ticket->public_id,
-                    'attendee_name' => $ticket->registration->user->name,
-                    'student_id' => $ticket->registration->user->student_id,
+                    'attendee_name' => $ticket->registration->attendeeName(),
+                    'student_id' => $ticket->registration->attendeeStudentId(),
                 ],
             ];
         }
@@ -255,8 +255,8 @@ class AdmitTicket
                         ],
                         'ticket' => [
                             'public_id' => $lockedTicket->public_id,
-                            'attendee_name' => $lockedTicket->registration->user->name,
-                            'student_id' => $lockedTicket->registration->user->student_id,
+                            'attendee_name' => $lockedTicket->registration->attendeeName(),
+                            'student_id' => $lockedTicket->registration->attendeeStudentId(),
                         ],
                     ];
                 }
@@ -283,8 +283,8 @@ class AdmitTicket
                         ],
                         'ticket' => [
                             'public_id' => $lockedTicket->public_id,
-                            'attendee_name' => $lockedTicket->registration->user->name,
-                            'student_id' => $lockedTicket->registration->user->student_id,
+                            'attendee_name' => $lockedTicket->registration->attendeeName(),
+                            'student_id' => $lockedTicket->registration->attendeeStudentId(),
                         ],
                     ];
                 }
@@ -320,8 +320,8 @@ class AdmitTicket
                     ],
                     'ticket' => [
                         'public_id' => $lockedTicket->public_id,
-                        'attendee_name' => $lockedTicket->registration->user->name,
-                        'student_id' => $lockedTicket->registration->user->student_id,
+                        'attendee_name' => $lockedTicket->registration->attendeeName(),
+                        'student_id' => $lockedTicket->registration->attendeeStudentId(),
                     ],
                 ];
             });
