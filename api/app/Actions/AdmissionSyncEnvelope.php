@@ -53,4 +53,9 @@ class AdmissionSyncEnvelope
         return hash_hmac('sha256', implode('.', [$issuanceId, $payloadHash, $registrationId, $ticketId]),
             $this->key($secret, 'ingress walk-in sync receipt v1'));
     }
+
+    public function walkInRecoveryReceipt(int $recoveryId, string $payloadHash, string $secret): string
+    {
+        return hash_hmac('sha256', $recoveryId.'.'.$payloadHash, $this->key($secret, 'ingress walk-in recovery receipt v1'));
+    }
 }

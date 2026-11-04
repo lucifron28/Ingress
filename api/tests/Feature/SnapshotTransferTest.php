@@ -15,6 +15,7 @@ use App\Actions\PrepareWalkInSync;
 use App\Actions\ReceiveAdmissionBatch;
 use App\Actions\ReceiveSnapshot;
 use App\Actions\SnapshotEnvelope;
+use App\Actions\SyncWalkInRecovery;
 use App\Http\Controllers\Api\V1\AdmissionSyncController;
 use App\Http\Controllers\Web\OrganizerEventController;
 use App\Models\Admission;
@@ -460,6 +461,10 @@ class SnapshotTransferTest extends TestCase
             $walkIn = $this->withToken($staffToken)->postJson("/api/v1/staff/events/{$localId}/walk-ins", [
                 'client_request_id' => (string) Str::uuid(), 'name' => 'Walk In', 'email' => 'walkin@example.test', 'kind' => 'guest',
             ])->assertOk()->json();
+            $this->withToken($staffToken)->postJson("/api/v1/staff/events/{$localId}/walk-ins/recover", [
+                'email' => 'walkin@example.test',
+            ])->assertOk()->assertJsonPath('qr_payload', $walkIn['qr_payload']);
+            $this->assertNull(app(SyncWalkInRecovery::class)->prepare($event->id));
             $this->withToken($staffToken)->postJson("/api/v1/staff/events/{$localId}/admissions", [
                 'access_point_id' => $gateId, 'qr_payload' => $walkIn['qr_payload'], 'client_scan_id' => 'walk-in-scan',
             ])->assertOk()->assertJsonPath('status', 'admitted');
@@ -487,16 +492,36 @@ class SnapshotTransferTest extends TestCase
                 $this->assertSame($walkInPackage, app(PrepareWalkInSync::class)->execute($event->id));
             }
             app(AcknowledgeWalkInSync::class)->execute($event->id, $walkInReceipt['issuance_id'], $walkInReceipt['registration_id'], $walkInReceipt['ticket_id'], $walkInReceipt['receipt']);
+            $recovery = app(SyncWalkInRecovery::class)->prepare($event->id);
+            $this->assertSame($recovery, app(SyncWalkInRecovery::class)->prepare($event->id));
             $walkInAdmission = app(PrepareAdmissionBatch::class)->execute($event->id);
             $this->assertSame(1, $walkInAdmission['count']);
             DB::setDefaultConnection($cloudConnection);
             Crypt::swap($cloudEncrypter);
             config(['ingress.mode' => 'cloud', 'ingress.node_id' => null, 'ingress.node_sync_key' => null]);
+            $recoveryReceipt = $this->call('POST', '/api/v1/node-sync/walk-in-recoveries', [], [], [], $headers, $recovery['package'])->assertOk()->json();
+            $this->call('POST', '/api/v1/node-sync/walk-in-recoveries', [], [], [], $headers, $recovery['package'])->assertOk()->assertExactJson($recoveryReceipt);
+            $badRecovery = json_decode(app(AdmissionSyncEnvelope::class)->open($recovery['package'], $secret), true, 8, JSON_THROW_ON_ERROR);
+            $badRecovery['staff_id'] = $owner->id;
+            $badRecoveryPackage = app(AdmissionSyncEnvelope::class)->seal(json_encode($badRecovery, JSON_THROW_ON_ERROR), $secret);
+            $this->call('POST', '/api/v1/node-sync/walk-in-recoveries', [], [], [], $headers, $badRecoveryPackage)->assertStatus(422);
+            $this->assertDatabaseCount('cloud_walk_in_recoveries', 1);
+            $this->actingAs($owner)->get("/organizer/events/{$event->id}")->assertOk()
+                ->assertSee('Recent walk-in pass recoveries')->assertSee($walkIn['public_id'])
+                ->assertSee(DB::table('users')->where('id', $cloudStaffId)->value('name'));
             $walkInAdmissionReceipt = $this->call('POST', '/api/v1/node-sync/admissions', [], [], [], $headers, $walkInAdmission['package'])->assertOk()->json('receipt');
             $this->assertDatabaseCount('admissions', 4);
             DB::setDefaultConnection('authority_node');
             Crypt::swap($nodeEncrypter);
             config(['ingress.mode' => 'node', 'ingress.node_id' => 'node-1', 'ingress.node_sync_key' => $secret]);
+            try {
+                app(SyncWalkInRecovery::class)->acknowledge($event->id, $recovery['recovery_id'], str_repeat('0', 64));
+                $this->fail('A forged walk-in recovery receipt was accepted.');
+            } catch (ValidationException) {
+                $this->assertSame($recovery, app(SyncWalkInRecovery::class)->prepare($event->id));
+            }
+            app(SyncWalkInRecovery::class)->acknowledge($event->id, $recoveryReceipt['recovery_id'], $recoveryReceipt['receipt']);
+            $this->assertNull(app(SyncWalkInRecovery::class)->prepare($event->id));
             app(AcknowledgeAdmissionBatch::class)->execute($event->id, $walkInAdmission['batch_id'], $walkInAdmissionReceipt);
             $this->assertDatabaseCount('node_synced_admissions', 4);
             DB::setDefaultConnection($cloudConnection);
