@@ -47,6 +47,7 @@ Route::prefix('v1')->group(function () {
             Route::get('/events/{event}/access-points', [StaffAdmissionController::class, 'accessPoints']);
             Route::post('/events/{event}/admissions/preview', [StaffAdmissionController::class, 'preview']);
             Route::post('/events/{event}/admissions', [StaffAdmissionController::class, 'scan']);
+            Route::post('/events/{event}/walk-ins', [StaffAdmissionController::class, 'issueWalkIn'])->middleware('runtime:node');
         });
     });
 });

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Actions\AdmitTicket;
+use App\Actions\IssueNodeWalkIn;
 use App\Actions\NodeAdmissionAccess;
 use App\Http\Controllers\Controller;
 use App\Models\Event;
@@ -11,6 +12,24 @@ use Illuminate\Http\Request;
 
 class StaffAdmissionController extends Controller
 {
+    public function issueWalkIn(Request $request, Event $event, IssueNodeWalkIn $issue): JsonResponse
+    {
+        $input = $request->validate([
+            'client_request_id' => ['required', 'uuid'],
+            'name' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'email', 'max:255'],
+            'kind' => ['required', 'in:student,guest,alumni'],
+            'student_id' => ['nullable', 'string', 'max:255'],
+        ]);
+        $ticket = $issue->execute($request->user(), $event->id, $input['client_request_id'], $input['name'],
+            $input['email'], $input['kind'], $input['student_id'] ?? null);
+        $payload = $ticket->getQrPayload();
+        abort_if($payload === null, 500, 'The ticket credential is unavailable.');
+
+        return response()->json(['public_id' => $ticket->public_id, 'qr_payload' => $payload,
+            'attendee_name' => $ticket->registration->attendeeName()])->header('Cache-Control', 'no-store, private');
+    }
+
     /**
      * List events assigned to the authenticated staff member.
      */

@@ -142,4 +142,23 @@ class NodeAdmissionTest extends TestCase
         }
         $this->assertDatabaseCount('node_walk_in_issuances', 1);
     }
+
+    public function test_walk_in_endpoint_requires_authority_and_uses_the_normal_scanner(): void
+    {
+        $details = ['client_request_id' => (string) Str::uuid(), 'name' => 'Walk In',
+            'email' => 'walkin@example.test', 'kind' => 'guest'];
+        $url = "/api/v1/staff/events/{$this->eventId}/walk-ins";
+        $this->withToken($this->token)->postJson($url, $details)->assertForbidden();
+        app(ActivateEventAuthority::class)->execute($this->grant);
+        $pass = $this->withToken($this->token)->postJson($url, $details)->assertOk()->json();
+        $this->assertSame($pass['qr_payload'], $this->withToken($this->token)->postJson($url, $details)->assertOk()->json('qr_payload'));
+        $this->withToken($this->token)->postJson("/api/v1/staff/events/{$this->eventId}/admissions/preview", [
+            'access_point_id' => $this->gateId, 'qr_payload' => $pass['qr_payload'],
+        ])->assertOk()->assertJsonPath('ticket.attendee_name', 'Walk In');
+        $this->assertDatabaseCount('admissions', 0);
+        $this->withToken($this->token)->postJson("/api/v1/staff/events/{$this->eventId}/admissions", [
+            'access_point_id' => $this->gateId, 'qr_payload' => $pass['qr_payload'], 'client_scan_id' => 'walk-in-scan',
+        ])->assertOk()->assertJsonPath('status', 'admitted');
+        $this->assertDatabaseCount('admissions', 1);
+    }
 }
