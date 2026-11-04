@@ -44,8 +44,16 @@ class IssueNodeWalkIn
                     if (! hash_equals($existing->request_hash, $requestHash)) {
                         throw ValidationException::withMessages(['walk_in' => 'The request ID was used for another walk-in.']);
                     }
+                    $ticket = Ticket::whereKey($existing->ticket_id)->lockForUpdate()->first();
+                    $registration = $ticket?->registration;
+                    if (! $event->isPublished() || ! $ticket || ! $ticket->isActive() || ! $registration
+                        || (int) $registration->id !== (int) $existing->registration_id
+                        || (int) $registration->event_id !== $eventId || $registration->attendee_type !== 'walk_in'
+                        || $registration->status !== Registration::STATUS_CONFIRMED || $ticket->getQrPayload() === null) {
+                        throw ValidationException::withMessages(['walk_in' => 'The previously issued walk-in pass is no longer active.']);
+                    }
 
-                    return Ticket::findOrFail($existing->ticket_id);
+                    return $ticket;
                 }
                 if (! $event->isPublished() || now()->gt($event->ends_at)) {
                     throw ValidationException::withMessages(['walk_in' => 'This event is not accepting walk-ins.']);

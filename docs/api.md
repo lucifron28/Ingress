@@ -621,7 +621,7 @@ The cloud organizer interface accepts `POST /organizer/events/{event}/guests` fr
 
 ### Node walk-in issuance
 
-`POST /staff/events/{event}/walk-ins` requires an assigned node staff session and active authority for the event. Send `client_request_id` as a UUID, `name`, `email`, and `kind` as `student`, `guest`, or `alumni`. Include `student_id` for a student and omit it for other kinds. The node locks the event, checks existing registrations and remaining capacity, and returns `public_id`, `attendee_name`, `student_id`, and `qr_payload` with a private, no-store response. The request ID must be reused with the same details when retrying. Issuance does not admit the attendee; scan preview and explicit confirmation remain required.
+`POST /staff/events/{event}/walk-ins` requires an assigned node staff session and active authority for the event. Send `client_request_id` as a UUID, `name`, `email`, and `kind` as `student`, `guest`, or `alumni`. Include `student_id` for a student and omit it for other kinds. The node locks the event, checks existing registrations and remaining capacity, and returns `public_id`, `attendee_name`, `student_id`, and `qr_payload` with a private, no-store response. The request ID must be reused with the same details when retrying; a retry does not return a revoked pass. Issuance does not admit the attendee; scan preview and explicit confirmation remain required.
 
 `POST /staff/events/{event}/walk-ins/recover` takes an attendee `email` and returns the active node-issued pass to assigned staff with active event authority. The node records the issuance, staff user, and recovery time. The response also includes `student_id` when present. Recovery does not change admission status.
 

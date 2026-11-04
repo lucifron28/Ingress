@@ -226,4 +226,16 @@ class NodeAdmissionTest extends TestCase
         $this->withToken($this->token)->postJson($url.'/recover', ['email' => 'walkin@example.test'])->assertStatus(422);
         $this->assertDatabaseCount('node_walk_in_recoveries', 1);
     }
+
+    public function test_walk_in_retry_does_not_return_a_revoked_pass(): void
+    {
+        app(ActivateEventAuthority::class)->execute($this->grant);
+        $url = "/api/v1/staff/events/{$this->eventId}/walk-ins";
+        $details = ['client_request_id' => (string) Str::uuid(), 'name' => 'Walk In',
+            'email' => 'walkin@example.test', 'kind' => 'guest'];
+        $pass = $this->withToken($this->token)->postJson($url, $details)->assertOk()->json();
+        DB::table('tickets')->where('public_id', $pass['public_id'])->update(['status' => 'revoked']);
+        $this->withToken($this->token)->postJson($url, $details)->assertStatus(422)->assertJsonMissing(['qr_payload' => $pass['qr_payload']]);
+        $this->assertDatabaseCount('node_walk_in_issuances', 1);
+    }
 }
