@@ -67,7 +67,8 @@ class ReceiveAdmissionBatch
                     || $roster['event']['id'] !== $data['event_id']) {
                     $this->invalid();
                 }
-                $tickets = $gates = $staff = [];
+                $tickets = $gates = $staff = $presence = [];
+                $reEntryAllowed = $roster['event']['re_entry_allowed'] ?? false;
                 foreach ($roster['registrations'] as $registration) {
                     if ($registration['status'] === 'confirmed' && $registration['ticket'] !== null && $registration['ticket']['status'] === 'active') {
                         $tickets[$registration['ticket']['id']] = $registration['ticket'];
@@ -112,24 +113,35 @@ class ReceiveAdmissionBatch
                             || (int) $admission->ticket_id !== $item['ticket_id'] || (int) $admission->access_point_id !== $item['gate_id']
                             || (int) $admission->scanned_by_user_id !== $item['staff_id'] || $admission->client_scan_id !== $item['scan_id']
                             || (int) $admission->credential_version !== $item['credential_version']
+                            || $admission->direction !== $item['direction']
                             || ! CarbonImmutable::parse($admission->admitted_at, 'UTC')->equalTo(CarbonImmutable::parse($item['admitted_at']))) {
                             $this->invalid();
                         }
 
                         continue;
                     }
-                    if (DB::table('admissions')->where('ticket_id', $item['ticket_id'])->exists()) {
+                    if (! array_key_exists($item['ticket_id'], $presence)) {
+                        $presence[$item['ticket_id']] = DB::table('admissions')->where('ticket_id', $item['ticket_id'])
+                            ->orderByDesc('id')->value('direction');
+                    }
+                    $currentDirection = $presence[$item['ticket_id']];
+                    $direction = $item['direction'];
+                    if (($direction === 'entry' && ($currentDirection === 'entry'
+                            || ($currentDirection === 'exit' && ! $reEntryAllowed)))
+                        || ($direction === 'exit' && $currentDirection !== 'entry')) {
                         $this->invalid();
                     }
                     $admissionId = DB::table('admissions')->insertGetId([
                         'ticket_id' => $item['ticket_id'], 'access_point_id' => $item['gate_id'],
                         'scanned_by_user_id' => $item['staff_id'], 'client_scan_id' => $item['scan_id'],
-                        'credential_version' => $item['credential_version'], 'admitted_at' => CarbonImmutable::parse($item['admitted_at'])->utc(),
+                        'credential_version' => $item['credential_version'], 'direction' => $direction,
+                        'admitted_at' => CarbonImmutable::parse($item['admitted_at'])->utc(),
                         'created_at' => now(), 'updated_at' => now(),
                     ]);
                     DB::table('cloud_synced_admissions')->insert([
                         'node_id' => $nodeId, 'node_admission_id' => $item['admission_id'], 'admission_id' => $admissionId, 'event_id' => $data['event_id'],
                     ]);
+                    $presence[$item['ticket_id']] = $direction;
                 }
                 $receipt = $this->envelope->receipt($data['batch_id'], $hash, $secret);
                 DB::table('cloud_admission_batches')->insert([

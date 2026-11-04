@@ -68,7 +68,7 @@ class PrepareAdmissionBatch
                 ->whereNotExists(fn ($query) => $query->selectRaw('1')->from('node_walk_in_issuances as w')
                     ->whereColumn('w.ticket_id', 'a.ticket_id')->whereNull('w.synced_at'))
                 ->orderBy('a.id')->limit(100)
-                ->get(['a.id', 'a.client_scan_id', 'a.credential_version', 'a.admitted_at', 'g.event_id as gate_event_id',
+                ->get(['a.id', 'a.client_scan_id', 'a.credential_version', 'a.direction', 'a.admitted_at', 'g.event_id as gate_event_id',
                     'ti.cloud_id as cloud_ticket_id', 'gi.cloud_id as cloud_gate_id', 'si.cloud_id as cloud_staff_id']);
             if ($rows->isEmpty()) {
                 return null;
@@ -81,9 +81,9 @@ class PrepareAdmissionBatch
                 $items[] = ['admission_id' => (int) $row->id, 'ticket_id' => (int) $row->cloud_ticket_id,
                     'gate_id' => (int) $row->cloud_gate_id, 'staff_id' => (int) $row->cloud_staff_id,
                     'scan_id' => $row->client_scan_id, 'credential_version' => (int) $row->credential_version,
-                    'admitted_at' => CarbonImmutable::parse($row->admitted_at, 'UTC')->utc()->toISOString()];
+                    'direction' => $row->direction, 'admitted_at' => CarbonImmutable::parse($row->admitted_at, 'UTC')->utc()->toISOString()];
             }
-            $data = ['schema_version' => 1, 'batch_id' => (string) Str::uuid(), 'node_id' => $nodeId,
+            $data = ['schema_version' => 2, 'batch_id' => (string) Str::uuid(), 'node_id' => $nodeId,
                 'event_id' => $cloudEventId, 'snapshot_id' => $import->snapshot_id, 'version' => (int) $import->version,
                 'snapshot_sha256' => $import->sha256, 'admissions' => $items];
             $payload = json_encode($data, JSON_THROW_ON_ERROR);

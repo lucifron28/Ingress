@@ -368,10 +368,10 @@ Lists events where the authenticated staff member is assigned to scan tickets.
 
 ---
 
-### 4.2 Preview & Validate Ticket (Read-Only)
-Read-only validation of an attendee ticket before staff confirmation. Validates ticket authenticity, registration, and anti-passback rules without consuming the ticket or creating an admission record.
+### 4.2 Preview an entry or exit (read-only)
+Read-only validation checks the ticket and current presence before staff confirmation. It does not create an admission movement.
 
-> **Important**: Ticket validation does not create an admission. Admission occurs only after authorized entrance staff confirms the attendee identity against their university ID. Profile photos are optional (nullable) and are never encoded in the QR code.
+> **Important**: Ticket validation does not create a movement. Entry or exit occurs only after authorized event staff confirms the attendee identity against their university ID. Profile photos are optional (nullable) and are never encoded in the QR code.
 
 - **Method**: `POST`
 - **Endpoint**: `/staff/events/{event_id}/admissions/preview`
@@ -381,10 +381,12 @@ Read-only validation of an attendee ticket before staff confirmation. Validates 
 ```json
 {
   "access_point_id": 1,
-  "qr_payload": "ingress:v1:ING-A92B48EF12:6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b"
+  "qr_payload": "ingress:v1:ING-A92B48EF12:6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+  "direction": "entry"
 }
 ```
 *(Note: `client_scan_id` is NOT sent during preview because preview does not perform an admission attempt).*
+`direction` accepts `entry` or `exit`; it defaults to `entry` for older clients.
 
 #### Response 1: Valid Ticket (`200 OK`)
 ```json
@@ -392,6 +394,7 @@ Read-only validation of an attendee ticket before staff confirmation. Validates 
   "status": "valid",
   "message": "Valid Ticket",
   "detail": "Verify the attendee identity before confirming admission.",
+  "direction": "entry",
   "ticket": {
     "public_id": "ING-A92B48EF12",
     "attendee_name": "Ron Vincent Cada",
@@ -406,8 +409,9 @@ Read-only validation of an attendee ticket before staff confirmation. Validates 
 {
   "status": "already_admitted",
   "message": "Already Checked In",
-  "detail": "Previously admitted at Entrance 1, 1:42 PM",
+  "detail": "The attendee is already inside. Record an exit before another entry.",
   "previous_admission": {
+    "direction": "entry",
     "admitted_at": "2026-10-01T01:42:00.000000Z",
     "access_point": "Entrance 1",
     "scanned_by": "Staff Alex Rivera"
@@ -422,8 +426,8 @@ Read-only validation of an attendee ticket before staff confirmation. Validates 
 
 ---
 
-### 4.3 Confirm & Record Ticket Admission
-Authoritative admission transaction executed upon staff confirmation (`CONFIRM ADMISSION`). Revalidates mutable state under lock, enforces anti-passback, creates the `Admission` record, and returns the admitted response.
+### 4.3 Confirm and record an entry or exit
+The authoritative transaction runs after staff confirmation. It revalidates the ticket, gate authorization, and presence transition while holding the ticket lock, then appends an `Admission` movement.
 
 - **Method**: `POST`
 - **Endpoint**: `/staff/events/{event_id}/admissions`
@@ -434,7 +438,8 @@ Authoritative admission transaction executed upon staff confirmation (`CONFIRM A
 {
   "access_point_id": 1,
   "qr_payload": "ingress:v1:ING-A92B48EF12:6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
-  "client_scan_id": "c1f38e3a-4e2a-4a6c-9a1b-1234567890ab"
+  "client_scan_id": "c1f38e3a-4e2a-4a6c-9a1b-1234567890ab",
+  "direction": "entry"
 }
 ```
 #### Response 1: Ticket Valid (`200 OK`)
@@ -445,6 +450,7 @@ Authoritative admission transaction executed upon staff confirmation (`CONFIRM A
   "detail": "Admitted at 1:42 PM",
   "admission": {
     "id": 1,
+    "direction": "entry",
     "admitted_at": "2026-10-01T01:42:00.000000Z",
     "access_point": "Entrance 1",
     "scanned_by": "Staff Alex Rivera"
@@ -457,13 +463,16 @@ Authoritative admission transaction executed upon staff confirmation (`CONFIRM A
 }
 ```
 
+An exit confirmation returns `status: "exited"`, `message: "Exit Recorded"`, and `admission.direction: "exit"`.
+
 #### Response 2: Duplicate Admission / Anti-Passback (`409 Conflict`)
 ```json
 {
   "status": "already_admitted",
   "message": "Already Checked In",
-  "detail": "Previously admitted at Entrance 1, 1:42 PM",
+  "detail": "The attendee is already inside. Record an exit before another entry.",
   "previous_admission": {
+    "direction": "entry",
     "admitted_at": "2026-10-01T01:42:00.000000Z",
     "access_point": "Entrance 1",
     "scanned_by": "Staff Alex Rivera"
@@ -475,6 +484,8 @@ Authoritative admission transaction executed upon staff confirmation (`CONFIRM A
   }
 }
 ```
+
+Other movement-state conflicts return HTTP `409` with `status: "not_inside"` for an exit without a current entry, or `status: "reentry_not_allowed"` for an entry after exit when the event policy is disabled. Organizers set `re_entry_allowed` in event settings before preparing the node snapshot. It defaults to false and is frozen with the event snapshot.
 
 #### Response 3: Invalid Ticket (`422 Unprocessable Content`)
 ```json
@@ -515,13 +526,13 @@ Returned when staff bound to one gate attempt to scan through another.
 ```
 
 #### Response 7: Idempotency Key Conflict (`409 Conflict`)
-Returned when a `client_scan_id` is replayed for a **different** ticket, credential version, event, or access point. A replay for the *same* ticket/credential/event/gate returns the original `200 Ticket Valid` response instead.
+Returned when a `client_scan_id` is replayed for a different ticket, credential version, event, access point, or movement direction. A replay for the same request returns the original movement response instead.
 An insert that loses a race on the `UNIQUE(client_scan_id)` index is also mapped to this response.
 ```json
 {
   "status": "idempotency_conflict",
   "message": "Idempotency Key Conflict",
-  "detail": "The client scan ID was already used for a different admission request."
+  "detail": "The client scan ID was already used for a different movement request."
 }
 ```
 
@@ -597,15 +608,15 @@ The server evaluates these conditions in order and stops at the first failure:
 9. registration is `confirmed`
 10. ticket is `active`
 11. ticket belongs to the selected event
-12. `client_scan_id` is a replay only for the same ticket, credential version, event, and gate
-13. no prior admission exists for this ticket (physical anti-passback)
+12. `client_scan_id` is a replay only for the same ticket, credential version, event, gate, and direction
+13. the requested direction is a valid state transition for the ticket
 
 Steps 2, 8–11, 12, and 13 are re-evaluated authoritatively **inside** the admission transaction:
 - Step 2 under an `Event::sharedLock()` (`FOR SHARE`) on the event row, so a concurrent event cancellation or completion cannot commit mid-admission.
 - Steps 8–11 and 12–13 under a `Ticket::lockForUpdate()` (`FOR UPDATE`) on the ticket row, re-validating the secret, ticket status, registration status, event match, and in-lock idempotency.
 Steps 1–11 outside the transaction serve as a fast pre-check path.
 
-Step 13 verifies that no prior admission exists for the ticket across all entrances and credential versions, preventing duplicate admission. Credential versions are stored on admission records to preserve issuance history and scope idempotency replays.
+Step 13 uses the latest movement for the ticket across all entrances and credential versions. `entry` is rejected while the attendee is inside. `exit` is rejected while the attendee is outside. A later `entry` after an exit is accepted only when the event's `re_entry_allowed` policy is true. Credential versions stay on every movement so scan retries remain bound to the ticket issuance.
 
 ### Staff assignment navigation hint
 
@@ -613,7 +624,11 @@ The authenticated user resource includes `is_event_staff`, indicating whether th
 
 ### Event Node admission synchronization
 
-`POST /node-sync/admissions` is available only on the cloud runtime and requires HTTPS outside local and testing environments. The node sends an encrypted, authenticated batch as `application/octet-stream` with its ID in `X-Ingress-Node`. The cloud checks that node's active event authority and the frozen snapshot before applying the batch. A successful response returns a batch ID and authenticated receipt. Repeating the same batch returns the same receipt without duplicating admissions. Invalid credentials, conflicting records, or malformed batches are rejected without partial writes.
+`POST /node-sync/admissions` is available only on the cloud runtime and requires HTTPS outside local and testing environments. The node sends an encrypted, authenticated batch as `application/octet-stream` with its ID in `X-Ingress-Node`. Batch schema version 2 includes each movement's `direction`; schema version 1 remains readable as entry-only history. The cloud checks the node's active event authority, frozen re-entry policy, and movement sequence before applying the batch. A successful response returns a batch ID and authenticated receipt. Repeating the same batch returns the same receipt without duplicating movements. Invalid credentials, conflicting records, or malformed batches are rejected without partial writes.
+
+### Organizer attendance feed
+
+`GET /organizer/events/{event}/attendance/feed` reports confirmed registrations, attendees who have ever entered, current inside and outside counts, attendees not yet arrived, re-entry movements, and current inside counts for verified students versus guests and alumni. The feed's `recent_admissions` list contains both `entry` and `exit` movements.
 
 ### Organizer-issued guest and alumni passes
 

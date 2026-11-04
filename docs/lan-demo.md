@@ -192,12 +192,13 @@ cd api
 php scripts/verify_pgsql_concurrency.php
 ```
 
-It creates its own `ingress_concurrency` database, releases transactions through a two-process barrier, and checks twenty-two concurrency scenarios. If that database already exists, set `INGRESS_CONCURRENCY_DB` to an unused name; the script refuses to reset an existing database:
+It creates its own `ingress_concurrency` database, releases transactions through a two-process barrier, and checks 38 concurrency scenarios. If that database already exists, set `INGRESS_CONCURRENCY_DB` to an unused name; the script refuses to reset an existing database:
 
 | Case | Invariant |
 | :--- | :--- |
 | A | two simultaneous registrations for the final seat → exactly one confirmed registration |
 | B | two gates scanning the same ticket → exactly one admission; the other reports `already_admitted` |
+| Y | two node gates race an exit against a re-entry → ticket locking preserves the sequence and the disabled policy rejects re-entry |
 | C | one `client_scan_id` replayed across two tickets → exactly one admission; the other is an idempotency conflict |
 | D | a worker forced to collide on the unique index → mapped to `idempotency_conflict`, never an unhandled 500 |
 | E | an event cancellation held open while a scan is in flight → the scan blocks, then is rejected; no admission recorded |

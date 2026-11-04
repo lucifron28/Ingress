@@ -77,6 +77,17 @@
                 </div>
             </div>
 
+            <div class="form-group" style="margin-top: 0.5rem;">
+                <input type="hidden" name="re_entry_allowed" value="0">
+                <label style="display: flex; align-items: flex-start; gap: 0.5rem;">
+                    <input type="checkbox" name="re_entry_allowed" value="1" {{ old('re_entry_allowed', $event->re_entry_allowed) ? 'checked' : '' }}>
+                    <span>
+                        <strong>Allow re-entry</strong>
+                        <span style="display: block; color: var(--neutral-muted); font-size: 0.8rem;">Attendees who exit may enter again after staff confirms each movement.</span>
+                    </span>
+                </label>
+            </div>
+
             <div style="border-top: 1px solid var(--neutral-border); padding-top: 1.25rem; margin-top: 1rem; display: flex; justify-content: flex-end; gap: 0.75rem;">
                 <a href="{{ route('organizer.events.show', $event) }}" class="btn-secondary">Cancel</a>
                 <button type="submit" class="btn-primary">Save Changes</button>

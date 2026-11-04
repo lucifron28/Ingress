@@ -111,6 +111,31 @@ class SnapshotPayloadValidationTest extends TestCase
         }
     }
 
+    public function test_schema_three_requires_an_enabled_reentry_policy(): void
+    {
+        $payload = $this->payload();
+        $payload['schema_version'] = 3;
+        $payload['event']['re_entry_allowed'] = true;
+        $payload['registrations'][0]['attendee']['kind'] = 'student';
+        $this->assertSame($payload, app(ValidateSnapshotPayload::class)->execute(json_encode($payload, JSON_THROW_ON_ERROR)));
+
+        unset($payload['event']['re_entry_allowed']);
+        try {
+            app(ValidateSnapshotPayload::class)->execute(json_encode($payload, JSON_THROW_ON_ERROR));
+            $this->fail('A schema three snapshot without re-entry policy was accepted.');
+        } catch (ValidationException) {
+            $this->assertTrue(true);
+        }
+
+        $payload['event']['re_entry_allowed'] = false;
+        try {
+            app(ValidateSnapshotPayload::class)->execute(json_encode($payload, JSON_THROW_ON_ERROR));
+            $this->fail('A schema three snapshot with re-entry disabled was accepted.');
+        } catch (ValidationException) {
+            $this->assertTrue(true);
+        }
+    }
+
     public function test_authenticated_malformed_payload_is_not_staged_or_acknowledged(): void
     {
         $payload = $this->payload();

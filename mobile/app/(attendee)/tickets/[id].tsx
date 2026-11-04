@@ -191,7 +191,7 @@ export default function TicketDetailScreen() {
         <View style={styles.footerNote}>
           <Text style={styles.instructionTitle}>Admission Notice</Text>
           <Text style={styles.instructionText}>
-            Present this QR code to authorized entrance staff. Each ticket is valid for one admission only. Duplicate scans are immediately flagged.
+            Present this QR code to event staff for identity verification. Entry, exit, and re-entry follow the event policy and require staff confirmation.
           </Text>
         </View>
       </View>

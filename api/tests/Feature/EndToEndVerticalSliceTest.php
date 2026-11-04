@@ -305,7 +305,7 @@ class EndToEndVerticalSliceTest extends TestCase
         $attendanceViewRes->assertStatus(200);
         $attendanceViewRes->assertSee('Ron Vincent Cada');
         $attendanceViewRes->assertSee('Gate A');
-        $attendanceViewRes->assertSee('Admitted');
+        $attendanceViewRes->assertSee('Entry');
 
         // Check real-time JSON polling feed
         $feedRes = $this->getJson("/organizer/events/{$event->id}/attendance/feed");

@@ -86,17 +86,25 @@ class ValidateSnapshotPayload
             $this->invalid();
         }
         $payload = $this->object($payload, ['schema_version', 'snapshot_id', 'version', 'event', 'access_points', 'staff', 'registrations']);
-        if (! in_array($payload['schema_version'], [1, 2], true) || ! is_string($payload['snapshot_id']) || ! Str::isUuid($payload['snapshot_id'])) {
+        if (! in_array($payload['schema_version'], [1, 2, 3], true) || ! is_string($payload['snapshot_id']) || ! Str::isUuid($payload['snapshot_id'])) {
             $this->invalid();
         }
         $this->id($payload['version']);
-        $event = $this->object($payload['event'], ['id', 'title', 'slug', 'description', 'capacity', 'status', 'starts_at', 'ends_at', 'registration_opens_at', 'registration_closes_at', 'registration_closed_at', 'venue', 'organizer']);
+        $eventKeys = ['id', 'title', 'slug', 'description', 'capacity', 'status', 'starts_at', 'ends_at',
+            'registration_opens_at', 'registration_closes_at', 'registration_closed_at', 'venue', 'organizer'];
+        if ($payload['schema_version'] === 3) {
+            $eventKeys[] = 're_entry_allowed';
+        }
+        $event = $this->object($payload['event'], $eventKeys);
         $this->id($event['id']);
         $this->id($event['capacity']);
         $this->text($event['title']);
         $this->text($event['slug']);
         $this->text($event['description'], 65535, true);
         if ($event['status'] !== 'published') {
+            $this->invalid();
+        }
+        if ($payload['schema_version'] === 3 && $event['re_entry_allowed'] !== true) {
             $this->invalid();
         }
         foreach (['starts_at', 'ends_at', 'registration_opens_at', 'registration_closes_at'] as $key) {
@@ -153,7 +161,7 @@ class ValidateSnapshotPayload
             $this->date($registration['created_at']);
             $this->date($registration['cancelled_at'], true);
             $attendee = $registration['attendee'];
-            if ($payload['schema_version'] === 2) {
+            if ($payload['schema_version'] >= 2) {
                 $attendee = $this->object($attendee, ['id', 'name', 'email', 'student_id', 'kind']);
                 $kind = $attendee['kind'];
                 unset($attendee['kind']);

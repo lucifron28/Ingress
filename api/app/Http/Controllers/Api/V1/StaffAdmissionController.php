@@ -144,13 +144,15 @@ class StaffAdmissionController extends Controller
         $validated = $request->validate([
             'access_point_id' => ['required', 'integer'],
             'qr_payload' => ['required', 'string'],
+            'direction' => ['sometimes', 'in:entry,exit'],
         ]);
 
         $result = $admitTicket->preview(
             staff: $request->user(),
             eventId: $event->id,
             accessPointId: $validated['access_point_id'],
-            qrPayload: $validated['qr_payload']
+            qrPayload: $validated['qr_payload'],
+            direction: $validated['direction'] ?? 'entry'
         );
 
         $httpCode = $result['http_code'] ?? 200;
@@ -168,6 +170,7 @@ class StaffAdmissionController extends Controller
             'access_point_id' => ['required', 'integer'],
             'qr_payload' => ['required', 'string'],
             'client_scan_id' => ['required', 'string', 'max:64'],
+            'direction' => ['sometimes', 'in:entry,exit'],
         ]);
 
         $result = $admitTicket->execute(
@@ -175,7 +178,8 @@ class StaffAdmissionController extends Controller
             eventId: $event->id,
             accessPointId: $validated['access_point_id'],
             qrPayload: $validated['qr_payload'],
-            clientScanId: $validated['client_scan_id']
+            clientScanId: $validated['client_scan_id'],
+            direction: $validated['direction'] ?? 'entry'
         );
 
         $httpCode = $result['http_code'] ?? 200;

@@ -35,6 +35,7 @@ class Event extends Model
         'registration_closed_at',
         'starts_at',
         'ends_at',
+        're_entry_allowed',
         'status',
         'banner_path',
     ];
@@ -50,6 +51,7 @@ class Event extends Model
             'snapshot_prepared_at' => 'datetime',
             'starts_at' => 'datetime',
             'ends_at' => 'datetime',
+            're_entry_allowed' => 'boolean',
         ];
     }
 

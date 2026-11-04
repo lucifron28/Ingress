@@ -51,12 +51,12 @@ class AcknowledgeAdmissionBatch
                     ->leftJoin('node_import_ids as gi', fn ($join) => $join->on('gi.local_id', '=', 'a.access_point_id')->where('gi.kind', '=', 'gate'))
                     ->leftJoin('node_import_ids as si', fn ($join) => $join->on('si.local_id', '=', 'a.scanned_by_user_id')->where('si.kind', '=', 'user'))
                     ->where('a.id', $item['admission_id'])->where('r.event_id', $import->event_id)
-                    ->first(['a.client_scan_id', 'a.credential_version', 'a.admitted_at', 'g.event_id as gate_event_id',
+                    ->first(['a.client_scan_id', 'a.credential_version', 'a.direction', 'a.admitted_at', 'g.event_id as gate_event_id',
                         'ti.cloud_id as cloud_ticket_id', 'gi.cloud_id as cloud_gate_id', 'si.cloud_id as cloud_staff_id']);
                 if (! $row || (int) $row->gate_event_id !== (int) $import->event_id
                     || (int) $row->cloud_ticket_id !== $item['ticket_id'] || (int) $row->cloud_gate_id !== $item['gate_id']
                     || (int) $row->cloud_staff_id !== $item['staff_id'] || $row->client_scan_id !== $item['scan_id']
-                    || (int) $row->credential_version !== $item['credential_version']
+                    || (int) $row->credential_version !== $item['credential_version'] || $row->direction !== $item['direction']
                     || ! CarbonImmutable::parse($row->admitted_at, 'UTC')->equalTo(CarbonImmutable::parse($item['admitted_at']))) {
                     $this->invalid();
                 }

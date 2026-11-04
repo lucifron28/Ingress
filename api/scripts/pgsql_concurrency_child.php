@@ -159,7 +159,8 @@ try {
         config(['ingress.mode' => 'node', 'ingress.node_id' => $payload['node_id'], 'ingress.authority_public_key' => $payload['public_key']]);
         $staff = User::findOrFail($payload['staff_user_id']);
         $staff->withAccessToken(PersonalAccessToken::findOrFail($payload['token_id']));
-        $result = app(AdmitTicket::class)->execute($staff, $payload['event_id'], $payload['access_point_id'], $payload['qr_payload'], $payload['client_scan_id']);
+        $result = app(AdmitTicket::class)->execute($staff, $payload['event_id'], $payload['access_point_id'],
+            $payload['qr_payload'], $payload['client_scan_id'], $payload['direction'] ?? 'entry');
         $emit(['ok' => $result['http_code'] === 200, 'http_code' => $result['http_code'], 'status' => $result['status']]);
     } elseif ($mode === 'register_node') {
         config(['ingress.mode' => 'cloud']);

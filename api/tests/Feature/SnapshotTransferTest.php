@@ -57,7 +57,7 @@ class SnapshotTransferTest extends TestCase
         ];
     }
 
-    private function cloudEvent(bool $withStaff = false): array
+    private function cloudEvent(bool $withStaff = false, bool $reEntryAllowed = false): array
     {
         config(['ingress.mode' => 'cloud']);
         $owner = User::factory()->create(['role' => User::ROLE_ORGANIZER]);
@@ -67,6 +67,7 @@ class SnapshotTransferTest extends TestCase
             'organizer_id' => $owner->id, 'venue_id' => $venue->id, 'title' => 'Event', 'slug' => 'event',
             'capacity' => 20, 'registration_opens_at' => now()->subDay(), 'registration_closes_at' => now()->addDay(),
             'starts_at' => now(), 'ends_at' => now()->addDay(), 'status' => Event::STATUS_PUBLISHED,
+            're_entry_allowed' => $reEntryAllowed,
         ]);
         $cloudStaffId = null;
         if ($withStaff) {
@@ -263,8 +264,8 @@ class SnapshotTransferTest extends TestCase
 
     public function test_authority_grant_freezes_cloud_and_activates_only_the_imported_node(): void
     {
-        [$event, $owner, $qr, $secret, $cloudStaffId, $secondQr, $guestQr] = $this->cloudEvent(true);
-        $this->assertSame(2, (int) DB::table('event_snapshots')->where('event_id', $event->id)->value('schema_version'));
+        [$event, $owner, $qr, $secret, $cloudStaffId, $secondQr, $guestQr] = $this->cloudEvent(true, true);
+        $this->assertSame(3, (int) DB::table('event_snapshots')->where('event_id', $event->id)->value('schema_version'));
         $keypair = sodium_crypto_sign_keypair();
         config([
             'ingress.authority_private_key' => base64_encode(sodium_crypto_sign_secretkey($keypair)),
@@ -294,6 +295,7 @@ class SnapshotTransferTest extends TestCase
             config(['ingress.mode' => 'node', 'ingress.node_id' => 'node-1', 'ingress.node_sync_key' => $secret]);
             $receipt = app(ReceiveSnapshot::class)->execute($sealed);
             $localId = app(ImportReceivedSnapshot::class)->execute($event->id);
+            $this->assertDatabaseHas('events', ['id' => $localId, 're_entry_allowed' => true]);
             $this->assertDatabaseHas('registrations', ['event_id' => $localId, 'guest_email' => 'guest@example.test', 'user_id' => null]);
             $this->assertDatabaseMissing('users', ['email' => 'guest@example.test']);
             $importReceipt = app(IssueImportReceipt::class)->execute($event->id);
@@ -383,8 +385,18 @@ class SnapshotTransferTest extends TestCase
             $this->withToken($staffToken)->postJson("/api/v1/staff/events/{$localId}/admissions", $scan)
                 ->assertOk()->assertJsonPath('status', 'admitted');
             $this->assertDatabaseCount('admissions', 1);
+            $this->withToken($staffToken)->postJson("/api/v1/staff/events/{$localId}/admissions", [
+                'access_point_id' => $gateId, 'qr_payload' => $qr, 'client_scan_id' => 'integrated-exit', 'direction' => 'exit',
+            ])->assertOk()->assertJsonPath('status', 'exited');
+            $this->withToken($staffToken)->postJson("/api/v1/staff/events/{$localId}/admissions", [
+                'access_point_id' => $gateId, 'qr_payload' => $qr, 'client_scan_id' => 'integrated-reentry', 'direction' => 'entry',
+            ])->assertOk()->assertJsonPath('status', 'admitted');
+            $this->assertSame(['entry', 'exit', 'entry'], Admission::where('ticket_id', Ticket::firstOrFail()->id)
+                ->orderBy('id')->pluck('direction')->all());
             $batch = app(PrepareAdmissionBatch::class)->execute($event->id);
             $this->assertNotNull($batch);
+            $this->assertSame(2, json_decode(app(AdmissionSyncEnvelope::class)->open($batch['package'], $secret), true, 16, JSON_THROW_ON_ERROR)['schema_version']);
+            $this->assertSame(3, $batch['count']);
             $this->assertSame($batch, app(PrepareAdmissionBatch::class)->execute($event->id));
             $secondScan = ['access_point_id' => $gateId, 'qr_payload' => $secondQr, 'client_scan_id' => 'second-scan'];
             $this->withToken($staffToken)->postJson("/api/v1/staff/events/{$localId}/admissions", $secondScan)
@@ -423,13 +435,13 @@ class SnapshotTransferTest extends TestCase
             $wrongHeaders['HTTP_X_INGRESS_NODE'] = 'node-2';
             $this->call('POST', '/api/v1/node-sync/admissions', [], [], [], $wrongHeaders, $batch['package'])->assertStatus(422);
             $cloudResponse = $this->call('POST', '/api/v1/node-sync/admissions', [], [], [], $headers, $batch['package'])->assertOk();
-            $this->assertDatabaseCount('admissions', 1);
+            $this->assertDatabaseCount('admissions', 3);
             $cloudReceipt = $cloudResponse->json('receipt');
             $this->call('POST', '/api/v1/node-sync/admissions', [], [], [], $headers, $batch['package'])
                 ->assertOk()->assertJsonPath('receipt', $cloudReceipt);
-            $this->assertDatabaseCount('admissions', 1);
+            $this->assertDatabaseCount('admissions', 3);
             $this->call('POST', '/api/v1/node-sync/admissions', [], [], [], $headers, $badPackage)->assertStatus(422);
-            $this->assertDatabaseCount('admissions', 1);
+            $this->assertDatabaseCount('admissions', 3);
             DB::setDefaultConnection('authority_node');
             Crypt::swap($nodeEncrypter);
             config(['ingress.mode' => 'node', 'ingress.node_id' => 'node-1', 'ingress.node_sync_key' => $secret]);
@@ -441,7 +453,7 @@ class SnapshotTransferTest extends TestCase
             }
             $httpSequence->push(['batch_id' => $batch['batch_id'], 'receipt' => $cloudReceipt], 200)->push([], 503);
             $this->assertSame(1, Artisan::call('ingress:sync-admissions', ['event_id' => (string) $event->id]));
-            $this->assertDatabaseCount('node_synced_admissions', 1);
+            $this->assertDatabaseCount('node_synced_admissions', 3);
             $nextBatch = app(PrepareAdmissionBatch::class)->execute($event->id);
             $this->assertNotNull($nextBatch);
             $this->assertNotSame($batch['batch_id'], $nextBatch['batch_id']);
@@ -450,13 +462,23 @@ class SnapshotTransferTest extends TestCase
             Crypt::swap($cloudEncrypter);
             config(['ingress.mode' => 'cloud', 'ingress.node_id' => null, 'ingress.node_sync_key' => null]);
             $nextReceipt = $this->call('POST', '/api/v1/node-sync/admissions', [], [], [], $headers, $nextBatch['package'])->assertOk()->json('receipt');
-            $this->assertDatabaseCount('admissions', 3);
+            $this->assertDatabaseCount('admissions', 5);
+            $attendance = $this->actingAs($owner)->getJson("/organizer/events/{$event->id}/attendance/feed");
+            $attendance->assertOk()
+                ->assertJsonPath('stats.registered_count', 3)
+                ->assertJsonPath('stats.checked_in_count', 3)
+                ->assertJsonPath('stats.inside_count', 3)
+                ->assertJsonPath('stats.outside_count', 0)
+                ->assertJsonPath('stats.reentry_count', 1)
+                ->assertJsonPath('stats.envergan_inside_count', 2)
+                ->assertJsonPath('stats.external_inside_count', 1);
+            app('auth')->forgetGuards();
             $this->assertTrue(Admission::whereHas('ticket.registration', fn ($query) => $query->where('guest_email', 'guest@example.test'))->exists());
             DB::setDefaultConnection('authority_node');
             Crypt::swap($nodeEncrypter);
             config(['ingress.mode' => 'node', 'ingress.node_id' => 'node-1', 'ingress.node_sync_key' => $secret]);
             app(AcknowledgeAdmissionBatch::class)->execute($event->id, $nextBatch['batch_id'], $nextReceipt);
-            $this->assertDatabaseCount('node_synced_admissions', 3);
+            $this->assertDatabaseCount('node_synced_admissions', 5);
             $this->assertNull(app(PrepareAdmissionBatch::class)->execute($event->id));
             $walkIn = $this->withToken($staffToken)->postJson("/api/v1/staff/events/{$localId}/walk-ins", [
                 'client_request_id' => (string) Str::uuid(), 'name' => 'Walk In', 'email' => 'walkin@example.test', 'kind' => 'guest',
@@ -512,10 +534,10 @@ class SnapshotTransferTest extends TestCase
             $originalHash = DB::table('tickets')->where('id', $walkInReceipt['ticket_id'])->value('qr_hash');
             DB::table('tickets')->where('id', $walkInReceipt['ticket_id'])->update(['qr_hash' => str_repeat('0', 64)]);
             $this->call('POST', '/api/v1/node-sync/admissions', [], [], [], $headers, $walkInAdmission['package'])->assertStatus(422);
-            $this->assertDatabaseCount('admissions', 3);
+            $this->assertDatabaseCount('admissions', 5);
             DB::table('tickets')->where('id', $walkInReceipt['ticket_id'])->update(['qr_hash' => $originalHash]);
             $walkInAdmissionReceipt = $this->call('POST', '/api/v1/node-sync/admissions', [], [], [], $headers, $walkInAdmission['package'])->assertOk()->json('receipt');
-            $this->assertDatabaseCount('admissions', 4);
+            $this->assertDatabaseCount('admissions', 6);
             DB::setDefaultConnection('authority_node');
             Crypt::swap($nodeEncrypter);
             config(['ingress.mode' => 'node', 'ingress.node_id' => 'node-1', 'ingress.node_sync_key' => $secret]);
@@ -528,7 +550,7 @@ class SnapshotTransferTest extends TestCase
             app(SyncWalkInRecovery::class)->acknowledge($event->id, $recoveryReceipt['recovery_id'], $recoveryReceipt['receipt']);
             $this->assertNull(app(SyncWalkInRecovery::class)->prepare($event->id));
             app(AcknowledgeAdmissionBatch::class)->execute($event->id, $walkInAdmission['batch_id'], $walkInAdmissionReceipt);
-            $this->assertDatabaseCount('node_synced_admissions', 4);
+            $this->assertDatabaseCount('node_synced_admissions', 6);
             DB::setDefaultConnection($cloudConnection);
             Crypt::swap($cloudEncrypter);
             config(['ingress.mode' => 'cloud', 'ingress.node_id' => null, 'ingress.node_sync_key' => null]);
