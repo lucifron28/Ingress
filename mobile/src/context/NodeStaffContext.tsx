@@ -1,13 +1,14 @@
 import { router } from 'expo-router';
 import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
-import { getNodeSession, loginNodeStaff, logoutNodeStaff, nodeRequest, setNodeUnauthorizedHandler } from '../services/node-session';
-import type { NodeSession } from '../services/node-session';
+import { getNodeSession, loginNodeStaff, logoutNodeStaff, nodeRequest, pairNodeStaff, setNodeUnauthorizedHandler } from '../services/node-session';
+import type { NodePairingCode, NodeSession } from '../services/node-session';
 import type { UserProfile } from './AuthContext';
 
 interface NodeStaffContextValue {
   session: NodeSession | null;
   active: boolean;
   login: (url: string, email: string, password: string) => Promise<void>;
+  pair: (code: NodePairingCode) => Promise<void>;
   resume: () => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -36,6 +37,13 @@ export function NodeStaffProvider({ children }: { children: React.ReactNode }) {
     setActive(true);
   };
 
+  const pair = async (code: NodePairingCode) => {
+    const next = await pairNodeStaff(code);
+    current.current = next;
+    setSession(next);
+    setActive(true);
+  };
+
   const resume = async () => {
     const saved = await getNodeSession();
     if (!saved) throw new Error('No saved Event Node session. Sign in again.');
@@ -57,7 +65,7 @@ export function NodeStaffProvider({ children }: { children: React.ReactNode }) {
     setActive(false);
   };
 
-  return <NodeStaffContext.Provider value={{ session, active, login, resume, logout }}>{children}</NodeStaffContext.Provider>;
+  return <NodeStaffContext.Provider value={{ session, active, login, pair, resume, logout }}>{children}</NodeStaffContext.Provider>;
 }
 
 export function useNodeStaff(): NodeStaffContextValue {
