@@ -10,7 +10,7 @@ import { nodeRequest } from '../../src/services/node-session';
 
 type Kind = 'student' | 'guest' | 'alumni';
 type Request = { client_request_id: string; name: string; email: string; kind: Kind; student_id: string | null };
-type Pass = { public_id: string; qr_payload: string; attendee_name: string };
+type Pass = { public_id: string; qr_payload: string; attendee_name: string; student_id: string | null };
 type QrRef = { toDataURL: (callback: (data: string) => void) => void };
 
 const options = { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY };
@@ -24,6 +24,7 @@ export default function WalkInScreen() {
   const [email, setEmail] = useState('');
   const [studentId, setStudentId] = useState('');
   const [kind, setKind] = useState<Kind>('guest');
+  const [recovering, setRecovering] = useState(false);
   const [storageKey, setStorageKey] = useState<string | null>(null);
   const [pending, setPending] = useState<Request | null>(null);
   const [pass, setPass] = useState<Pass | null>(null);
@@ -82,11 +83,34 @@ export default function WalkInScreen() {
       }
       const result = await nodeRequest<Pass>(`/staff/events/${eventId}/walk-ins`, { method: 'POST', body: JSON.stringify(request) });
       if (typeof result?.public_id !== 'string' || typeof result?.attendee_name !== 'string'
+        || (result.student_id !== null && typeof result.student_id !== 'string')
         || typeof result?.qr_payload !== 'string' || !/^ingress:v1:ING-[A-Z0-9]{10}:[a-f0-9]{64}$/.test(result.qr_payload)
         || !result.qr_payload.startsWith(`ingress:v1:${result.public_id}:`)) throw new Error('The Event Node returned an invalid pass.');
       setPass(result);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Could not issue this pass.');
+    } finally {
+      submitting.current = false;
+      setBusy(false);
+    }
+  };
+
+  const recover = async () => {
+    if (!storageKey || !session || submitting.current || !email.trim()) return;
+    submitting.current = true;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await nodeRequest<Pass>(`/staff/events/${eventId}/walk-ins/recover`, {
+        method: 'POST', body: JSON.stringify({ email: email.trim().toLowerCase() }),
+      });
+      if (typeof result?.public_id !== 'string' || typeof result?.attendee_name !== 'string'
+        || (result.student_id !== null && typeof result.student_id !== 'string')
+        || typeof result?.qr_payload !== 'string' || !/^ingress:v1:ING-[A-Z0-9]{10}:[a-f0-9]{64}$/.test(result.qr_payload)
+        || !result.qr_payload.startsWith(`ingress:v1:${result.public_id}:`)) throw new Error('The Event Node returned an invalid pass.');
+      setPass(result);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Could not recover this pass.');
     } finally {
       submitting.current = false;
       setBusy(false);
@@ -99,7 +123,7 @@ export default function WalkInScreen() {
       if (!storageKey) return;
       try {
         await SecureStore.deleteItemAsync(storageKey, options);
-        setPending(null); setPass(null); setName(''); setEmail(''); setStudentId(''); setKind('guest'); setError(null);
+        setPending(null); setPass(null); setName(''); setEmail(''); setStudentId(''); setKind('guest'); setRecovering(false); setError(null);
       } catch { setError('Could not clear the saved request.'); }
     } },
   ]);
@@ -111,7 +135,7 @@ export default function WalkInScreen() {
     try {
       const base64 = await new Promise<string>((resolve) => qrImage.toDataURL(resolve));
       if (!/^[A-Za-z0-9+/=]+$/.test(base64)) throw new Error('Could not prepare the QR image.');
-      const student = pending?.student_id ? `<p>Student ID: ${escapeHtml(pending.student_id)}</p>` : '';
+      const student = pass.student_id ? `<p>Student ID: ${escapeHtml(pass.student_id)}</p>` : '';
       await Print.printAsync({ html: `<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{font-family:sans-serif;text-align:center;padding:32px}img{width:240px;height:240px}.code{font-family:monospace;font-size:10px;overflow-wrap:anywhere}</style></head><body><h1>${escapeHtml(eventTitle ?? 'Event pass')}</h1><p>WALK-IN</p><p>${escapeHtml(pass.attendee_name)}</p>${student}<img alt="Ticket QR code" src="data:image/png;base64,${base64}"><p>${escapeHtml(pass.public_id)}</p><p>Manual entry code, keep private:</p><p class="code">${escapeHtml(pass.qr_payload)}</p><p>Keep this pass private. Present it at the event entrance.</p></body></html>` });
     } catch { setError('Could not open the print dialog. Check the printer and try again.'); }
     finally { setBusy(false); }
@@ -139,6 +163,13 @@ export default function WalkInScreen() {
           <Pressable accessibilityRole="button" style={styles.button} disabled={busy} onPress={submit}><Text style={styles.buttonText}>{busy ? 'Contacting node...' : 'Retry request'}</Text></Pressable>
           <Pressable accessibilityRole="button" style={styles.secondary} disabled={busy} onPress={clear}><Text>Clear request</Text></Pressable>
         </View>
+      ) : recovering ? (
+        <View>
+          <Text style={styles.label}>Attendee email</Text><TextInput style={styles.input} value={email} onChangeText={setEmail} maxLength={255} autoCapitalize="none" keyboardType="email-address" autoComplete="email" />
+          <Text style={styles.description}>Recovery is recorded in the event node audit history.</Text>
+          <Pressable accessibilityRole="button" style={styles.button} disabled={busy} onPress={recover}><Text style={styles.buttonText}>{busy ? 'Contacting node...' : 'Recover pass'}</Text></Pressable>
+          <Pressable accessibilityRole="button" style={styles.secondary} disabled={busy} onPress={() => { setRecovering(false); setError(null); }}><Text>Register a new attendee</Text></Pressable>
+        </View>
       ) : (
         <View>
           <Text style={styles.label}>Attendee type</Text>
@@ -149,6 +180,7 @@ export default function WalkInScreen() {
           <Text style={styles.label}>Email</Text><TextInput style={styles.input} value={email} onChangeText={setEmail} maxLength={255} autoCapitalize="none" keyboardType="email-address" autoComplete="email" />
           {kind === 'student' && <><Text style={styles.label}>Student ID</Text><TextInput style={styles.input} value={studentId} onChangeText={setStudentId} maxLength={255} autoCapitalize="none" /></>}
           <Pressable accessibilityRole="button" style={styles.button} disabled={busy} onPress={submit}><Text style={styles.buttonText}>{busy ? 'Registering...' : 'Issue pass'}</Text></Pressable>
+          <Pressable accessibilityRole="button" style={styles.secondary} disabled={busy} onPress={() => { setRecovering(true); setError(null); }}><Text>Recover an existing walk-in pass</Text></Pressable>
         </View>
       )}
     </ScrollView>
