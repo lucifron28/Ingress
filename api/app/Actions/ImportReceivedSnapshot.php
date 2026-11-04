@@ -96,7 +96,7 @@ class ImportReceivedSnapshot
         }
         $old = DB::table('received_snapshots')->where('id', $prior->snapshot_id)
             ->where('event_id', $cloudEventId)->where('version', $prior->version)->first();
-        if (! $old || (int) $old->schema_version !== 1 || ! hash_equals($prior->sha256, $old->sha256)) {
+        if (! $old || ! in_array((int) $old->schema_version, [1, 2], true) || ! hash_equals($prior->sha256, $old->sha256)) {
             $this->invalid();
         }
         $json = Crypt::decryptString($old->payload_ciphertext);
@@ -104,7 +104,7 @@ class ImportReceivedSnapshot
             $this->invalid();
         }
         $payload = $this->validator->execute($json);
-        if ($payload['snapshot_id'] !== $prior->snapshot_id || $payload['version'] !== (int) $prior->version
+        if ($payload['schema_version'] !== (int) $old->schema_version || $payload['snapshot_id'] !== $prior->snapshot_id || $payload['version'] !== (int) $prior->version
             || $payload['event']['id'] !== $cloudEventId) {
             $this->invalid();
         }
@@ -171,7 +171,7 @@ class ImportReceivedSnapshot
                     $this->invalid();
                 }
                 $record = DB::table('received_snapshots')->where('event_id', $cloudEventId)->where('version', $head->version)->first();
-                if (! $record || (int) $record->schema_version !== 1) {
+                if (! $record || ! in_array((int) $record->schema_version, [1, 2], true)) {
                     $this->invalid();
                 }
                 $json = Crypt::decryptString($record->payload_ciphertext);
@@ -179,7 +179,7 @@ class ImportReceivedSnapshot
                     $this->invalid();
                 }
                 $payload = $this->validator->execute($json);
-                if ($payload['snapshot_id'] !== $record->id || $payload['version'] !== (int) $record->version || $payload['event']['id'] !== $cloudEventId) {
+                if ($payload['schema_version'] !== (int) $record->schema_version || $payload['snapshot_id'] !== $record->id || $payload['version'] !== (int) $record->version || $payload['event']['id'] !== $cloudEventId) {
                     $this->invalid();
                 }
                 $prior = DB::table('node_event_imports')->where('cloud_event_id', $cloudEventId)->first();
@@ -232,9 +232,13 @@ class ImportReceivedSnapshot
                     $this->link('staff', $assignment['id'], $id);
                 }
                 foreach ($payload['registrations'] as $registration) {
-                    $userId = $this->user($registration['attendee'], $password);
+                    $kind = $registration['attendee']['kind'] ?? 'student';
+                    $userId = $kind === 'student' ? $this->user(array_diff_key($registration['attendee'], ['kind' => true]), $password) : null;
                     $registrationId = DB::table('registrations')->insertGetId([
-                        'event_id' => $eventId, 'user_id' => $userId, 'status' => $registration['status'],
+                        'event_id' => $eventId, 'user_id' => $userId, 'attendee_type' => $kind,
+                        'guest_name' => $userId === null ? $registration['attendee']['name'] : null,
+                        'guest_email' => $userId === null ? $registration['attendee']['email'] : null,
+                        'status' => $registration['status'],
                         'cancelled_at' => $this->time($registration['cancelled_at']),
                         'created_at' => $this->time($registration['created_at']), 'updated_at' => now(),
                     ]);

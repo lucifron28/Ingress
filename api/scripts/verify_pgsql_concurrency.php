@@ -1605,6 +1605,27 @@ $assert(DB::table('personal_access_tokens')->where('tokenable_id', $localUser)->
 echo "\n";
 
 // =============================================================================
+// CASE AF - Guest and student registrations share the capacity lock
+// =============================================================================
+echo "CASE AF: guest and student compete for one remaining seat\n";
+$guestRaceEvent = Event::create([
+    'organizer_id' => $organizer->id, 'venue_id' => $venue->id, 'title' => 'Guest capacity race',
+    'slug' => "guest-capacity-{$suffix}", 'capacity' => 1, 'registration_opens_at' => now()->subHour(),
+    'registration_closes_at' => now()->addDay(), 'starts_at' => now(), 'ends_at' => now()->addDay(),
+    'status' => Event::STATUS_PUBLISHED,
+]);
+$guestRaceStudent = User::create(['name' => 'Guest Race Student', 'email' => "guest-race-student-{$suffix}@example.test",
+    'student_id' => "GS-{$suffix}", 'role' => User::ROLE_STUDENT, 'password' => Hash::make('password')]);
+$guestRaceResults = $runConcurrently([
+    ['guest_registration', ['event_id' => $guestRaceEvent->id, 'email' => "guest-race-{$suffix}@example.test"]],
+    ['seat', ['event_id' => $guestRaceEvent->id, 'user_id' => $guestRaceStudent->id]],
+], $childScript, $testDatabase);
+$assert(count(array_filter($guestRaceResults, fn ($result) => ($result['ok'] ?? false) === true)) === 1, 'exactly one registration succeeded');
+$assert(Registration::where('event_id', $guestRaceEvent->id)->where('status', 'confirmed')->count() === 1, 'the event has exactly one confirmed attendee');
+$assert(Ticket::whereHas('registration', fn ($query) => $query->where('event_id', $guestRaceEvent->id))->count() === 1, 'exactly one ticket was issued');
+echo "\n";
+
+// =============================================================================
 // Summary
 // =============================================================================
 if ($failures === []) {

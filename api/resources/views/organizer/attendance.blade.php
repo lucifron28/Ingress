@@ -111,8 +111,8 @@
                             <td class="mono" style="font-size: 0.8rem; font-weight: 600; color: var(--mseuf-maroon);">
                                 {{ $adm->admitted_at->format('h:i:s A') }}
                             </td>
-                            <td><strong>{{ $adm->ticket?->registration?->user?->name ?? 'Attendee' }}</strong></td>
-                            <td class="mono" style="font-size: 0.8rem;">{{ $adm->ticket?->registration?->user?->student_id ?? 'N/A' }}</td>
+                            <td><strong>{{ $adm->ticket?->registration?->attendeeName() ?? 'Attendee' }}</strong></td>
+                            <td class="mono" style="font-size: 0.8rem;">{{ $adm->ticket?->registration?->attendeeStudentId() ?? 'N/A' }}</td>
                             <td><span class="badge badge-info">{{ $adm->accessPoint?->name }}</span></td>
                             <td style="font-size: 0.8rem; color: var(--neutral-muted);">{{ $adm->scannedBy?->name ?? 'Staff' }}</td>
                         </tr>
@@ -160,7 +160,7 @@
         <table>
             <thead>
                 <tr>
-                    <th>Student Name</th>
+                    <th>Attendee Name</th>
                     <th>Student ID</th>
                     <th>Email</th>
                     <th>Ticket Ref</th>
@@ -179,9 +179,9 @@
                         $isCheckedIn = (bool) $admission;
                     @endphp
                     <tr>
-                        <td><strong>{{ $reg->user->name }}</strong></td>
-                        <td class="mono" style="font-size: 0.8rem;">{{ $reg->user->student_id ?: 'N/A' }}</td>
-                        <td style="font-size: 0.8rem; color: var(--neutral-muted);">{{ $reg->user->email }}</td>
+                        <td><strong>{{ $reg->attendeeName() }}</strong></td>
+                        <td class="mono" style="font-size: 0.8rem;">{{ $reg->attendeeStudentId() ?: 'N/A' }}</td>
+                        <td style="font-size: 0.8rem; color: var(--neutral-muted);">{{ $reg->attendeeEmail() }}</td>
                         <td class="mono" style="font-size: 0.8rem;">{{ $reg->ticket?->public_id ?? 'N/A' }}</td>
                         <td>
                             @if ($isCheckedIn)

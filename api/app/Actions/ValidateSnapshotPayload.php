@@ -86,7 +86,7 @@ class ValidateSnapshotPayload
             $this->invalid();
         }
         $payload = $this->object($payload, ['schema_version', 'snapshot_id', 'version', 'event', 'access_points', 'staff', 'registrations']);
-        if ($payload['schema_version'] !== 1 || ! is_string($payload['snapshot_id']) || ! Str::isUuid($payload['snapshot_id'])) {
+        if (! in_array($payload['schema_version'], [1, 2], true) || ! is_string($payload['snapshot_id']) || ! Str::isUuid($payload['snapshot_id'])) {
             $this->invalid();
         }
         $this->id($payload['version']);
@@ -141,7 +141,7 @@ class ValidateSnapshotPayload
             $this->unique($assignmentIds, $assignment['id']);
             $this->unique($staffIds, $assignment['user']['id']);
         }
-        $registrationIds = $attendeeIds = $ticketIds = $publicIds = $hashes = [];
+        $registrationIds = $attendeeIds = $attendeeEmails = $ticketIds = $publicIds = $hashes = [];
         $confirmed = 0;
         foreach ($payload['registrations'] as $registration) {
             $registration = $this->object($registration, ['id', 'status', 'created_at', 'cancelled_at', 'attendee', 'ticket']);
@@ -152,8 +152,31 @@ class ValidateSnapshotPayload
             }
             $this->date($registration['created_at']);
             $this->date($registration['cancelled_at'], true);
-            $this->identity($registration['attendee'], false, $users);
-            $this->unique($attendeeIds, $registration['attendee']['id']);
+            $attendee = $registration['attendee'];
+            if ($payload['schema_version'] === 2) {
+                $attendee = $this->object($attendee, ['id', 'name', 'email', 'student_id', 'kind']);
+                $kind = $attendee['kind'];
+                unset($attendee['kind']);
+                if ($kind === 'student') {
+                    $this->identity($attendee, false, $users);
+                    $this->unique($attendeeIds, $attendee['id']);
+                } elseif (in_array($kind, ['guest', 'alumni'], true)) {
+                    if ($attendee['id'] !== null || $attendee['student_id'] !== null) {
+                        $this->invalid();
+                    }
+                    $this->text($attendee['name']);
+                    $this->text($attendee['email']);
+                    if (! filter_var($attendee['email'], FILTER_VALIDATE_EMAIL) || mb_strtolower($attendee['email']) !== $attendee['email']) {
+                        $this->invalid();
+                    }
+                } else {
+                    $this->invalid();
+                }
+                $this->unique($attendeeEmails, mb_strtolower($attendee['email']));
+            } else {
+                $this->identity($attendee, false, $users);
+                $this->unique($attendeeIds, $attendee['id']);
+            }
             if ($registration['status'] === 'confirmed') {
                 $confirmed++;
                 if ($registration['ticket'] === null) {

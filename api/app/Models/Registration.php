@@ -12,11 +12,15 @@ class Registration extends Model
     use HasFactory;
 
     public const STATUS_CONFIRMED = 'confirmed';
+
     public const STATUS_CANCELLED = 'cancelled';
 
     protected $fillable = [
         'event_id',
         'user_id',
+        'attendee_type',
+        'guest_name',
+        'guest_email',
         'status',
         'cancelled_at',
     ];
@@ -26,6 +30,21 @@ class Registration extends Model
         return [
             'cancelled_at' => 'datetime',
         ];
+    }
+
+    public function attendeeName(): string
+    {
+        return $this->user_id !== null ? ($this->user?->name ?? 'Attendee') : ($this->guest_name ?? 'Attendee');
+    }
+
+    public function attendeeEmail(): ?string
+    {
+        return $this->user_id !== null ? $this->user?->email : $this->guest_email;
+    }
+
+    public function attendeeStudentId(): ?string
+    {
+        return $this->user_id !== null ? $this->user?->student_id : null;
     }
 
     public function event(): BelongsTo

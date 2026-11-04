@@ -120,6 +120,35 @@
             </form>
         </div>
     @endif
+    @if (config('ingress.mode') === 'cloud' && auth()->user()->can('update', $event))
+        <section class="card" style="grid-column: 1 / -1;">
+            <h2>Guest and alumni passes</h2>
+            @if ($errors->hasAny(['guest', 'guest_name', 'guest_email', 'attendee_type']))
+                <p role="alert" style="color: #991b1b;">{{ $errors->first('guest') ?: ($errors->first('guest_name') ?: ($errors->first('guest_email') ?: $errors->first('attendee_type'))) }}</p>
+            @endif
+            @if ($event->isRegistrationOpen())
+                <form method="POST" action="{{ route('organizer.events.guests.store', $event) }}">
+                    @csrf
+                    <label for="guest-name">Name</label>
+                    <input id="guest-name" class="form-input" name="guest_name" required maxlength="255" value="{{ old('guest_name') }}">
+                    <label for="guest-email">Email</label>
+                    <input id="guest-email" class="form-input" name="guest_email" type="email" required maxlength="255" value="{{ old('guest_email') }}">
+                    <label for="attendee-type">Attendee type</label>
+                    <select id="attendee-type" class="form-input" name="attendee_type"><option value="guest">Guest</option><option value="alumni">Alumni</option></select>
+                    <button type="submit" class="btn-secondary">Issue pass</button>
+                </form>
+            @endif
+            @forelse ($guestRegistrations as $guest)
+                <p>{{ $guest->attendeeName() }} &middot; {{ ucfirst($guest->attendee_type) }}
+                    @if ($guest->status === 'confirmed' && $guest->ticket?->isActive() && ! $event->isCancelled())
+                        <a href="{{ route('organizer.events.guest-pass', [$event, $guest]) }}">Open pass</a>
+                    @endif
+                </p>
+            @empty
+                <p>No guest or alumni passes issued.</p>
+            @endforelse
+        </section>
+    @endif
     <!-- Event Details Card -->
     <div class="card">
         <h2 style="font-size: 1.1rem; font-weight: 600; color: var(--neutral-dark); margin-bottom: 1rem; border-bottom: 1px solid var(--neutral-border); padding-bottom: 0.5rem;">

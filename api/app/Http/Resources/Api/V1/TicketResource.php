@@ -18,7 +18,6 @@ class TicketResource extends JsonResource
         $user = $request->user();
         $registration = $this->registration;
         $event = $registration?->event;
-        $attendee = $registration?->user;
         $isOwner = $user && $registration && (int) $registration->user_id === (int) $user->id;
         $canExposeQr = $isOwner
             && $this->isActive()
@@ -44,9 +43,9 @@ class TicketResource extends JsonResource
                 'ends_at' => $event?->ends_at?->toISOString(),
             ],
             'attendee' => [
-                'name' => $attendee?->name,
-                'student_id' => $attendee?->student_id,
-                'email' => $attendee?->email,
+                'name' => $registration?->attendeeName(),
+                'student_id' => $registration?->attendeeStudentId(),
+                'email' => $registration?->attendeeEmail(),
             ],
         ];
     }

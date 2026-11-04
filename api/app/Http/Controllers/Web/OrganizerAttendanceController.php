@@ -31,10 +31,13 @@ class OrganizerAttendanceController extends Controller
             ->where('status', Registration::STATUS_CONFIRMED);
 
         if ($search = $request->input('search')) {
-            $query->whereHas('user', function ($q) use ($search) {
-                $q->where('name', 'ilike', "%{$search}%")
-                    ->orWhere('email', 'ilike', "%{$search}%")
-                    ->orWhere('student_id', 'ilike', "%{$search}%");
+            $query->where(function ($query) use ($search) {
+                $query->whereHas('user', function ($user) use ($search) {
+                    $user->where('name', 'ilike', "%{$search}%")
+                        ->orWhere('email', 'ilike', "%{$search}%")
+                        ->orWhere('student_id', 'ilike', "%{$search}%");
+                })->orWhere('guest_name', 'ilike', "%{$search}%")
+                    ->orWhere('guest_email', 'ilike', "%{$search}%");
             });
         }
 
@@ -67,8 +70,8 @@ class OrganizerAttendanceController extends Controller
         $gateStats = $this->calculateGateStats($event);
         $recent = $this->getRecentAdmissions($event)->map(fn ($adm) => [
             'id' => $adm->id,
-            'attendee_name' => $adm->ticket?->registration?->user?->name ?? 'Attendee',
-            'student_id' => $adm->ticket?->registration?->user?->student_id ?? 'N/A',
+            'attendee_name' => $adm->ticket?->registration?->attendeeName() ?? 'Attendee',
+            'student_id' => $adm->ticket?->registration?->attendeeStudentId() ?? 'N/A',
             'access_point' => $adm->accessPoint?->name ?? 'Access Point',
             'admitted_at' => $adm->admitted_at->format('g:i:s A'),
             'scanned_by' => $adm->scannedBy?->name ?? 'Staff',
@@ -129,6 +132,7 @@ class OrganizerAttendanceController extends Controller
                     ->where('event_id', $event->id)
                     ->where('status', Registration::STATUS_CONFIRMED))
                 ->count();
+
             return [
                 'id' => $ap->id,
                 'name' => $ap->name,

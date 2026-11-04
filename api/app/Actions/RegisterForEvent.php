@@ -62,6 +62,12 @@ class RegisterForEvent
                 ]);
             }
 
+            if (Registration::where('event_id', $event->id)->where('guest_email', Str::lower(trim($user->email)))->exists()) {
+                throw ValidationException::withMessages([
+                    'registration' => ['You are already registered for this event.'],
+                ]);
+            }
+
             $existingRegistration = Registration::where('event_id', $event->id)
                 ->where('user_id', $user->id)
                 ->first();

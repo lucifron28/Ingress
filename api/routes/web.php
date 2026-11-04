@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\StudentEmailVerificationController;
 use App\Http\Controllers\Web\AuthController;
+use App\Http\Controllers\Web\GuestTicketController;
 use App\Http\Controllers\Web\OrganizerAttendanceController;
 use App\Http\Controllers\Web\OrganizerEventController;
 use Illuminate\Support\Facades\Route;
@@ -36,6 +37,8 @@ Route::middleware(['auth', 'organizer', 'runtime:legacy,cloud'])->prefix('organi
     Route::post('/events/{event}/prepare-snapshot', [OrganizerEventController::class, 'prepareSnapshot'])->middleware('runtime:cloud')->name('events.snapshot.prepare');
     Route::post('/events/{event}/close-registration', [OrganizerEventController::class, 'closeRegistration'])->name('events.registration.close');
     Route::post('/events/{event}/cancel', [OrganizerEventController::class, 'cancel'])->name('events.cancel');
+    Route::post('/events/{event}/guests', [GuestTicketController::class, 'store'])->middleware('runtime:cloud')->name('events.guests.store');
+    Route::get('/events/{event}/guests/{registration}/pass', [GuestTicketController::class, 'show'])->middleware('runtime:cloud')->name('events.guest-pass');
 
     Route::post('/events/{event}/access-points', [OrganizerEventController::class, 'storeAccessPoint'])->name('events.access-points.store');
     Route::post('/events/{event}/staff', [OrganizerEventController::class, 'assignStaff'])->name('events.staff.assign');
