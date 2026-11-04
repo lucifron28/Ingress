@@ -23,6 +23,10 @@ The email contains a 30-minute, single-use link. Opening it displays a form; the
 
 Node tokens support `GET /me`, `POST /auth/logout`, and the `/staff` event, gate, preview, and admission endpoints. Each node scan requires an activated signed grant, a current event assignment, the assigned gate, and a valid node token. Preview is read-only; only confirmation records an admission. A missing or invalid authority returns `403` with status `node_authority_unavailable`. Admissions are sent to the cloud in retryable batches when connectivity returns; cloud reports may lag. The ordinary `/auth/login` endpoint remains available on cloud and legacy runtimes, not nodes. The staff member's account role is not changed by a node assignment.
 
+### Event Node scanner pairing
+
+`POST /auth/node-staff/pair` is available only on an Event Node over HTTPS outside local and testing environments. It accepts `node_id`, a 64-character one-use `token`, and an optional `device_name`. The operator issues the token for one assigned staff member through the local pairing command. The node checks the target identity, three-minute expiry, current assignment, and local credential. Successful redemption consumes the token and returns a 12-hour `node:staff` session with `node_id`. Invalid, expired, already used, or revoked codes return a generic validation error. Requests are rate-limited by IP.
+
 ### 1.1 Mobile Login
 Issues a personal access token for mobile attendees and event staff.
 
