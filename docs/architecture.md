@@ -250,17 +250,18 @@ Ticket issued (active, credential_version = 1)
 Attendees cannot self-cancel an issued ticket. Once registered, the ticket remains tied to the attendee. Repeated registration attempts for the same event are rejected and cannot rotate credentials, restore capacity, or reset admission history.
 
 - Every admission records the `credential_version` under which the ticket was admitted for audit and idempotency scoping.
-- Anti-passback operates at the ticket level: once a ticket has been admitted, rotating its credential never resets physical admission state.
+- Presence operates at the ticket level: its latest entry or exit determines current state, and credential rotation never resets movement history.
 - Future controlled rotations, such as administrative reissue or ticket transfer, preserve audit history without allowing retired credentials or scan IDs to be replayed.
 
 ### Verifying concurrency on real PostgreSQL
 
-SQLite serializes writers and cannot demonstrate real lock contention, so the behavioural suite (which runs on in-memory SQLite) proves logic but not races. Six invariants are verified separately against real PostgreSQL:
+SQLite serializes writers and cannot demonstrate real lock contention, so the behavioural suite (which runs on in-memory SQLite) proves logic but not races. The concurrency harness checks 38 scenarios against real PostgreSQL, including the listed invariants:
 
 | Invariant | Contested resource | Expected outcome |
 | :--- | :--- | :--- |
 | Final-seat registration | `events` row (capacity 1) | exactly one confirmed registration |
-| Same-ticket admission | `tickets` row | exactly one admission row; loser receives `already_admitted` |
+| Same-ticket entry | `tickets` row | exactly one entry while outside; later entries are rejected until a valid exit and permitted re-entry |
+| Concurrent exit and entry | `tickets` row | ticket locking preserves a valid sequence and applies the event re-entry policy |
 | Replayed `client_scan_id` across two tickets | `admissions.client_scan_id` unique index | exactly one admission row; loser receives `idempotency_conflict`, never an unhandled 500 |
 | Unique-violation mapping | `admissions.client_scan_id` unique index, deterministically | a worker held behind an uncommitted conflicting insert is mapped to `idempotency_conflict` |
 | Event cancellation during an in-flight admission | `events` row, `FOR SHARE` vs `FOR UPDATE` | the scan blocks, then is rejected as `event_cancelled`; no admission recorded |

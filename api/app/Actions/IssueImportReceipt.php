@@ -30,7 +30,7 @@ class IssueImportReceipt
                 || (int) $link->local_id !== (int) $event->id
                 || (int) $head->version !== (int) $import->version
                 || (int) $snapshot->event_id !== $cloudEventId || (int) $snapshot->version !== (int) $import->version
-                || ! in_array((int) $snapshot->schema_version, [1, 2], true) || ! hash_equals($snapshot->sha256, $import->sha256)
+                || ! in_array((int) $snapshot->schema_version, [1, 2, 3], true) || ! hash_equals($snapshot->sha256, $import->sha256)
                 || ! hash_equals($snapshot->sha256, hash('sha256', Crypt::decryptString($snapshot->payload_ciphertext)))
                 || $event->status !== 'published' || $event->snapshot_prepared_at === null
                 || (int) $event->snapshot_version !== (int) $import->version) {

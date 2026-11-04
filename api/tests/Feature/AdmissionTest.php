@@ -206,6 +206,124 @@ class AdmissionTest extends TestCase
         $this->assertEquals(1, $admissionCount, 'Anti-passback must prevent second admission row creation.');
     }
 
+    public function test_confirmed_entry_exit_and_reentry_drive_current_presence_metrics(): void
+    {
+        $this->event->update(['re_entry_allowed' => true]);
+        $preview = fn (string $direction) => $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions/preview", [
+                'access_point_id' => $this->gateA->id,
+                'qr_payload' => $this->validQrPayload,
+                'direction' => $direction,
+            ]);
+        $confirm = fn (string $direction) => $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
+                'access_point_id' => $this->gateA->id,
+                'qr_payload' => $this->validQrPayload,
+                'client_scan_id' => (string) Str::uuid(),
+                'direction' => $direction,
+            ]);
+
+        $preview('entry')->assertOk()->assertJson(['status' => 'valid', 'direction' => 'entry']);
+        $this->assertSame(0, Admission::count(), 'Preview must not record movement.');
+        $confirm('entry')->assertOk()->assertJson(['status' => 'admitted', 'admission' => ['direction' => 'entry']]);
+
+        $preview('exit')->assertOk()->assertJson(['status' => 'valid', 'direction' => 'exit']);
+        $this->assertSame(1, Admission::count(), 'Exit preview must remain read-only.');
+        $confirm('exit')->assertOk()->assertJson(['status' => 'exited', 'admission' => ['direction' => 'exit']]);
+
+        $preview('entry')->assertOk()->assertJson(['status' => 'valid']);
+        $confirm('entry')->assertOk()->assertJson(['status' => 'admitted']);
+
+        $this->assertDatabaseCount('admissions', 3);
+        $this->assertSame(['entry', 'exit', 'entry'], Admission::where('ticket_id', $this->ticket->id)
+            ->orderBy('id')->pluck('direction')->all());
+        $this->assertSame(1, $this->event->fresh()->getConfirmedRegistrationsCount(), 'Movements must not use another capacity slot.');
+
+        $feed = $this->actingAs($this->event->organizer)->getJson("/organizer/events/{$this->event->id}/attendance/feed");
+        $feed->assertOk()
+            ->assertJsonPath('stats.registered_count', 1)
+            ->assertJsonPath('stats.checked_in_count', 1)
+            ->assertJsonPath('stats.inside_count', 1)
+            ->assertJsonPath('stats.outside_count', 0)
+            ->assertJsonPath('stats.reentry_count', 1)
+            ->assertJsonPath('stats.envergan_inside_count', 1)
+            ->assertJsonPath('stats.external_inside_count', 0);
+    }
+
+    public function test_exit_requires_an_inside_attendee_and_reentry_policy_is_enforced(): void
+    {
+        $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions/preview", [
+                'access_point_id' => $this->gateA->id,
+                'qr_payload' => $this->validQrPayload,
+                'direction' => 'exit',
+            ])
+            ->assertStatus(409)
+            ->assertJson(['status' => 'not_inside']);
+        $this->assertDatabaseCount('admissions', 0);
+
+        $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
+                'access_point_id' => $this->gateA->id,
+                'qr_payload' => $this->validQrPayload,
+                'client_scan_id' => (string) Str::uuid(),
+            ])
+            ->assertOk();
+
+        $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
+                'access_point_id' => $this->gateA->id,
+                'qr_payload' => $this->validQrPayload,
+                'client_scan_id' => (string) Str::uuid(),
+                'direction' => 'entry',
+            ])
+            ->assertStatus(409)
+            ->assertJson(['status' => 'already_admitted']);
+
+        $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
+                'access_point_id' => $this->gateA->id,
+                'qr_payload' => $this->validQrPayload,
+                'client_scan_id' => (string) Str::uuid(),
+                'direction' => 'exit',
+            ])
+            ->assertOk();
+
+        $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions/preview", [
+                'access_point_id' => $this->gateA->id,
+                'qr_payload' => $this->validQrPayload,
+                'direction' => 'entry',
+            ])
+            ->assertStatus(409)
+            ->assertJson(['status' => 'reentry_not_allowed']);
+        $this->assertDatabaseCount('admissions', 2);
+    }
+
+    public function test_idempotency_key_is_bound_to_the_movement_direction(): void
+    {
+        $scanId = (string) Str::uuid();
+        $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
+                'access_point_id' => $this->gateA->id,
+                'qr_payload' => $this->validQrPayload,
+                'client_scan_id' => $scanId,
+                'direction' => 'entry',
+            ])
+            ->assertOk();
+
+        $this->actingAs($this->staffGateA)
+            ->postJson("/api/v1/staff/events/{$this->event->id}/admissions", [
+                'access_point_id' => $this->gateA->id,
+                'qr_payload' => $this->validQrPayload,
+                'client_scan_id' => $scanId,
+                'direction' => 'exit',
+            ])
+            ->assertStatus(409)
+            ->assertJson(['status' => 'idempotency_conflict']);
+        $this->assertDatabaseCount('admissions', 1);
+    }
+
     public function test_scan_request_is_idempotent_for_same_client_scan_id(): void
     {
         $scanId = (string) Str::uuid();

@@ -1419,8 +1419,13 @@ $nodePayload['event']['organizer']['email'] = "node-owner-{$suffix}@example.test
 $nodePayload['event']['venue']['id'] += 600000;
 $nodePayload['event']['venue']['code'] = "NODE{$suffix}";
 $nodePayload['access_points'][0]['id'] += 600000;
+$nodeGateB = $nodePayload['access_points'][0];
+$nodeGateB['id']++;
+$nodeGateB['name'] = 'Node Race Gate B';
+$nodeGateB['code'] = 'NODE-B'.$suffix;
+$nodePayload['access_points'][] = $nodeGateB;
 $nodePayload['staff'][0]['id'] += 600000;
-$nodePayload['staff'][0]['access_point_id'] = $nodePayload['access_points'][0]['id'];
+$nodePayload['staff'][0]['access_point_id'] = null;
 $nodePayload['staff'][0]['user']['id'] += 600000;
 $nodePayload['staff'][0]['user']['email'] = "node-scan-staff-{$suffix}@example.test";
 $nodePayload['registrations'][0]['id'] += 600000;
@@ -1442,6 +1447,7 @@ app(ActivateEventAuthority::class)->execute($nodeGrant);
 app(ManageNodeStaffCredential::class)->provision($nodePayload['staff'][0]['user']['id']);
 $nodeStaffId = DB::table('node_import_ids')->where('kind', 'user')->where('cloud_id', $nodePayload['staff'][0]['user']['id'])->value('local_id');
 $nodeGateId = DB::table('node_import_ids')->where('kind', 'gate')->where('cloud_id', $nodePayload['access_points'][0]['id'])->value('local_id');
+$nodeGateBId = DB::table('node_import_ids')->where('kind', 'gate')->where('cloud_id', $nodeGateB['id'])->value('local_id');
 $nodeToken = User::findOrFail($nodeStaffId)->createToken('race', ['node:staff'], now()->addHours(1))->accessToken;
 $nodeJob = [
     'node_id' => 'race-node', 'public_key' => $authorityPublic, 'staff_user_id' => $nodeStaffId,
@@ -1456,12 +1462,24 @@ $assert(count(array_filter($nodeResults, fn ($result) => ($result['status'] ?? n
 $assert(count(array_filter($nodeResults, fn ($result) => ($result['status'] ?? null) === 'already_admitted')) === 1, 'the other node scanner rejected the duplicate');
 $nodeTicketId = DB::table('node_import_ids')->where('kind', 'ticket')->where('cloud_id', $nodePayload['registrations'][0]['ticket']['id'])->value('local_id');
 $assert(DB::table('admissions')->where('ticket_id', $nodeTicketId)->count() === 1, 'the node recorded one admission');
+$movementResults = $runConcurrently([
+    ['node_scan', $nodeJob + ['client_scan_id' => "node-exit-{$suffix}", 'direction' => 'exit', 'access_point_id' => $nodeGateId]],
+    ['node_scan', $nodeJob + ['client_scan_id' => "node-reentry-{$suffix}", 'direction' => 'entry', 'access_point_id' => $nodeGateBId]],
+], $childScript, $testDatabase);
+$assert(count(array_filter($movementResults, fn ($result) => ($result['status'] ?? null) === 'exited')) === 1,
+    'one gate recorded the exit while the other transition waited');
+$assert(count(array_filter($movementResults, fn ($result) => in_array($result['status'] ?? null,
+    ['already_admitted', 'reentry_not_allowed'], true))) === 1, 'the other gate rejected the conflicting transition');
+$assert(DB::table('admissions')->where('ticket_id', $nodeTicketId)->count() === 2, 'ticket locking preserved the entry-exit sequence');
+$assert(DB::table('admissions')->where('ticket_id', $nodeTicketId)->orderByDesc('id')->value('direction') === 'exit',
+    're-entry remained disabled by the imported event policy');
 echo "\n";
 
 // =============================================================================
 // CASE Z - A revoked token cannot replay while its revocation is in flight
 // =============================================================================
 echo "CASE Z: node admission waits for staff token revocation\n";
+$nodeAdmissionsBeforeRevocation = DB::table('admissions')->where('ticket_id', $nodeTicketId)->count();
 $nodeRevocation = $rawConnection($testDatabase);
 $nodeRevocation->beginTransaction();
 $nodeRevocation->query('select id from runtime_identity where id = 1 for update');
@@ -1484,7 +1502,8 @@ $revokedNodeResult = $collectWorker($nodeProcess, $nodePipes);
 $assert($nodeReady, 'node scan worker reached the barrier');
 $assert($nodeBlocked > 0, 'node scan waited for credential revocation');
 $assert(($revokedNodeResult['status'] ?? null) === 'node_authority_unavailable', 'the revoked token could not replay a scan');
-$assert(DB::table('admissions')->where('ticket_id', $nodeTicketId)->count() === 1, 'revocation created no extra admission');
+$assert(DB::table('admissions')->where('ticket_id', $nodeTicketId)->count() === $nodeAdmissionsBeforeRevocation,
+    'revocation created no extra movement');
 echo "\n";
 
 // =============================================================================

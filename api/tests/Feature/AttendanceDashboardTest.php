@@ -95,7 +95,7 @@ class AttendanceDashboardTest extends TestCase
         $response->assertSee('Event Attendance: Flagship Conference');
         $response->assertSee('Ron Vincent Cada');
         $response->assertSee('Gate A - West Wing');
-        $response->assertSee('Admitted');
+        $response->assertSee('Entry');
     }
 
     public function test_attendance_feed_returns_accurate_realtime_metrics(): void
@@ -185,7 +185,7 @@ class AttendanceDashboardTest extends TestCase
         $response->assertSee('if (isFetching) return;', false);
 
         // Verify standardized access point terminology
-        $response->assertSee('Throughput by Access Point');
+        $response->assertSee('Movements by Access Point');
         $response->assertSee('No access points configured.');
         $response->assertSee('<th>Access Point</th>', false);
 
@@ -320,7 +320,7 @@ class AttendanceDashboardTest extends TestCase
         $this->assertStringNotContainsString('Ron Vincent Cada', $step2['recentHtml']);
         $this->assertEquals(1, $step2['recentRowCount']);
         $this->assertEquals('no-scans-row', $step2['firstRowId']);
-        $this->assertStringContainsString('No admissions recorded yet. Turnstile scanners are ready.', $step2['recentTextContent']);
+        $this->assertStringContainsString('No movements recorded yet. Turnstile scanners are ready.', $step2['recentTextContent']);
     }
 
     public function test_server_provided_values_are_rendered_as_text_and_prevent_html_injection(): void

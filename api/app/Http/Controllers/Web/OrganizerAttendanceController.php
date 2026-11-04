@@ -26,7 +26,7 @@ class OrganizerAttendanceController extends Controller
         $recentAdmissions = $this->getRecentAdmissions($event);
 
         // Attendee Directory Query
-        $query = Registration::with(['user', 'ticket.admissions.accessPoint'])
+        $query = Registration::with(['user', 'ticket.latestAdmission.accessPoint'])
             ->where('event_id', $event->id)
             ->where('status', Registration::STATUS_CONFIRMED);
 
@@ -44,7 +44,9 @@ class OrganizerAttendanceController extends Controller
 
         if ($filter = $request->input('status')) {
             if ($filter === 'checked_in') {
-                $query->whereHas('ticket.admissions');
+                $query->whereHas('ticket.latestAdmission', fn ($movement) => $movement->where('direction', Admission::DIRECTION_ENTRY));
+            } elseif ($filter === 'outside') {
+                $query->whereHas('ticket.latestAdmission', fn ($movement) => $movement->where('direction', Admission::DIRECTION_EXIT));
             } elseif ($filter === 'not_arrived') {
                 $query->whereDoesntHave('ticket.admissions');
             }
@@ -74,6 +76,7 @@ class OrganizerAttendanceController extends Controller
             'attendee_name' => $adm->ticket?->registration?->attendeeName() ?? 'Attendee',
             'student_id' => $adm->ticket?->registration?->attendeeStudentId() ?? 'N/A',
             'access_point' => $adm->accessPoint?->name ?? 'Access Point',
+            'direction' => $adm->direction,
             'admitted_at' => $adm->admitted_at->format('g:i:s A'),
             'scanned_by' => $adm->scannedBy?->name ?? 'Staff',
         ]);
@@ -92,30 +95,46 @@ class OrganizerAttendanceController extends Controller
      *     total_capacity: int,
      *     registered_count: int,
      *     checked_in_count: int,
+     *     inside_count: int,
+     *     outside_count: int,
      *     not_arrived_count: int,
+     *     reentry_count: int,
+     *     envergan_inside_count: int,
+     *     external_inside_count: int,
      *     attendance_percentage: float
      * }
      */
     private function calculateMetrics(Event $event): array
     {
-        $registered = Registration::where('event_id', $event->id)
-            ->where('status', Registration::STATUS_CONFIRMED)
-            ->count();
-
-        // Physical admission is ticket-level: rotating credentials never resets
-        // or removes an admitted attendee from attendance metrics.
-        $checkedIn = Registration::where('event_id', $event->id)
-            ->where('status', Registration::STATUS_CONFIRMED)
-            ->whereHas('ticket.admissions')
-            ->count();
+        $confirmed = Registration::where('event_id', $event->id)->where('status', Registration::STATUS_CONFIRMED);
+        $registered = (clone $confirmed)->count();
+        $checkedIn = (clone $confirmed)->whereHas('ticket.admissions', fn ($query) => $query
+            ->where('direction', Admission::DIRECTION_ENTRY))->count();
+        $inside = (clone $confirmed)->whereHas('ticket.latestAdmission', fn ($query) => $query
+            ->where('direction', Admission::DIRECTION_ENTRY))->count();
+        $outside = (clone $confirmed)->whereHas('ticket.latestAdmission', fn ($query) => $query
+            ->where('direction', Admission::DIRECTION_EXIT))->count();
         $notArrived = max(0, $registered - $checkedIn);
+        $entryMovements = Admission::where('direction', Admission::DIRECTION_ENTRY)
+            ->whereHas('ticket.registration', fn ($query) => $query
+                ->where('event_id', $event->id)->where('status', Registration::STATUS_CONFIRMED))->count();
+        $reentries = max(0, $entryMovements - $checkedIn);
+        $enverganInside = (clone $confirmed)->where('attendee_type', 'student')
+            ->whereHas('ticket.latestAdmission', fn ($query) => $query->where('direction', Admission::DIRECTION_ENTRY))->count();
+        $externalInside = (clone $confirmed)->whereIn('attendee_type', ['guest', 'alumni'])
+            ->whereHas('ticket.latestAdmission', fn ($query) => $query->where('direction', Admission::DIRECTION_ENTRY))->count();
         $percentage = $registered > 0 ? round(($checkedIn / $registered) * 100, 1) : 0.0;
 
         return [
             'total_capacity' => $event->capacity,
             'registered_count' => $registered,
             'checked_in_count' => $checkedIn,
+            'inside_count' => $inside,
+            'outside_count' => $outside,
             'not_arrived_count' => $notArrived,
+            'reentry_count' => $reentries,
+            'envergan_inside_count' => $enverganInside,
+            'external_inside_count' => $externalInside,
             'attendance_percentage' => $percentage,
         ];
     }
@@ -155,7 +174,7 @@ class OrganizerAttendanceController extends Controller
             ->whereHas('ticket.registration', fn ($q) => $q
                 ->where('event_id', $event->id)
                 ->where('status', Registration::STATUS_CONFIRMED))
-            ->orderBy('admitted_at', 'desc')
+            ->orderBy('id', 'desc')
             ->take(10)
             ->get();
     }

@@ -11,12 +11,17 @@ class Admission extends Model
 {
     use HasFactory;
 
+    public const DIRECTION_ENTRY = 'entry';
+
+    public const DIRECTION_EXIT = 'exit';
+
     protected $fillable = [
         'ticket_id',
         'access_point_id',
         'scanned_by_user_id',
         'client_scan_id',
         'credential_version',
+        'direction',
         'admitted_at',
     ];
 

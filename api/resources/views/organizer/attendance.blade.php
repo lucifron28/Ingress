@@ -42,9 +42,39 @@
     </div>
 
     <div class="card">
-        <div style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: var(--state-success); margin-bottom: 0.25rem;">Checked In</div>
+        <div style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: var(--state-success); margin-bottom: 0.25rem;">Ever Entered</div>
         <div id="stat-checked-in" style="font-size: 2rem; font-weight: 700; color: var(--state-success);" class="mono">{{ $stats['checked_in_count'] }}</div>
-        <div style="font-size: 0.75rem; color: var(--neutral-muted); margin-top: 0.25rem;">Admitted at turnstiles</div>
+        <div style="font-size: 0.75rem; color: var(--neutral-muted); margin-top: 0.25rem;">Unique attendees with an entry</div>
+    </div>
+
+    <div class="card">
+        <div style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: var(--state-success); margin-bottom: 0.25rem;">Inside Now</div>
+        <div id="stat-inside" style="font-size: 2rem; font-weight: 700; color: var(--state-success);" class="mono">{{ $stats['inside_count'] }}</div>
+        <div style="font-size: 0.75rem; color: var(--neutral-muted); margin-top: 0.25rem;">Latest movement is entry</div>
+    </div>
+
+    <div class="card">
+        <div style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: var(--neutral-dark); margin-bottom: 0.25rem;">Outside Now</div>
+        <div id="stat-outside" style="font-size: 2rem; font-weight: 700; color: var(--neutral-dark);" class="mono">{{ $stats['outside_count'] }}</div>
+        <div style="font-size: 0.75rem; color: var(--neutral-muted); margin-top: 0.25rem;">Entered, then exited</div>
+    </div>
+
+    <div class="card">
+        <div style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: var(--mseuf-maroon); margin-bottom: 0.25rem;">Re-entries</div>
+        <div id="stat-reentries" style="font-size: 2rem; font-weight: 700; color: var(--mseuf-maroon);" class="mono">{{ $stats['reentry_count'] }}</div>
+        <div style="font-size: 0.75rem; color: var(--neutral-muted); margin-top: 0.25rem;">Entry movements after the first</div>
+    </div>
+
+    <div class="card">
+        <div style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: var(--neutral-dark); margin-bottom: 0.25rem;">Envergans Inside</div>
+        <div id="stat-envergan-inside" style="font-size: 2rem; font-weight: 700; color: var(--neutral-dark);" class="mono">{{ $stats['envergan_inside_count'] }}</div>
+        <div style="font-size: 0.75rem; color: var(--neutral-muted); margin-top: 0.25rem;">Verified student tickets</div>
+    </div>
+
+    <div class="card">
+        <div style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: var(--neutral-dark); margin-bottom: 0.25rem;">External Guests Inside</div>
+        <div id="stat-external-inside" style="font-size: 2rem; font-weight: 700; color: var(--neutral-dark);" class="mono">{{ $stats['external_inside_count'] }}</div>
+        <div style="font-size: 0.75rem; color: var(--neutral-muted); margin-top: 0.25rem;">Guest and alumni tickets</div>
     </div>
 
     <div class="card">
@@ -67,7 +97,7 @@
     <!-- Gate Admissions Breakdown -->
     <div class="card">
         <h2 style="font-size: 1rem; font-weight: 600; color: var(--neutral-dark); margin-bottom: 1rem; border-bottom: 1px solid var(--neutral-border); padding-bottom: 0.5rem;">
-            Throughput by Access Point
+            Movements by Access Point
         </h2>
 
         <div id="gate-container" style="display: flex; flex-direction: column; gap: 0.75rem;">
@@ -90,7 +120,7 @@
     <!-- Live Recent Admissions Feed -->
     <div class="card" style="padding: 0; overflow: hidden;">
         <div style="padding: 0.85rem 1.25rem; border-bottom: 1px solid var(--neutral-border); display: flex; justify-content: space-between; align-items: center; background: #f8fafc;">
-            <h2 style="font-size: 1rem; font-weight: 600; color: var(--neutral-dark);">Recent Admissions (Live Feed)</h2>
+            <h2 style="font-size: 1rem; font-weight: 600; color: var(--neutral-dark);">Recent Movements (Live Feed)</h2>
             <span style="font-size: 0.75rem; color: var(--neutral-muted);" id="feed-last-updated">Auto-refreshing</span>
         </div>
 
@@ -99,6 +129,7 @@
                 <thead>
                     <tr>
                         <th>Time</th>
+                        <th>Movement</th>
                         <th>Attendee Name</th>
                         <th>Student ID</th>
                         <th>Access Point</th>
@@ -111,6 +142,7 @@
                             <td class="mono" style="font-size: 0.8rem; font-weight: 600; color: var(--mseuf-maroon);">
                                 {{ $adm->admitted_at->format('h:i:s A') }}
                             </td>
+                            <td>{{ ucfirst($adm->direction) }}</td>
                             <td><strong>{{ $adm->ticket?->registration?->attendeeName() ?? 'Attendee' }}</strong></td>
                             <td class="mono" style="font-size: 0.8rem;">{{ $adm->ticket?->registration?->attendeeStudentId() ?? 'N/A' }}</td>
                             <td><span class="badge badge-info">{{ $adm->accessPoint?->name }}</span></td>
@@ -118,8 +150,8 @@
                         </tr>
                     @empty
                         <tr id="no-scans-row">
-                            <td colspan="5" style="text-align: center; padding: 2rem; color: var(--neutral-muted);">
-                                No admissions recorded yet. Turnstile scanners are ready.
+                            <td colspan="6" style="text-align: center; padding: 2rem; color: var(--neutral-muted);">
+                                No movements recorded yet. Turnstile scanners are ready.
                             </td>
                         </tr>
                     @endforelse
@@ -135,7 +167,7 @@
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
             <div>
                 <h2 style="font-size: 1.1rem; font-weight: 600; color: var(--neutral-dark);">Attendee Roster</h2>
-                <p style="font-size: 0.8rem; color: var(--neutral-muted);">Complete registration roster and entrance admission timestamps</p>
+                <p style="font-size: 0.8rem; color: var(--neutral-muted);">Current attendee presence and last movement</p>
             </div>
 
             <!-- Search and Filter Form -->
@@ -144,7 +176,8 @@
 
                 <select name="status" class="form-select" style="width: 140px; height: 36px;">
                     <option value="">All Statuses</option>
-                    <option value="checked_in" {{ request('status') === 'checked_in' ? 'selected' : '' }}>Checked In</option>
+                    <option value="checked_in" {{ request('status') === 'checked_in' ? 'selected' : '' }}>Inside Now</option>
+                    <option value="outside" {{ request('status') === 'outside' ? 'selected' : '' }}>Outside</option>
                     <option value="not_arrived" {{ request('status') === 'not_arrived' ? 'selected' : '' }}>Not Arrived</option>
                 </select>
 
@@ -164,19 +197,18 @@
                     <th>Student ID</th>
                     <th>Email</th>
                     <th>Ticket Ref</th>
-                    <th>Admission Status</th>
-                    <th>Gate Used</th>
-                    <th>Admitted At</th>
+                    <th>Presence</th>
+                    <th>Last Gate</th>
+                    <th>Last Movement</th>
                 </tr>
             </thead>
             <tbody>
                 @forelse ($attendees as $reg)
                     @php
                         $ticket = $reg->ticket;
-                        $admission = $ticket
-                            ? $ticket->admissions->sortByDesc('admitted_at')->first()
-                            : null;
-                        $isCheckedIn = (bool) $admission;
+                        $admission = $ticket?->latestAdmission;
+                        $isInside = $admission?->direction === \App\Models\Admission::DIRECTION_ENTRY;
+                        $isOutside = $admission?->direction === \App\Models\Admission::DIRECTION_EXIT;
                     @endphp
                     <tr>
                         <td><strong>{{ $reg->attendeeName() }}</strong></td>
@@ -184,22 +216,24 @@
                         <td style="font-size: 0.8rem; color: var(--neutral-muted);">{{ $reg->attendeeEmail() }}</td>
                         <td class="mono" style="font-size: 0.8rem;">{{ $reg->ticket?->public_id ?? 'N/A' }}</td>
                         <td>
-                            @if ($isCheckedIn)
-                                <span class="badge badge-success">Admitted</span>
+                            @if ($isInside)
+                                <span class="badge badge-success">Inside</span>
+                            @elseif ($isOutside)
+                                <span class="badge badge-info">Outside</span>
                             @else
                                 <span class="badge badge-warning">Not Arrived</span>
                             @endif
                         </td>
                         <td>
-                            @if ($isCheckedIn && $admission->accessPoint)
+                            @if ($admission && $admission->accessPoint)
                                 <span class="badge badge-info">{{ $admission->accessPoint->name }}</span>
                             @else
                                 <span style="color: var(--neutral-muted); font-size: 0.8rem;">—</span>
                             @endif
                         </td>
                         <td class="mono" style="font-size: 0.8rem;">
-                            @if ($isCheckedIn)
-                                {{ $admission->admitted_at->format('M d, h:i:s A') }}
+                            @if ($admission)
+                                {{ ucfirst($admission->direction) }} at {{ $admission->admitted_at->format('M d, h:i:s A') }}
                             @else
                                 <span style="color: var(--neutral-muted);">—</span>
                             @endif
@@ -293,6 +327,21 @@
             const statCheckedIn = document.getElementById('stat-checked-in');
             if (statCheckedIn) statCheckedIn.textContent = data.stats.checked_in_count;
 
+            const statInside = document.getElementById('stat-inside');
+            if (statInside) statInside.textContent = data.stats.inside_count;
+
+            const statOutside = document.getElementById('stat-outside');
+            if (statOutside) statOutside.textContent = data.stats.outside_count;
+
+            const statReentries = document.getElementById('stat-reentries');
+            if (statReentries) statReentries.textContent = data.stats.reentry_count;
+
+            const statEnverganInside = document.getElementById('stat-envergan-inside');
+            if (statEnverganInside) statEnverganInside.textContent = data.stats.envergan_inside_count;
+
+            const statExternalInside = document.getElementById('stat-external-inside');
+            if (statExternalInside) statExternalInside.textContent = data.stats.external_inside_count;
+
             const statNotArrived = document.getElementById('stat-not-arrived');
             if (statNotArrived) statNotArrived.textContent = data.stats.not_arrived_count;
 
@@ -364,11 +413,11 @@
                     const emptyTr = document.createElement('tr');
                     emptyTr.id = 'no-scans-row';
                     const emptyTd = document.createElement('td');
-                    emptyTd.colSpan = 5;
+                    emptyTd.colSpan = 6;
                     emptyTd.style.textAlign = 'center';
                     emptyTd.style.padding = '2rem';
                     emptyTd.style.color = 'var(--neutral-muted)';
-                    emptyTd.textContent = 'No admissions recorded yet. Turnstile scanners are ready.';
+                    emptyTd.textContent = 'No movements recorded yet. Turnstile scanners are ready.';
                     emptyTr.appendChild(emptyTd);
                     tbody.appendChild(emptyTr);
                 } else {
@@ -381,6 +430,10 @@
                         tdTime.style.fontWeight = '600';
                         tdTime.style.color = 'var(--mseuf-maroon)';
                         tdTime.textContent = adm.admitted_at;
+
+                        const tdDirection = document.createElement('td');
+                        const direction = adm.direction === 'exit' ? 'Exit' : 'Entry';
+                        tdDirection.textContent = direction;
 
                         const tdName = document.createElement('td');
                         const strongName = document.createElement('strong');
@@ -404,6 +457,7 @@
                         tdStaff.textContent = adm.scanned_by;
 
                         tr.appendChild(tdTime);
+                        tr.appendChild(tdDirection);
                         tr.appendChild(tdName);
                         tr.appendChild(tdId);
                         tr.appendChild(tdGate);

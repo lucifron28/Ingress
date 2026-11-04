@@ -273,7 +273,7 @@ The public internet is not part of the critical admission path.
 ## ADR 012: Registration Deadline, Finalization, and Walk-Ins
 
 ### Status
-Planned for the second half.
+Implemented in the Event Node admission flow and organizer attendance dashboard.
 
 ### Context
 Events commonly accept walk-ins. Continuing cloud registration after an Event Node has gone offline would allow the cloud to issue tickets the Event Node has never received.
@@ -427,7 +427,7 @@ This decision also reinforces the choice not to use TOTP. A static opaque creden
 ## ADR 019: Append-Only Entry, Exit, and Re-Entry Tracking
 
 ### Status
-Planned for the second half.
+Implemented in the Event Node admission flow and organizer attendance dashboard.
 
 ### Context
 The first-half admission model records one successful admission and rejects every later scan. That is correct for strict one-time admission, but it cannot answer whether someone left the venue and later returned, nor can it tell organizers how many people are currently inside.
@@ -452,6 +452,6 @@ OUTSIDE --ENTRY--> INSIDE   # permitted re-entry
 
 The existing two-stage scanner invariant remains in force: scanning performs read-only validation and identity preview; only explicit authorized staff confirmation records the entry or exit.
 
-This enables dashboards to report total attendees who ever entered, currently inside, currently outside after a prior entry, re-entry count, and current Envergan-versus-external occupancy.
+Node-to-cloud batches carry movement direction, and cloud applies them idempotently. The attendance feed reports attendees who ever entered, current inside and outside counts, re-entry count, and current verified-student versus guest/alumni occupancy. New snapshots use schema version 3 when re-entry is enabled; versions 1 and 2 retain the false default.
 
 ---

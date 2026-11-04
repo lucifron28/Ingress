@@ -29,6 +29,7 @@ interface ScanFeedback {
 interface PendingPreview {
   clientScanId: string;
   qrPayload: string;
+  direction: 'entry' | 'exit';
   publicId: string;
   attendeeName: string;
   studentId?: string | null;
@@ -46,6 +47,7 @@ export default function ScannerScreen() {
 
   const [permission, requestPermission] = useCameraPermissions();
   const [torchEnabled, setTorchEnabled] = useState(false);
+  const [direction, setDirection] = useState<'entry' | 'exit'>('entry');
   const [isValidating, setIsValidating] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
   const [pendingPreview, setPendingPreview] = useState<PendingPreview | null>(null);
@@ -62,6 +64,30 @@ export default function ScannerScreen() {
       const detail = err.detail;
       const prevAdmission = err.data?.previous_admission;
       const ticket = err.data?.ticket;
+
+      if (domainStatus === 'not_inside') {
+        setFeedback({
+          type: 'duplicate',
+          title: 'Attendee Already Outside',
+          detail: detail || 'No confirmed entry exists for this ticket.',
+          attendeeName: ticket?.attendee_name,
+          studentId: ticket?.student_id || undefined,
+        });
+        return;
+      }
+
+      if (domainStatus === 'reentry_not_allowed') {
+        setFeedback({
+          type: 'duplicate',
+          title: 'Re-entry Not Allowed',
+          detail: detail || 'This event does not allow re-entry after an exit.',
+          attendeeName: ticket?.attendee_name,
+          studentId: ticket?.student_id || undefined,
+          accessPoint: prevAdmission?.access_point,
+          previousAdmittedAt: prevAdmission?.admitted_at,
+        });
+        return;
+      }
 
       if (domainStatus === 'already_admitted' || (status === 409 && domainStatus !== 'idempotency_conflict')) {
         setFeedback({
@@ -179,6 +205,7 @@ export default function ScannerScreen() {
         body: JSON.stringify({
           access_point_id: parseInt(accessPointId || '0', 10),
           qr_payload: rawPayload.trim(),
+          direction,
         }),
       });
 
@@ -187,6 +214,7 @@ export default function ScannerScreen() {
         setPendingPreview({
           clientScanId: Crypto.randomUUID(),
           qrPayload: rawPayload.trim(),
+          direction,
           publicId: res.ticket.public_id,
           attendeeName: res.ticket.attendee_name,
           studentId: res.ticket.student_id,
@@ -231,17 +259,18 @@ export default function ScannerScreen() {
           access_point_id: parseInt(accessPointId || '0', 10),
           qr_payload: payloadToAdmit,
           client_scan_id: clientScanId,
+          direction: pendingPreview.direction,
         }),
       });
 
       setPendingPreview(null);
       setConfirmError(null);
 
-      if (res.status === 'admitted') {
+      if (res.status === 'admitted' || res.status === 'exited') {
         setFeedback({
           type: 'valid',
-          title: 'Ticket Valid',
-          detail: res.detail || 'Admission recorded successfully.',
+          title: pendingPreview.direction === 'exit' ? 'Exit Recorded' : 'Entry Recorded',
+          detail: res.detail || `${pendingPreview.direction === 'exit' ? 'Exit' : 'Entry'} recorded successfully.`,
           attendeeName: res.ticket?.attendee_name,
           studentId: res.ticket?.student_id,
           accessPoint: res.admission?.access_point || accessPointName,
@@ -315,6 +344,24 @@ export default function ScannerScreen() {
         <Text style={styles.eventSubTitle} numberOfLines={1}>{eventTitle || 'Campus Event'}</Text>
       </View>
 
+      <View style={styles.movementBar}>
+        <Text style={styles.movementLabel}>SCAN MODE</Text>
+        {(['entry', 'exit'] as const).map((value) => (
+          <Pressable
+            key={value}
+            accessibilityRole="button"
+            accessibilityState={{ selected: direction === value, disabled: !!pendingPreview || isValidating || isConfirming }}
+            disabled={!!pendingPreview || isValidating || isConfirming}
+            style={[styles.movementOption, direction === value && styles.movementOptionActive]}
+            onPress={() => setDirection(value)}
+          >
+            <Text style={[styles.movementOptionText, direction === value && styles.movementOptionTextActive]}>
+              {value.toUpperCase()}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
       {/* Camera Viewfinder */}
       <View style={styles.cameraContainer}>
         {Platform.OS !== 'web' ? (
@@ -352,9 +399,9 @@ export default function ScannerScreen() {
             {isValidating
               ? 'Validating ticket with event server...'
               : isConfirming
-              ? 'Recording admission...'
+              ? `Recording ${direction}...`
               : pendingPreview
-              ? 'Ticket verified - Confirm identity below'
+              ? `Ticket verified - Confirm ${pendingPreview.direction} below`
               : feedback
               ? 'Scan paused'
               : 'Align QR code within frame'}
@@ -401,13 +448,13 @@ export default function ScannerScreen() {
             </View>
 
             <Text style={styles.verifyInstruction}>
-              Compare the attendee with their university ID before admission.
+              Compare the attendee with their university ID before confirming {pendingPreview.direction}.
             </Text>
             {confirmError && (
               <View style={styles.confirmErrorBanner}>
                 <Text style={styles.confirmErrorText}>{confirmError}</Text>
                 <Text style={styles.confirmErrorSubtext}>
-                  Network interrupted. ID preserved. Tap CONFIRM ADMISSION to retry.
+                  Network interrupted. ID preserved. Tap CONFIRM {pendingPreview.direction.toUpperCase()} to retry.
                 </Text>
               </View>
             )}
@@ -428,7 +475,7 @@ export default function ScannerScreen() {
                 {isConfirming ? (
                   <ActivityIndicator size="small" color="#ffffff" />
                 ) : (
-                  <Text style={styles.confirmButtonText}>CONFIRM ADMISSION</Text>
+                  <Text style={styles.confirmButtonText}>CONFIRM {pendingPreview.direction.toUpperCase()}</Text>
                 )}
               </Pressable>
             </View>
@@ -607,6 +654,40 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  movementBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#111827',
+    gap: 8,
+  },
+  movementLabel: {
+    color: '#94a3b8',
+    fontSize: 10,
+    fontWeight: '800',
+    marginRight: 4,
+  },
+  movementOption: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: '#475569',
+    alignItems: 'center',
+  },
+  movementOptionActive: {
+    backgroundColor: '#800000',
+    borderColor: '#c5a059',
+  },
+  movementOptionText: {
+    color: '#cbd5e1',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  movementOptionTextActive: {
+    color: '#ffffff',
   },
   gatePill: {
     backgroundColor: '#800000',

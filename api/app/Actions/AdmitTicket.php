@@ -34,8 +34,13 @@ class AdmitTicket
         User $staff,
         int $eventId,
         int $accessPointId,
-        string $qrPayload
+        string $qrPayload,
+        string $direction = Admission::DIRECTION_ENTRY
     ): array {
+        if (! in_array($direction, [Admission::DIRECTION_ENTRY, Admission::DIRECTION_EXIT], true)) {
+            return ['http_code' => 422, 'status' => 'invalid_movement', 'message' => 'Invalid Movement',
+                'detail' => 'Choose entry or exit for this scan.'];
+        }
         if (config('ingress.mode') === 'cloud' || (config('ingress.mode') === 'node'
             && ! app(NodeAdmissionAccess::class)->allows($staff, $eventId))) {
             return $this->nodeUnavailable();
@@ -48,39 +53,27 @@ class AdmitTicket
 
         $ticket = $context['ticket'];
 
-        // Physical anti-passback is ticket-level: any prior admission marks the ticket already admitted.
-        $previousAdmission = Admission::with(['accessPoint', 'scannedBy'])
-            ->where('ticket_id', $ticket->id)
-            ->latest('admitted_at')
-            ->first();
-
-        if ($previousAdmission) {
-            $gateName = $previousAdmission->accessPoint?->name ?? 'Another Gate';
-            $time = $previousAdmission->admitted_at->format('g:i A');
-
-            return [
-                'http_code' => 409,
-                'status' => 'already_admitted',
-                'message' => 'Already Checked In',
-                'detail' => "Previously admitted at {$gateName}, {$time}",
-                'previous_admission' => [
-                    'admitted_at' => $previousAdmission->admitted_at->toISOString(),
-                    'access_point' => $gateName,
-                    'scanned_by' => $previousAdmission->scannedBy?->name ?? 'Staff',
-                ],
-                'ticket' => [
-                    'public_id' => $ticket->public_id,
-                    'attendee_name' => $ticket->registration->attendeeName(),
-                    'student_id' => $ticket->registration->attendeeStudentId(),
-                ],
+        $previousMovement = Admission::with(['accessPoint', 'scannedBy'])
+            ->where('ticket_id', $ticket->id)->latest('id')->first();
+        $rejection = $this->movementRejection($context['event'], $previousMovement, $direction);
+        if ($rejection) {
+            $rejection['ticket'] = [
+                'public_id' => $ticket->public_id,
+                'attendee_name' => $ticket->registration->attendeeName(),
+                'student_id' => $ticket->registration->attendeeStudentId(),
             ];
+
+            return $rejection;
         }
 
         return [
             'http_code' => 200,
             'status' => 'valid',
             'message' => 'Valid Ticket',
-            'detail' => 'Verify the attendee identity before confirming admission.',
+            'detail' => $direction === Admission::DIRECTION_EXIT
+                ? 'Verify the attendee identity before confirming exit.'
+                : 'Verify the attendee identity before confirming admission.',
+            'direction' => $direction,
             'ticket' => [
                 'public_id' => $ticket->public_id,
                 'attendee_name' => $ticket->registration->attendeeName(),
@@ -111,8 +104,13 @@ class AdmitTicket
         int $eventId,
         int $accessPointId,
         string $qrPayload,
-        string $clientScanId
+        string $clientScanId,
+        string $direction = Admission::DIRECTION_ENTRY
     ): array {
+        if (! in_array($direction, [Admission::DIRECTION_ENTRY, Admission::DIRECTION_EXIT], true)) {
+            return ['http_code' => 422, 'status' => 'invalid_movement', 'message' => 'Invalid Movement',
+                'detail' => 'Choose entry or exit for this scan.'];
+        }
         if (config('ingress.mode') === 'cloud' || (config('ingress.mode') === 'node'
             && ! app(NodeAdmissionAccess::class)->allows($staff, $eventId))) {
             return $this->nodeUnavailable();
@@ -137,39 +135,22 @@ class AdmitTicket
             $isMatchingEvent = (int) $existingById->accessPoint?->event_id === (int) $event->id;
             // Retries must belong to the same credential issuance.
             $isMatchingCredential = (int) $existingById->credential_version === (int) $ticket->credential_version;
+            $isMatchingDirection = $existingById->direction === $direction;
 
-            if (! $isMatchingTicket || ! $isMatchingGate || ! $isMatchingEvent || ! $isMatchingCredential) {
+            if (! $isMatchingTicket || ! $isMatchingGate || ! $isMatchingEvent || ! $isMatchingCredential || ! $isMatchingDirection) {
                 return [
                     'http_code' => 409,
                     'status' => 'idempotency_conflict',
                     'message' => 'Idempotency Key Conflict',
-                    'detail' => 'The client scan ID was already used for a different admission request.',
+                    'detail' => 'The client scan ID was already used for a different movement request.',
                 ];
             }
 
-            $formattedTime = $existingById->admitted_at->format('g:i A');
-
-            return [
-                'http_code' => 200,
-                'status' => 'admitted',
-                'message' => 'Ticket Valid',
-                'detail' => "Admitted at {$formattedTime}",
-                'admission' => [
-                    'id' => $existingById->id,
-                    'admitted_at' => $existingById->admitted_at->toISOString(),
-                    'access_point' => $existingById->accessPoint->name,
-                    'scanned_by' => $existingById->scannedBy?->name ?? 'Staff',
-                ],
-                'ticket' => [
-                    'public_id' => $ticket->public_id,
-                    'attendee_name' => $ticket->registration->attendeeName(),
-                    'student_id' => $ticket->registration->attendeeStudentId(),
-                ],
-            ];
+            return $this->recordedMovementResponse($existingById, $ticket);
         }
 
         try {
-            return DB::transaction(function () use ($staff, $ticket, $accessPoint, $event, $clientScanId, $scannedSecret, $accessPointId) {
+            return DB::transaction(function () use ($staff, $ticket, $accessPoint, $event, $clientScanId, $scannedSecret, $accessPointId, $direction) {
                 if (config('ingress.mode') === 'node' && ! app(NodeAdmissionAccess::class)->allows($staff, $event->id, true)) {
                     return $this->nodeUnavailable();
                 }
@@ -230,63 +211,31 @@ class AdmitTicket
                     $isMatchingGate = (int) $existingUnderLock->access_point_id === (int) $accessPoint->id;
                     $isMatchingEvent = (int) $existingUnderLock->accessPoint?->event_id === (int) $event->id;
                     $isMatchingCredential = (int) $existingUnderLock->credential_version === (int) $lockedTicket->credential_version;
+                    $isMatchingDirection = $existingUnderLock->direction === $direction;
 
-                    if (! $isMatchingTicket || ! $isMatchingGate || ! $isMatchingEvent || ! $isMatchingCredential) {
+                    if (! $isMatchingTicket || ! $isMatchingGate || ! $isMatchingEvent || ! $isMatchingCredential || ! $isMatchingDirection) {
                         return [
                             'http_code' => 409,
                             'status' => 'idempotency_conflict',
                             'message' => 'Idempotency Key Conflict',
-                            'detail' => 'The client scan ID was already used for a different admission request.',
+                            'detail' => 'The client scan ID was already used for a different movement request.',
                         ];
                     }
 
-                    $formattedTime = $existingUnderLock->admitted_at->format('g:i A');
-
-                    return [
-                        'http_code' => 200,
-                        'status' => 'admitted',
-                        'message' => 'Ticket Valid',
-                        'detail' => "Admitted at {$formattedTime}",
-                        'admission' => [
-                            'id' => $existingUnderLock->id,
-                            'admitted_at' => $existingUnderLock->admitted_at->toISOString(),
-                            'access_point' => $existingUnderLock->accessPoint->name,
-                            'scanned_by' => $existingUnderLock->scannedBy?->name ?? 'Staff',
-                        ],
-                        'ticket' => [
-                            'public_id' => $lockedTicket->public_id,
-                            'attendee_name' => $lockedTicket->registration->attendeeName(),
-                            'student_id' => $lockedTicket->registration->attendeeStudentId(),
-                        ],
-                    ];
+                    return $this->recordedMovementResponse($existingUnderLock, $lockedTicket);
                 }
 
-                // Physical anti-passback is ticket-level: rotating credentials never resets admission state.
-                $previousAdmission = Admission::with(['accessPoint', 'scannedBy'])
-                    ->where('ticket_id', $lockedTicket->id)
-                    ->latest('admitted_at')
-                    ->first();
-
-                if ($previousAdmission) {
-                    $gateName = $previousAdmission->accessPoint?->name ?? 'Another Gate';
-                    $time = $previousAdmission->admitted_at->format('g:i A');
-
-                    return [
-                        'http_code' => 409,
-                        'status' => 'already_admitted',
-                        'message' => 'Already Checked In',
-                        'detail' => "Previously admitted at {$gateName}, {$time}",
-                        'previous_admission' => [
-                            'admitted_at' => $previousAdmission->admitted_at->toISOString(),
-                            'access_point' => $gateName,
-                            'scanned_by' => $previousAdmission->scannedBy?->name ?? 'Staff',
-                        ],
-                        'ticket' => [
-                            'public_id' => $lockedTicket->public_id,
-                            'attendee_name' => $lockedTicket->registration->attendeeName(),
-                            'student_id' => $lockedTicket->registration->attendeeStudentId(),
-                        ],
+                $previousMovement = Admission::with(['accessPoint', 'scannedBy'])
+                    ->where('ticket_id', $lockedTicket->id)->latest('id')->first();
+                $rejection = $this->movementRejection($lockedEvent, $previousMovement, $direction);
+                if ($rejection) {
+                    $rejection['ticket'] = [
+                        'public_id' => $lockedTicket->public_id,
+                        'attendee_name' => $lockedTicket->registration->attendeeName(),
+                        'student_id' => $lockedTicket->registration->attendeeStudentId(),
                     ];
+
+                    return $rejection;
                 }
 
                 // Authoritatively lock and re-verify staff/gate authorization under transaction before creating admission
@@ -302,28 +251,11 @@ class AdmitTicket
                     'scanned_by_user_id' => $staff->id,
                     'client_scan_id' => $clientScanId,
                     'credential_version' => $lockedTicket->credential_version,
+                    'direction' => $direction,
                     'admitted_at' => Carbon::now(),
                 ]);
 
-                $formattedTime = $admission->admitted_at->format('g:i A');
-
-                return [
-                    'http_code' => 200,
-                    'status' => 'admitted',
-                    'message' => 'Ticket Valid',
-                    'detail' => "Admitted at {$formattedTime}",
-                    'admission' => [
-                        'id' => $admission->id,
-                        'admitted_at' => $admission->admitted_at->toISOString(),
-                        'access_point' => $reverifiedAccessPoint->name,
-                        'scanned_by' => $staff->name,
-                    ],
-                    'ticket' => [
-                        'public_id' => $lockedTicket->public_id,
-                        'attendee_name' => $lockedTicket->registration->attendeeName(),
-                        'student_id' => $lockedTicket->registration->attendeeStudentId(),
-                    ],
-                ];
+                return $this->recordedMovementResponse($admission, $lockedTicket, $reverifiedAccessPoint->name, $staff->name);
             });
         } catch (UniqueConstraintViolationException) {
             // Different tickets are not serialized by the ticket lock; the unique
@@ -332,9 +264,74 @@ class AdmitTicket
                 'http_code' => 409,
                 'status' => 'idempotency_conflict',
                 'message' => 'Idempotency Key Conflict',
-                'detail' => 'The client scan ID was already used for a different admission request.',
+                'detail' => 'The client scan ID was already used for a different movement request.',
             ];
         }
+    }
+
+    private function movementRejection(Event $event, ?Admission $previous, string $direction): ?array
+    {
+        $alreadyInside = $previous?->direction === Admission::DIRECTION_ENTRY;
+        $alreadyOutside = $previous === null || $previous->direction === Admission::DIRECTION_EXIT;
+
+        if ($direction === Admission::DIRECTION_ENTRY && $alreadyInside) {
+            $status = 'already_admitted';
+            $message = 'Already Checked In';
+            $detail = 'The attendee is already inside. Record an exit before another entry.';
+        } elseif ($direction === Admission::DIRECTION_ENTRY && $previous && ! $event->re_entry_allowed) {
+            $status = 'reentry_not_allowed';
+            $message = 'Re-entry Not Allowed';
+            $detail = 'This event does not allow re-entry after an exit.';
+        } elseif ($direction === Admission::DIRECTION_EXIT && $alreadyOutside) {
+            $status = 'not_inside';
+            $message = 'Attendee Not Inside';
+            $detail = $previous
+                ? 'The attendee is already outside.'
+                : 'No confirmed entry exists for this ticket.';
+        } else {
+            return null;
+        }
+
+        $result = ['http_code' => 409, 'status' => $status, 'message' => $message, 'detail' => $detail];
+        if ($previous) {
+            $result['previous_admission'] = [
+                'direction' => $previous->direction,
+                'admitted_at' => $previous->admitted_at->toISOString(),
+                'access_point' => $previous->accessPoint?->name ?? 'Another Gate',
+                'scanned_by' => $previous->scannedBy?->name ?? 'Staff',
+            ];
+        }
+
+        return $result;
+    }
+
+    private function recordedMovementResponse(
+        Admission $admission,
+        Ticket $ticket,
+        ?string $accessPointName = null,
+        ?string $staffName = null
+    ): array {
+        $isExit = $admission->direction === Admission::DIRECTION_EXIT;
+        $directionLabel = $isExit ? 'Exited' : 'Admitted';
+
+        return [
+            'http_code' => 200,
+            'status' => $isExit ? 'exited' : 'admitted',
+            'message' => $isExit ? 'Exit Recorded' : 'Ticket Valid',
+            'detail' => $directionLabel.' at '.$admission->admitted_at->format('g:i A'),
+            'admission' => [
+                'id' => $admission->id,
+                'direction' => $admission->direction,
+                'admitted_at' => $admission->admitted_at->toISOString(),
+                'access_point' => $accessPointName ?? $admission->accessPoint?->name ?? 'Access Point',
+                'scanned_by' => $staffName ?? $admission->scannedBy?->name ?? 'Staff',
+            ],
+            'ticket' => [
+                'public_id' => $ticket->public_id,
+                'attendee_name' => $ticket->registration->attendeeName(),
+                'student_id' => $ticket->registration->attendeeStudentId(),
+            ],
+        ];
     }
 
     private function nodeUnavailable(): array

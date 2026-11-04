@@ -539,7 +539,7 @@ Payment integration is cloud-side and must create or activate a guest ticket onl
 
 ## 19. Entry, exit, and re-entry tracking
 
-The first-half system records one admission and rejects every later entry scan. The full system should evolve this into an append-only attendance movement history so organizers can tell who is currently inside, who has left, and who has re-entered.
+Each confirmed scan appends an `entry` or `exit` movement to `admissions`. The latest movement for a ticket determines whether its attendee is inside. Existing admission rows migrate to `entry` so past check-ins keep their meaning.
 
 Conceptual state machine:
 
@@ -549,14 +549,9 @@ INSIDE  --EXIT----> OUTSIDE
 OUTSIDE --ENTRY--> INSIDE   (re-entry, only when policy allows)
 ```
 
-Rules:
+The Event Node locks the ticket before checking and writing a movement. The scanner selects a direction, receives a read-only preview, and records the transition only after staff confirms it. An `entry` while inside and an `exit` while outside are rejected. A later `entry` after exit is accepted only when `events.re_entry_allowed` is true. The default is false, and re-entry does not change registration capacity.
 
-- an `ENTRY` while already `INSIDE` is rejected as duplicate/passback;
-- an `EXIT` while already `OUTSIDE` is rejected as invalid state;
-- after a recorded exit, another entry is allowed only when the event permits re-entry;
-- entry/exit state transitions must lock the ticket or attendee presence state so two access points cannot create contradictory movements;
-- a scan preview remains read-only; only explicit staff confirmation records the movement;
-- re-entry never consumes another capacity slot because capacity counts issued/registered attendees, not movement rows.
+The event setting is frozen into new snapshot schema version 3 when enabled. Snapshot versions 1 and 2 import with re-entry disabled, preserving their previous behavior.
 
 The event should expose a simple re-entry policy:
 
@@ -564,15 +559,14 @@ The event should expose a simple re-entry policy:
 re_entry_allowed = true | false
 ```
 
-The dashboard can then distinguish:
+The organizer dashboard derives these values from confirmed registrations and each ticket's latest movement:
 
 - total registered/issued attendees;
-- attendees who have entered at least once;
-- currently inside;
-- currently outside after a prior entry;
-- re-entry count;
-- Envergans currently inside;
-- external guests currently inside.
+- attendees who have ever entered and attendees not yet arrived;
+- attendees currently inside and attendees currently outside after entry;
+- entry movements after the first entry;
+- verified students currently inside;
+- guests and alumni currently inside.
 
 The movement history should preserve the access point, staff member, timestamp, movement direction, and idempotency identifier for audit.
 

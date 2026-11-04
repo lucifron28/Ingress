@@ -92,6 +92,7 @@ class OrganizerEventController extends Controller
             'registration_closes_at' => ['required', 'date', 'after:registration_opens_at'],
             'starts_at' => ['required', 'date'],
             'ends_at' => ['required', 'date', 'after:starts_at'],
+            're_entry_allowed' => ['sometimes', 'boolean'],
         ]);
 
         $slug = Str::slug($validated['title']).'-'.Str::random(6);
@@ -107,6 +108,7 @@ class OrganizerEventController extends Controller
             'registration_closes_at' => $validated['registration_closes_at'],
             'starts_at' => $validated['starts_at'],
             'ends_at' => $validated['ends_at'],
+            're_entry_allowed' => (bool) ($validated['re_entry_allowed'] ?? false),
             'status' => Event::STATUS_DRAFT,
         ]);
 
@@ -206,6 +208,7 @@ class OrganizerEventController extends Controller
             'registration_closes_at' => ['required', 'date', 'after:registration_opens_at'],
             'starts_at' => ['required', 'date'],
             'ends_at' => ['required', 'date', 'after:starts_at'],
+            're_entry_allowed' => ['sometimes', 'boolean'],
         ]);
 
         // Use the registration lock boundary so capacity cannot drop below a concurrent signup.

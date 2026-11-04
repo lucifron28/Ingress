@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Facades\Crypt;
 
 class Ticket extends Model
@@ -48,6 +49,11 @@ class Ticket extends Model
     public function admissions(): HasMany
     {
         return $this->hasMany(Admission::class);
+    }
+
+    public function latestAdmission(): HasOne
+    {
+        return $this->hasOne(Admission::class)->latestOfMany('id');
     }
 
     public function isActive(): bool
