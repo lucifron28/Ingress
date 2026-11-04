@@ -1,6 +1,6 @@
 # Ingress second-half target architecture
 
-**Status:** Target architecture with implementation notes.  
+**Status:** Target architecture with implementation notes.
 **Current implementation:** Cloud and Event Node runtimes support snapshot transfer, assigned staff admission, and admission synchronization. Organizers can issue guest and alumni passes. The walk-in branch adds node issuance and synchronization; it has not yet been merged or verified. Ticket transfers and entry/exit tracking remain planned. Admission requires the venue LAN and Event Node, but not public internet.
 
 ## Runtime boundary implemented so far
