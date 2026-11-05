@@ -82,7 +82,7 @@ INGRESS_CORS_ALLOWED_ORIGINS=https://staff-app.example.edu
 TRUSTED_PROXIES=127.0.0.1
 ```
 
-Do not set the authority private key on a node. Register the node from the cloud with `php artisan ingress:register-node node-1`; transfer the printed secret to the node through a separate secure channel. The node secret is a credential. Revoke it with `php artisan ingress:revoke-node node-1` if it is exposed.
+Do not set the authority private key on a node. Register the node from the cloud with `php artisan ingress:register-node node-1`; transfer the printed secret to the node through a separate secure channel. The node secret authenticates snapshot transfer and attendance synchronization. Revoking it with `php artisan ingress:revoke-node node-1` blocks future synchronization, but does not stop offline admission or revoke an authority grant already issued. If the secret is exposed, isolate the node from scanners, revoke the cloud credential, and preserve the node database and logs. Do not treat key revocation as node deactivation.
 
 Provision the node database by installing the current application release and applying migrations. Standard events keep their earlier snapshot schema and admission batch schema for compatibility. Snapshot schema version 4 carries ID-check policy, and admission batch schema version 3 carries each staff ID-check acknowledgment. Upgrade the cloud and Event Node before preparing or importing an event that requires ID checks. The application still reads older snapshot and admission batch versions for existing events.
 
@@ -133,10 +133,12 @@ Organizers can download a full attendance CSV. It contains attendee names, ident
 
 Back up each PostgreSQL database independently with an encrypted off-host backup process. Store database backups separately from the corresponding `APP_KEY` and authority private key. A database dump combined with its `APP_KEY` can reveal encrypted ticket credentials and snapshot identity data. Test ordinary cloud restore procedures before production use.
 
-Do not clone or restore an activated Event Node database to another live instance while the original node or its authority grant may still be used. A restore can create two independent admission authorities. The current application has no safe automated recovery or authority-transfer procedure after grant issuance. Isolate the original node and stop admission before any recovery attempt; do not activate a replacement node from a copied database.
+Do not clone or restore an activated Event Node database to another live instance while the original node or its authority grant may still be used. A restore can create two independent admission authorities. The current application has no safe automated recovery or authority-transfer procedure after grant issuance.
+
+If an Event Node fails during admission, stop admission at every gate. Preserve its database, `APP_KEY`, authority grant, node sync key, and logs. Do not start a backup on another host until you have isolated the original instance and confirmed that only one instance can admit. If you cannot recover the current database or confirm that the original instance is retired, keep admission stopped. The application cannot fence an unreachable node or reconstruct unsynchronized movements from cloud data.
 
 Cloud snapshots and imported node rosters retain encrypted personal data. Automatic snapshot and roster retention or deletion is not implemented. Establish an institution-approved retention schedule and an operator-owned removal procedure before processing real attendee data. Photo collection is disabled; the app stores no attendee photos.
 
 ## Verification boundary
 
-Automated backend, mobile, type, security-audit, and PostgreSQL concurrency checks run in CI and during release preparation. Real-device, venue-network, printer, and end-to-end admission verification remains with the project owner. The current code has not been declared physically verified by this guide.
+CI runs backend tests, Composer and npm dependency audits, PostgreSQL concurrency and load-recovery checks, mobile session tests, and TypeScript compilation. Real-device, venue-network, printer, and end-to-end admission verification remains with the project owner. The current code has not been declared physically verified by this guide.
