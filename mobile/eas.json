@@ -6,11 +6,24 @@
   "build": {
     "preview": {
       "distribution": "internal",
+      "environment": "preview",
+      "env": {
+        "INGRESS_RELEASE_BUILD": "true",
+        "EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE": "false",
+        "EXPO_PUBLIC_INGRESS_DEMO_MODE": "false"
+      },
       "android": {
         "buildType": "apk"
       }
     },
     "production": {
+      "distribution": "store",
+      "environment": "production",
+      "env": {
+        "INGRESS_RELEASE_BUILD": "true",
+        "EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE": "false",
+        "EXPO_PUBLIC_INGRESS_DEMO_MODE": "false"
+      },
       "android": {
         "buildType": "app-bundle"
       }

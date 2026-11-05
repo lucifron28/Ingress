@@ -128,6 +128,10 @@ jobs:
         working-directory: mobile
         run: node tests/session.test.mjs
 
+      - name: Verify Mobile Build Configuration
+        working-directory: mobile
+        run: node --test tests/build-config.test.mjs
+
       - name: Verify Mobile TypeScript Compilation
         working-directory: mobile
         run: npx tsc --noEmit
