@@ -25,6 +25,10 @@ jobs:
         working-directory: api
         run: composer install --prefer-dist --no-interaction --no-progress
 
+      - name: Audit Composer Dependencies
+        working-directory: api
+        run: composer audit --locked
+
       - name: Prepare Environment
         working-directory: api
         run: |
@@ -40,7 +44,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17
+        image: postgres:18
         env:
           POSTGRES_DB: postgres
           POSTGRES_USER: postgres
@@ -115,6 +119,10 @@ jobs:
       - name: Install Mobile Dependencies
         working-directory: mobile
         run: npm ci --legacy-peer-deps
+
+      - name: Audit Mobile Dependencies
+        working-directory: mobile
+        run: npm audit
 
       - name: Run Mobile Session & Storage Tests
         working-directory: mobile

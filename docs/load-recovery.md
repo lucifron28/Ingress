@@ -15,17 +15,20 @@ The harness creates separate cloud and node databases, migrates both, builds an 
 
 The attendee count can be set from 500 through 5,000. The worker count can be set from 2 through 16; each worker uses its own gate and staff account. The CI job runs 1,000 attendees across four gates.
 
-## Recorded result
+## Recorded runs
 
-Run on Windows 11, PHP 8.4.24, Laravel 13.34.0, and PostgreSQL 18.4 using separate local cloud and node databases:
+These runs used Windows 11, PHP 8.4.24, Laravel 13.34.0, PostgreSQL 18.4, and separate local cloud and node databases. Each run imported 1,000 registered guests, then used four scanner processes and four gates.
 
-- 1,000 registered guests were imported to the node.
-- Four scanner processes admitted 1,000 unique tickets in 3.35 seconds, or 298.3 admissions per second.
-- Each gate recorded 250 admissions. Per-scan database-action latency was 12.70 ms at p50, 15.23 ms at p95, and 72.96 ms maximum.
-- The first sync process delivered a 100-admission batch to the cloud. The cloud committed it, then the harness dropped the response to simulate a LAN interruption.
-- The node kept the unacknowledged batch. A fresh PHP process retried the same batch ID and package hash, received the cloud's existing receipt, and sent the remaining nine batches.
-- Recovery finished in 4.28 seconds. The cloud and node each recorded 1,000 admissions, the cloud recorded ten batches, and the node had no pending batch.
-- All nine harness assertions passed.
+Two runs on 2026-11-05 completed all nine assertions:
+
+| Scan time | Throughput | p50 | p95 | Maximum | Failed-sync attempt | Restart replay and remaining sync |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 7.22 s | 138.6/s | 27.47 ms | 35.66 ms | 127.12 ms | 1.58 s | 9.89 s |
+| 8.13 s | 123.1/s | 32.75 ms | 39.20 ms | 98.52 ms | 1.68 s | 11.36 s |
+
+Each gate recorded 250 admissions. The harness committed the first 100-admission batch on the cloud, then dropped the response. A fresh process retried the same batch ID and package hash. In both runs, the cloud and node recorded 1,000 admissions, the cloud recorded ten batches, and the node had no pending batch.
+
+An earlier run on the same reported versions completed scans in 3.35 seconds (298.3/s), with 12.70 ms p50, 15.23 ms p95, and 72.96 ms maximum latency. Its recovery completed in 4.28 seconds. The two newer runs were slower; the harness has not isolated why. Treat the earlier throughput as a single-run result, not a capacity guarantee.
 
 The automated load and recovery check runs in the PostgreSQL CI job and from `scripts/test-all.ps1`.
 

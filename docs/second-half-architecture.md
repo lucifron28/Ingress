@@ -65,7 +65,7 @@ Ingress cloud
 - institutional-email student account activation and authentication
 - event discovery
 - student registration
-- guest/alumni email ticket issuance
+- organizer-issued guest and alumni passes
 - ticket transfer
 - ticket issuance
         |
