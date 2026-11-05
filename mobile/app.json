@@ -12,7 +12,9 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Ingress uses the camera to pair staff scanners and scan tickets at entrance gates."
+          "cameraPermission": "Ingress uses the camera to pair staff scanners and scan tickets at entrance gates.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
         }
       ],
       "expo-secure-store",
@@ -34,10 +36,10 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "permissions": [
-        "CAMERA",
-        "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO"
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
       ],
       "predictiveBackGestureEnabled": false
     },
