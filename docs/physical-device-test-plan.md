@@ -1,0 +1,124 @@
+# Physical-device and venue test plan
+
+**Status:** Prepared; field testing has not been run. This plan is for an isolated staging deployment and synthetic attendee data. It does not establish production readiness or prove physical-device performance.
+
+Use this plan after the required CI checks pass on the commit being tested. Record that commit, build ID, device details, venue network, and printer with the results. Do not put attendee names, email addresses, QR payloads, passwords, pairing codes, sync keys, or screenshots of live tickets in the evidence log.
+
+## Stop conditions
+
+Stop admission testing and keep the event closed if any of these occur:
+
+- A second Event Node might still hold an active authority grant.
+- A snapshot or authority receipt does not match the event, node, or version being tested.
+- A scanner records an admission without staff confirmation, accepts an unauthorized gate, or creates duplicate movements after a retry.
+- The cloud or Event Node TLS certificate is invalid or untrusted by a test device.
+- An offline scanner appears able to admit without reaching the Event Node over the LAN.
+- An admission, walk-in, or pending sync record is lost after a service restart.
+
+For an Event Node failure after authority activation, stop all gates. Preserve the original node, database, grant, sync key, and logs. Do not activate a replacement or restore a clone while the original node might still admit. The application cannot fence an unreachable node or recover unsynchronized admissions from cloud data.
+
+## 1. Prepare the staging deployment
+
+1. Use a staging cloud runtime and one Event Node, each with its own fresh PostgreSQL 18 database, unique `APP_KEY`, and HTTPS URL. Do not reuse the legacy single-database demo or copy the cloud key to the node. Safe legacy database migration is not implemented.
+2. Configure the cloud with `INGRESS_RUNTIME=cloud`, `APP_DEBUG=false`, `INGRESS_DEMO_MODE=false`, a cloud-only authority private key, an exact CORS allowlist, and secure SMTP. Configure the node with `INGRESS_RUNTIME=node`, its own `APP_KEY`, a unique node ID, its node sync key, and only the authority public key. Follow [Deployment and Operations](deployment.md) and [Second-half architecture](second-half-architecture.md).
+3. Install a certificate chain trusted by the Android device for both the cloud and node URLs. The node certificate must cover the hostname the scanner will use. Keep the node database and web port on a protected network; attendee devices must not reach PostgreSQL.
+4. Configure the host scheduler to run Laravel's scheduler every minute on the node. Confirm the cloud health route and node API are reachable over HTTPS from the test network.
+5. Before using real attendee information, obtain an institution-approved retention schedule and operator-owned deletion procedure. Automatic snapshot and roster retention is not implemented. Use synthetic records until that policy exists.
+6. Prepare two synthetic events with two or more gates, staff assigned to specific gates, and a small capacity. Set one event to prohibit re-entry and the other to allow it. Enable the approved ID-check policy on one event. Finalize all policies before snapshot preparation. Prepare synthetic student, guest, alumni, and walk-in cases.
+
+## 2. Build and install the Android preview APK
+
+The `preview` EAS profile creates an internal APK. The `production` profile creates a store AAB and is not the profile for direct device installation. Both profiles select an explicit EAS environment, disable demo credentials and local HTTP, and require a deployed HTTPS cloud API URL ending in `/api/v1`. `EXPO_PUBLIC_API_URL` is public client configuration, not a secret. Do not put credentials or private keys in any `EXPO_PUBLIC_` variable.
+
+In PowerShell, replace the sample host with the staging cloud URL, then configure the EAS `preview` environment and build:
+
+```powershell
+cd mobile
+$cloudApiUrl = "https://ingress-staging.your-domain.edu/api/v1"
+npx eas-cli@latest env:set --name EXPO_PUBLIC_API_URL --value $cloudApiUrl --environment preview --visibility plaintext
+npx eas-cli@latest env:list --environment preview
+npx eas-cli@latest build --platform android --profile preview
+```
+
+Use the build link from EAS to download and install the APK on each test phone. Confirm the build commit and package ID `com.lucifron28.ingress`. In Android app settings, the scanner should need camera access; it should not need microphone, broad storage, or display-over-other-apps access. The first scanner visit should request camera permission. Denying it must leave scanning unavailable without affecting the attendee wallet.
+
+Before a future store build, set the actual cloud URL in the EAS `production` environment and use `npx eas-cli@latest build --platform android --profile production`. The profile produces an AAB for a Play testing track; it is not a sideloadable APK. Expo's [EAS environment variable guide](https://docs.expo.dev/eas/environment-variables/) explains environment setup, and the [APK build guide](https://docs.expo.dev/build-reference/apk/) explains the internal APK profile.
+
+## 3. Test student verification, registration, and the offline wallet
+
+1. Use a test mailbox that can receive a message at an `@student.mseuf.edu.ph` address. Request the single-use verification link, complete signup, and sign in. Confirm a non-institutional address is rejected, the link cannot be reused, and an expired link cannot create an account.
+2. Register for the synthetic event and confirm capacity decreases once. Open the ticket and confirm the QR remains a static opaque credential. Do not photograph or share the QR.
+3. Refresh the wallet while online, force-stop and reopen the app, and confirm the same cached ticket is displayed. Sign out and confirm the old account's wallet is no longer visible.
+4. If testing a transfer, have a second verified test account accept it before snapshot preparation. Confirm the recipient has the active ticket and the sender no longer has it. Automated backend checks cover rejection of the sender's rotated QR.
+5. Briefly disconnect WAN access while keeping the device on venue Wi-Fi. Confirm the saved ticket remains display-only and online registration actions fail closed. Restore internet access for cloud setup; later repeat the WAN outage during LAN admission testing.
+
+## 4. Finalize the event and activate one Event Node
+
+1. Close registration from the cloud organizer page. Prepare the snapshot only after attendee, gate, staff, re-entry, and identity policies are final. Check the snapshot version and attendee count.
+2. Register the intended node on the cloud with `php artisan ingress:register-node NODE_ID`. Transfer the one-time node sync key to the node through a separate secure operator channel.
+3. Transfer the encrypted snapshot through an approved secure channel. On the node, run `php artisan ingress:receive-snapshot PATH`, then return the staging receipt to the cloud organizer page.
+4. On the node, run `php artisan ingress:import-snapshot CLOUD_EVENT_ID`, then return the import receipt. Confirm the cloud shows both receipts for the intended node and snapshot version.
+5. Only after both receipts are accepted, download the signed authority grant and activate it on that node with `php artisan ingress:activate-event PATH`. Record the node ID and grant activation time. Do not issue another grant or activate a second node for this event.
+
+If either receipt is missing or mismatched, do not activate authority. Before grant issuance, discard the provisional snapshot and restart the transfer with a correctly registered node. After grant issuance, follow the fail-closed stop procedure above if activation is uncertain.
+
+## 5. Pair staff scanners on the venue LAN
+
+1. On the node, run `php artisan ingress:list-node-staff` and verify each test staff account and gate assignment.
+2. Provision a node-local staff credential with `php artisan ingress:provision-node-staff CLOUD_USER_ID`. Deliver the generated password privately.
+3. Generate a one-use pairing QR on the node with `php artisan ingress:pair-node-staff CLOUD_USER_ID --url=https://NODE_HOST/api/v1`. Show it only to that staff member. It expires after three minutes; do not photograph or share it.
+4. In the Android app, select **Scan pairing code**. Confirm the node ID and HTTPS address with the operator before accepting. Confirm the staff session works after closing and reopening the app while the phone remains on the venue LAN.
+5. Repeat for a second staff member assigned to another gate. Confirm staff assigned to Gate A cannot operate Gate B. Try an expired or already-used pairing code and confirm it is rejected; issue a fresh code afterward.
+
+## 6. Exercise offline admission across gates
+
+1. Connect the Event Node and all test phones to the venue Wi-Fi. Confirm the node URL resolves to the trusted HTTPS certificate. Verify client isolation is off for the staff VLAN and attendee devices cannot reach the node database.
+2. Disconnect the router's WAN/internet connection while preserving the local Wi-Fi and Event Node. Confirm the staff app can still open the node event and the student app can still show its cached QR.
+3. Scan a ticket and stop at the preview screen. Cancel or back out and confirm no movement was recorded.
+4. Scan again and explicitly confirm entry. Scan the same ticket at the second gate; it must report already inside and create no second entry. Confirm the gate and staff shown in the response are correct.
+5. Record an exit. On the event with re-entry disabled, confirm another entry is rejected. On the separate event with re-entry enabled, confirm a later entry succeeds after exit.
+6. Try an invalid QR, a ticket for another event, and an unassigned or wrong-gate staff account. Each must fail without creating an admission. If the organizer has securely retained a synthetic sender QR from a pre-finalization transfer, confirm that the superseded credential is rejected after snapshot import.
+7. Repeat the event's identity-check flow if enabled: preview remains read-only, the staff acknowledgment is required before confirmation, and the movement records the acknowledgment.
+
+The internet may be unavailable during admission, but the venue LAN and the single authoritative Event Node must remain available. Scanners do not admit independently.
+
+## 7. Test guest, alumni, walk-in, and printing flows
+
+1. From the cloud organizer page, issue one guest and one alumni pass before registration cutoff. Open each printable pass and confirm it contains the correct synthetic identity and QR. Email delivery is not implemented; the organizer must hand each pass to its recipient through an approved private channel.
+2. With WAN still disconnected, issue a walk-in from the paired staff app. Confirm the node returns a pass, does not admit the person at issuance, and enforces the event capacity. Scan the pass, preview it, then explicitly confirm entry.
+3. Print a cloud guest/alumni pass from the organizer flow and a node walk-in pass from the mobile flow. Use a standard printer, verify the complete QR has a quiet margin, and scan the paper copy at normal gate distance and lighting. Record the printer model, paper size, scale, and scan result.
+4. Keep every printed pass controlled; its QR is a bearer credential. Shred or securely destroy test copies after the run.
+
+## 8. Restore internet and confirm synchronization
+
+1. Reconnect WAN while keeping the venue LAN and node running. Wait for the node scheduler, or run `php artisan ingress:sync-admissions CLOUD_EVENT_ID` on the node.
+2. Confirm the organizer attendance page shows the test entries, exits, guest/alumni movements, walk-in issuance, and any walk-in recovery records. Compare counts with the node event and gate notes.
+3. Run the sync command again. The same requests must return the original receipts and must not duplicate admissions or walk-ins. Confirm the node has no pending batches after successful receipts.
+4. Restart the same node application service while keeping its database intact. Confirm its grant and local admissions persist and synchronization resumes. Do not restore this database to a second live node.
+5. The automated PostgreSQL harness covers the response-lost-after-cloud-commit case with separate cloud and node databases. Keep that automated CI result as evidence; do not simulate a lost response by changing a live database.
+
+## 9. Exercise safe failure behavior
+
+1. While WAN is down and the LAN is up, stop the node application service. Scanners must show the node unavailable and must not record or queue an admission locally. Restart the same node and database; confirm service resumes with the same authority.
+2. While the node is healthy, interrupt only cloud sync. Admissions must continue at the node and pending batches must remain there. Restore cloud connectivity and confirm retry/reconciliation without duplicates.
+3. Try a node URL with an untrusted certificate and a pairing code for the wrong node. The mobile app must reject both; do not enable local HTTP in a release build to bypass the failure.
+4. If the active node or its database is lost, stop the event at every gate. Do not promote a backup or cloned database while the original could still admit. There is no safe automated post-grant authority recovery; unresolved authority means admissions stay stopped.
+
+## 10. Results and exit criteria
+
+Mark each row only after it has been run on the named devices. Record date, tester, commit, APK build ID, Android version, gate, network state, printer model, result, and a redacted evidence location.
+
+| Test | Result | Evidence / notes |
+| --- | --- | --- |
+| APK installed; camera-only scanner permission | Pending | |
+| Institutional email, signup, registration, wallet restore | Pending | |
+| Ticket transfer before finalization | Pending | |
+| Snapshot receipts and single-node authority activation | Pending | |
+| Staff pairing, session restore, and gate scoping | Pending | |
+| WAN disconnected; cached QR; preview then confirmed admission | Pending | |
+| Multi-gate anti-passback, exit, and re-entry policies | Pending | |
+| Guest, alumni, walk-in, capacity, and printed QR scan | Pending | |
+| WAN recovery, retry synchronization, and node restart | Pending | |
+| Node outage and fail-closed recovery procedure | Pending | |
+
+Physical testing is complete only after every applicable row passes, stop conditions are resolved, the event reconciles without duplicates, and the owner accepts the documented manual recovery and retention limits. A pass here records field evidence; it does not by itself establish production readiness.
