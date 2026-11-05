@@ -9,6 +9,13 @@ This audit starts from `main` at `8f987f9` (Phase 12 completion record merged, 2
 - [x] Correct the institutional verification design ([PR #16](https://github.com/lucifron28/Ingress/pull/16)). Continue updating this roadmap as phases merge.
 - [x] Review and remediate applicable dependency advisories. The `symfony/mime` advisory `PKSA-wtxr-p26d-nn42` was fixed by upgrading to a patched release. The mobile app moved to Expo SDK 58 and its transitive `glob` and `minimatch` dependencies were patched. On 2026-11-05, Composer reported six new Symfony advisories; `symfony/http-foundation`, `symfony/http-kernel`, and `symfony/routing` were upgraded to `8.1.11`. Composer and npm audits now report no vulnerabilities, and CI runs both audits.
 
+## Stabilization audit
+
+- [x] Patch newly reported Symfony advisories, run Composer and npm audits in CI, and align the concurrency-test PostgreSQL service with the documented PostgreSQL 18 deployment. PR #40 merged as `c9c79fa` on 2026-11-05; all three required checks and all three post-merge checks passed. The full local suite passed 222 backend tests (221 passed, 1 skipped), PostgreSQL concurrency verification, 1,000-attendee load/recovery, 60 mobile checks, and TypeScript.
+- [x] Enable main-branch protection requiring pull requests, an up-to-date branch, and all three required CI jobs, including for administrators; force pushes and branch deletion are disabled.
+- [x] Document fail-closed handling for Event Node outages and the current recovery limits. Safe automated authority recovery is still unavailable while an offline node may retain an active grant. Retention automation and safe migration of existing databases also remain open operational work.
+- [ ] Refresh GitHub Actions to Node 24 and pin hosted runners to Ubuntu 24.04, replacing the deprecated Node 20 defaults and moving-runner alias. Implementation is on the current follow-up branch; record its PR and merge evidence when complete.
+
 ## Dependency order
 
 1. [ ] Stabilize the MVP and verify the end-to-end LAN workflow, including failure and restart behavior.
