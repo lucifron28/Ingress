@@ -104,7 +104,20 @@ When TLS terminates at a reverse proxy, pass the original host and HTTPS scheme 
 
 ## Build the mobile app
 
-The mobile app uses Expo SDK 58 and React Native 0.88.1. Set the cloud API origin in `EXPO_PUBLIC_API_URL` for a production build. The app's native configuration disables cleartext HTTP by default. Staff devices must connect to an Event Node URL with a certificate they trust.
+The mobile app uses Expo SDK 58 and React Native 0.88.1. The EAS `preview` profile creates an internal Android APK; `production` creates an Android App Bundle for store testing. Both release profiles require `EXPO_PUBLIC_API_URL` to contain the deployed cloud HTTPS API base URL ending in `/api/v1`. They reject the placeholder URL, HTTP, demo mode, and HTTP node access. The variable is public client configuration, so do not put credentials or private keys in it.
+
+Set the cloud URL in the matching EAS environment before building. EAS remote builds do not receive a local `.env` file. Replace the sample host with the staging cloud host:
+
+```bash
+cd mobile
+eas env:set --name EXPO_PUBLIC_API_URL --value https://ingress-staging.example.edu/api/v1 --environment preview --visibility plaintext
+eas env:list --environment preview
+eas build --platform android --profile preview
+```
+
+Before a store testing build, set the actual cloud URL in the EAS `production` environment and run `eas build --platform android --profile production`. Keep the URL limited to the cloud API. Staff pairing supplies the Event Node URL separately. See the [physical-device test plan](physical-device-test-plan.md), the [EAS environment variable guide](https://docs.expo.dev/eas/environment-variables/), and the [Android APK build guide](https://docs.expo.dev/build-reference/apk/).
+
+The app's native configuration disables cleartext HTTP by default. Staff devices must connect to an Event Node URL with a certificate they trust.
 
 For a local HTTP development server or Event Node, set `EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE=true` before starting Expo or generating the native app configuration, and point `EXPO_PUBLIC_API_URL` at the local server when needed. The mobile node client accepts HTTP only for localhost and private LAN hosts when this flag is enabled. Android's native cleartext allowance applies to the whole development build, so never include the flag in a production build. The checked-in `mobile/.env.example` uses a placeholder cloud origin and is not a production environment file.
 
@@ -141,4 +154,4 @@ Cloud snapshots and imported node rosters retain encrypted personal data. Automa
 
 ## Verification boundary
 
-CI runs backend tests, Composer and npm dependency audits, PostgreSQL concurrency and load-recovery checks, mobile session tests, and TypeScript compilation. Real-device, venue-network, printer, and end-to-end admission verification remains with the project owner. The current code has not been declared physically verified by this guide.
+CI runs backend tests, Composer and npm dependency audits, PostgreSQL concurrency and load-recovery checks, mobile session and release-build-configuration tests, and TypeScript compilation. Real-device, venue-network, printer, and end-to-end admission verification remains with the project owner. The current code has not been declared physically verified by this guide.

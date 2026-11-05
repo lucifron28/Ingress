@@ -45,7 +45,7 @@ Staff scanners --venue LAN--> Event Node --local PostgreSQL
 
 ### Remaining limits
 
-Snapshot delivery is a manual operator workflow. Safe recovery or authority transfer after a node grant is not implemented. Snapshot and imported roster retention and deletion need an institution approved policy. Online guest payments are not implemented. Real device, venue network, and end to end verification remains deferred to the project owner.
+Snapshot delivery is a manual operator workflow. Safe recovery or authority transfer after a node grant is not implemented. Snapshot and imported roster deletion need an institution-approved retention policy and an operator procedure. Existing single-runtime databases do not have a safe migration path to the cloud/node split. Organizers deliver guest and alumni passes manually through an approved private channel; email delivery and online payments are not implemented. Real-device, venue-network, printer, and end-to-end verification remains with the project owner. Follow the [physical-device and venue test plan](docs/physical-device-test-plan.md) for the staging run.
 
 See [the current architecture](docs/second-half-architecture.md), [deployment guide](docs/deployment.md), [API reference](docs/api.md), and [implementation roadmap](docs/roadmap.md) for operational details and remaining work.
 
@@ -267,21 +267,22 @@ npx expo start
 
 ---
 
-### 5. Standalone Android APK Build (EAS)
+### 5. Standalone Android APK build (EAS)
 
 To produce an installable standalone APK for physical Android devices that runs independently without Expo Go or the Metro development server:
 
 ```bash
 cd mobile
-npm install
-eas login
-eas build -p android --profile preview
+npx eas-cli@latest login
+npx eas-cli@latest env:set --name EXPO_PUBLIC_API_URL --value https://ingress-staging.example.edu/api/v1 --environment preview --visibility plaintext
+npx eas-cli@latest env:list --environment preview
+npx eas-cli@latest build --platform android --profile preview
 ```
 
 **Important Operational Notes:**
 - **Build Creation**: EAS Build compiles the native Android package in the cloud, so an internet connection is required while generating and downloading the APK.
 - **No Expo Go or Metro Dependency**: The resulting `.apk` embeds the JavaScript bundle. Once installed, it launches directly on Android without requiring Expo Go or a running Metro bundler.
-- **Attendee API**: Set `EXPO_PUBLIC_API_URL` to the cloud's HTTPS API before building. The attendee wallet can display tickets cached before the venue loses internet.
+- **Attendee API**: Replace the sample host and set `EXPO_PUBLIC_API_URL` in the EAS `preview` environment before building. The release profile rejects a missing, placeholder, or non-HTTPS API URL. The attendee wallet can display tickets cached before the venue loses internet.
 - **Event Node access**: Staff pair with the local Event Node over venue Wi-Fi. The node must use HTTPS with a certificate trusted by the phone for production.
 - **Local HTTP development**: Set `EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE=true` before a local development build that connects to an HTTP node. The app accepts this only for localhost or private LAN addresses. Android applies its native cleartext allowance to the whole development build. Production builds must keep this flag false and use HTTPS.
 
@@ -292,6 +293,7 @@ eas build -p android --profile preview
 - [Current architecture and runtime boundaries](docs/second-half-architecture.md)
 - [Deployment and operations](docs/deployment.md)
 - [Implementation Roadmap](docs/roadmap.md)
+- [Physical-device and venue test plan](docs/physical-device-test-plan.md)
 - [REST API Reference](docs/api.md)
 - [Classroom LAN Defense Guide](docs/lan-demo.md)
 - [Architecture Decision Records (ADRs)](docs/design-decisions.md)
