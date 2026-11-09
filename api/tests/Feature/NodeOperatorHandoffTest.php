@@ -260,7 +260,9 @@ class NodeOperatorHandoffTest extends TestCase
         ])->assertSessionHasErrors('confirmation');
         $this->assertDatabaseCount('node_event_authorities', 0);
 
-        $tamperedGrant = substr($grant, 0, -1).(str_ends_with($grant, 'A') ? 'B' : 'A');
+        [$grantPayload, $grantSignature] = explode('.', $grant, 2);
+        $tamperedSignature = ($grantSignature[0] === 'A' ? 'B' : 'A').substr($grantSignature, 1);
+        $tamperedGrant = $grantPayload.'.'.$tamperedSignature;
         $this->from('/node/operator/handoff')->post($path, [
             'grant' => UploadedFile::fake()->createWithContent('tampered.txt', $tamperedGrant),
             'confirmation' => 'ACTIVATE',
