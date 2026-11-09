@@ -131,6 +131,36 @@ Mark each row only after it has been run on the named devices. Record date, test
 | Multi-gate anti-passback, exit, and re-entry policies | Pending | |
 | Guest, alumni, walk-in, capacity, and printed QR scan | Pending | |
 | WAN recovery, retry synchronization, and node restart | Pending | |
+| Safe shutdown after reconciliation; node and scheduler resume after reboot | Pending | |
 | Node outage and fail-closed recovery procedure | Pending | |
 
 Physical testing is complete only after every applicable row passes, stop conditions are resolved, the event reconciles without duplicates, and the owner accepts the documented manual recovery and retention limits. A pass here records field evidence; it does not by itself establish production readiness.
+
+## 11. Safely stop and restart the Event Node
+
+Keep the Event Node and venue LAN running until pending admissions, walk-ins, and recovery records have synchronized. The sync command can process bounded batches, so a zero exit code alone does not prove that the cloud has caught up.
+
+1. Tell staff to stop new scans and finish or cancel any open preview. Keep the event's Event Node as the sole authority.
+2. Restore WAN access. From `C:\Ingress\api`, run `php artisan ingress:sync-admissions CLOUD_EVENT_ID`. Repeat after transient failures. Compare the cloud attendance and recovery history with the gate log and the synthetic walk-in and recovery records from the test. If the command exits nonzero, the records differ, or the cloud is unavailable, leave the node and database running and continue retrying when connectivity returns.
+3. After the records match, confirm the scheduled sync task is not running and its last result is `0`. Keep the task enabled so its startup trigger resumes sync after the next boot. In elevated PowerShell, stop the IIS website and app pool:
+
+   ```powershell
+   Get-ScheduledTask -TaskName 'Ingress Laravel Scheduler'
+   Get-ScheduledTaskInfo -TaskName 'Ingress Laravel Scheduler'
+   Stop-Website -Name 'IngressNode'
+   Stop-WebAppPool -Name 'IngressNode'
+   ```
+
+4. Leave the PostgreSQL database, imported snapshot, authority grant, and logs intact. Shut down Windows through the Start menu after IIS has stopped; do not force power off or delete, reset, or clone the active node database.
+5. To resume testing, start PostgreSQL and IIS, then start the app pool and website:
+
+   ```powershell
+   Start-Service -Name 'postgresql-x64-18'
+   Start-Service -Name 'W3SVC'
+   Start-WebAppPool -Name 'IngressNode'
+   Start-Website -Name 'IngressNode'
+   Get-ScheduledTaskInfo -TaskName 'Ingress Laravel Scheduler'
+   Invoke-WebRequest -Uri 'https://node.example.edu/up' -TimeoutSec 15
+   ```
+
+   Replace `node.example.edu` with the configured node hostname. Confirm the phone trusts its certificate before resuming scans. If the node cannot start or the cloud and node totals no longer match, keep admissions stopped and follow the stop conditions above.
