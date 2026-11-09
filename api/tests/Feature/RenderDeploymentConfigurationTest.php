@@ -168,6 +168,59 @@ class RenderDeploymentConfigurationTest extends TestCase
         }
     }
 
+    public function test_cloud_operator_identity_guard_rejects_an_event_node_database(): void
+    {
+        $connectionName = 'render_operator_identity_guard';
+        config(['database.connections.'.$connectionName => [
+            'driver' => 'sqlite',
+            'database' => ':memory:',
+            'prefix' => '',
+            'foreign_key_constraints' => true,
+        ]]);
+        DB::purge($connectionName);
+        $connection = DB::connection($connectionName);
+        $connection->getSchemaBuilder()->create('runtime_identity', function ($table): void {
+            $table->unsignedBigInteger('id')->primary();
+            $table->string('mode');
+            $table->string('identity');
+        });
+        $connection->table('runtime_identity')->insert(['id' => 1, 'mode' => 'node', 'identity' => 'node-1']);
+
+        try {
+            $this->expectException(RuntimeException::class);
+            (new CloudRuntimeIdentityGuard)->assertCloud($connection);
+        } finally {
+            DB::disconnect($connectionName);
+            DB::purge($connectionName);
+        }
+    }
+
+    public function test_cloud_operator_identity_guard_requires_a_bound_cloud_database(): void
+    {
+        $connectionName = 'render_operator_identity_guard';
+        config(['database.connections.'.$connectionName => [
+            'driver' => 'sqlite',
+            'database' => ':memory:',
+            'prefix' => '',
+            'foreign_key_constraints' => true,
+        ]]);
+        DB::purge($connectionName);
+        $connection = DB::connection($connectionName);
+        $connection->getSchemaBuilder()->create('runtime_identity', function ($table): void {
+            $table->unsignedBigInteger('id')->primary();
+            $table->string('mode');
+            $table->string('identity');
+        });
+        $connection->table('runtime_identity')->insert(['id' => 1, 'mode' => 'cloud', 'identity' => 'cloud']);
+
+        try {
+            $this->assertNull((new CloudRuntimeIdentityGuard)->assertCloud($connection));
+        } finally {
+            DB::disconnect($connectionName);
+            DB::purge($connectionName);
+        }
+    }
+
     public function test_render_proxy_trust_uses_only_forwarded_ip_and_scheme(): void
     {
         Request::setTrustedHosts([]);
