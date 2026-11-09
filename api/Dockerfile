@@ -37,7 +37,7 @@ RUN composer dump-autoload --no-dev --no-interaction --no-scripts --classmap-aut
     && chown -R www-data:www-data storage bootstrap/cache \
     && chown -R www-data:www-data /tmp/nginx \
     && chmod -R ug+rwX storage bootstrap/cache \
-    && chmod 0755 docker/entrypoint.sh
+    && chmod 0755 docker/entrypoint.sh docker/prepare-nginx-tmp.sh
 
 ENV PORT=10000
 EXPOSE 10000
