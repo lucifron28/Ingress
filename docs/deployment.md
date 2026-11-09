@@ -169,19 +169,19 @@ This checklist checks the cloud service only. It does not establish physical-dev
 
 ## Configure a Windows Event Node
 
-Ingress supports two Windows-hosted Event Node profiles. Use WSL2 with Ubuntu 24.04 and Nginx when the venue PC runs Windows 11 22H2 or later and mirrored WSL networking is permitted. Use native Windows IIS otherwise. Select one profile per host; do not run two copies of an activated Event Node. Both profiles use the same Laravel release, PostgreSQL schema, HTTPS API, scanner pairing flow, admission logic, and bounded synchronization scheduler. The WSL profile uses PHP 8.3 from Ubuntu because the application supports PHP `^8.3`; IIS continues to use PHP 8.4 NTS. CI exercises both supported PHP versions.
+Ingress supports two Windows-hosted Event Node profiles. Use WSL2 with Ubuntu 26.04 and Nginx when the venue PC runs Windows 11 22H2 or later and mirrored WSL networking is permitted. Use native Windows IIS otherwise. Select one profile per host; do not run two copies of an activated Event Node. Both profiles use the same Laravel release, PostgreSQL schema, HTTPS API, scanner pairing flow, admission logic, and bounded synchronization scheduler. The WSL profile uses PHP 8.5 from Ubuntu because the locked Symfony packages require PHP 8.4.1 or later; IIS continues to use PHP 8.4 NTS. CI exercises both supported runtimes.
 
-### Preferred profile: WSL2 Ubuntu 24.04 with Nginx
+### Preferred profile: WSL2 Ubuntu 26.04 with Nginx
 
-This profile requires Windows 11 22H2 or later, WSL 2, Ubuntu 24.04 LTS, a Windows host with a DHCP-reserved venue address, and an event hostname covered by a publicly trusted TLS certificate. Mirrored networking is required for staff phones to reach Nginx in WSL. Microsoft documents mirrored mode and its Windows 11 version requirement in the [WSL networking guide](https://learn.microsoft.com/en-us/windows/wsl/networking). This changes networking for WSL distributions on the Windows account, so use a dedicated venue host or review other WSL workloads first.
+This profile requires Windows 11 22H2 or later, WSL 2, Ubuntu 26.04 LTS, a Windows host with a DHCP-reserved venue address, and an event hostname covered by a publicly trusted TLS certificate. Mirrored networking is required for staff phones to reach Nginx in WSL. Microsoft documents mirrored mode and its Windows 11 version requirement in the [WSL networking guide](https://learn.microsoft.com/en-us/windows/wsl/networking). This changes networking for WSL distributions on the Windows account, so use a dedicated venue host or review other WSL workloads first.
 
 From an elevated PowerShell window, install or update WSL and Ubuntu if needed. If Ubuntu is already installed, keep its existing data and confirm it uses WSL 2:
 
 ```powershell
 wsl --update
 wsl --list --verbose
-# Run this only if Ubuntu-24.04 is not listed above.
-wsl --install --distribution Ubuntu-24.04
+# Run this only if Ubuntu-26.04 is not listed above.
+wsl --install --distribution Ubuntu-26.04
 ```
 
 In `%UserProfile%\.wslconfig`, enable mirrored networking:
@@ -202,23 +202,23 @@ Return to PowerShell and restart WSL so both settings take effect:
 
 ```powershell
 wsl --shutdown
-wsl --distribution Ubuntu-24.04
+wsl --distribution Ubuntu-26.04
 wsl --list --verbose
 ```
 
 `wsl --shutdown` stops every running WSL distribution for this Windows account. Schedule it when other WSL applications can be paused.
 
-Install Nginx, PHP 8.3 FPM and the Laravel extensions, Composer, Git, and the scheduler. Ubuntu 24.04 provides PHP 8.3 in its distribution archive ([`php8.3-fpm` package](https://packages.ubuntu.com/noble/php8.3-fpm)). Node.js 24 is needed only to build Laravel's frontend assets; install it under the deployment account with the pinned [nvm v0.41.0 release](https://github.com/nvm-sh/nvm/releases/tag/v0.41.0), then select a maintained Node 24 release from the [official Node.js downloads](https://nodejs.org/en/download):
+Install Nginx, PHP 8.5 FPM and the Laravel extensions, Composer, Git, and the scheduler. Ubuntu 26.04 provides PHP 8.5 in its distribution archive ([`php8.5-fpm` package](https://packages.ubuntu.com/resolute/php8.5-fpm)). The lockfile's Symfony 8.1 packages require PHP 8.4.1 or later, so PHP 8.3 from Ubuntu 24.04 cannot install this exact release even though the root Composer constraint is `^8.3`. Node.js 24 is needed only to build Laravel's frontend assets; install it under the deployment account with the pinned [nvm v0.41.0 release](https://github.com/nvm-sh/nvm/releases/tag/v0.41.0), then select a maintained Node 24 release from the [official Node.js downloads](https://nodejs.org/en/download):
 
 ```bash
 sudo apt update
-sudo apt install -y nginx php8.3-cli php8.3-fpm php8.3-pgsql php8.3-mbstring php8.3-xml php8.3-curl php8.3-zip php8.3-bcmath php8.3-intl composer git unzip cron curl ca-certificates
+sudo apt install -y nginx php8.5-cli php8.5-fpm php8.5-pgsql php8.5-mbstring php8.5-xml php8.5-curl php8.5-zip php8.5-bcmath php8.5-intl composer git unzip cron curl ca-certificates
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.41.0/install.sh | bash
 source ~/.bashrc
 nvm install 24
 nvm use 24
-php8.3 -v
-php8.3 -m | grep -E '^(mbstring|pdo_pgsql|sodium|xmlwriter)$'
+php8.5 -v
+php8.5 -m | grep -E '^(mbstring|pdo_pgsql|sodium|xmlwriter)$'
 node --version
 npm --version
 ```
@@ -337,16 +337,16 @@ sudo install -o root -g root -m 0644 deploy/wsl/nginx/ingress-node.conf /etc/ngi
 sudo ln -s /etc/nginx/sites-available/ingress-node /etc/nginx/sites-enabled/ingress-node
 sudo rm /etc/nginx/sites-enabled/default
 sudo nginx -t
-sudo systemctl enable --now php8.3-fpm nginx cron
+sudo systemctl enable --now php8.5-fpm nginx cron
 sudo systemctl reload nginx
 ```
 
 Do not make the repository or `.env` writable by the web process. Use a dedicated deployment account and keep `.env` readable only to that account and the `www-data` group. The site rejects unknown TLS hosts, serves only HTTPS on port 443, routes Laravel through `api/public`, denies direct requests for `.env`, `.git`, `vendor`, and private Laravel directories, and does not trust or forward arbitrary proxy headers.
 
-To start the WSL services after Windows reboots, create a Windows Task Scheduler task under the Windows account that owns the Ubuntu distribution. Set the trigger to **At startup**, enable **Run whether user is logged on or not**, and use the action below. Replace `Ubuntu-24.04` with the exact name from `wsl --list --quiet` if it differs:
+To start the WSL services after Windows reboots, create a Windows Task Scheduler task under the Windows account that owns the Ubuntu distribution. Set the trigger to **At startup**, enable **Run whether user is logged on or not**, and use the action below. Replace `Ubuntu-26.04` with the exact name from `wsl --list --quiet` if it differs:
 
 - Program: `%SystemRoot%\System32\wsl.exe`
-- Arguments: `--distribution Ubuntu-24.04 --exec /usr/bin/systemctl start postgresql php8.3-fpm nginx cron`
+- Arguments: `--distribution Ubuntu-26.04 --exec /usr/bin/systemctl start postgresql php8.5-fpm nginx cron`
 
 Set the task not to start a second instance when one is already running. The Linux services are also enabled under systemd, so WSL starts them when the distribution starts. Prevent Windows sleep during event operations and use wired power and network. Test a full Windows reboot and service recovery before the venue; this guide has not performed that field test.
 

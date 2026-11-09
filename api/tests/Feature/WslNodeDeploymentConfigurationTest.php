@@ -27,7 +27,7 @@ class WslNodeDeploymentConfigurationTest extends TestCase
         $this->assertStringContainsString('ssl_protocols TLSv1.2 TLSv1.3;', $configuration);
         $this->assertStringContainsString('client_max_body_size 32m;', $configuration);
         $this->assertStringContainsString('location = /index.php {', $configuration);
-        $this->assertStringContainsString('fastcgi_pass unix:/run/php/php8.3-fpm.sock;', $configuration);
+        $this->assertStringContainsString('fastcgi_pass unix:/run/php/php8.5-fpm.sock;', $configuration);
         $this->assertStringContainsString('try_files $uri $uri/ /index.php?$query_string;', $configuration);
         $this->assertStringContainsString('fastcgi_param HTTP_PROXY "";', $configuration);
         $this->assertStringNotContainsString('proxy_set_header', $configuration);
