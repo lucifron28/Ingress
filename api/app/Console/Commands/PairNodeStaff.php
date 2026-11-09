@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Actions\NodeStaffPairing;
+use App\Support\NodeStaffPairingCode;
 use BaconQrCode\Renderer\PlainTextRenderer;
 use BaconQrCode\Writer;
 use Illuminate\Console\Command;
@@ -14,7 +15,7 @@ class PairNodeStaff extends Command
 
     protected $description = 'Display a short-lived one-use pairing QR for an assigned staff member';
 
-    public function handle(NodeStaffPairing $pairing): int
+    public function handle(NodeStaffPairing $pairing, NodeStaffPairingCode $pairingCode): int
     {
         $id = $this->argument('cloud_user_id');
         $url = $this->option('url');
@@ -36,8 +37,7 @@ class PairNodeStaff extends Command
 
             return self::FAILURE;
         }
-        $payload = json_encode(['v' => 1, 'url' => rtrim($url, '/'), 'node' => $nodeId,
-            'token' => $issued['token'], 'expires' => $issued['expires_at']], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        $payload = $pairingCode->payload(rtrim($url, '/'), $nodeId, $issued['token'], $issued['expires_at']);
         $qr = (new Writer(new PlainTextRenderer(4)))->writeString($payload);
         $lines = array_values(array_filter(explode("\n", $qr), fn ($line) => $line !== ''));
         $border = str_repeat(' ', mb_strlen($lines[0] ?? ''));

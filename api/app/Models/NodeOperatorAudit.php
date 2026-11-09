@@ -9,7 +9,15 @@ class NodeOperatorAudit extends Model
 {
     public $timestamps = false;
 
-    protected $fillable = ['actor_id', 'action', 'created_at'];
+    protected $fillable = [
+        'actor_id',
+        'action',
+        'affected_user_id',
+        'affected_event_id',
+        'node_id',
+        'outcome',
+        'created_at',
+    ];
 
     protected static function booted(): void
     {

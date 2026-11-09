@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
@@ -58,6 +59,14 @@ class AppServiceProvider extends ServiceProvider
                 Limit::perMinute(5)->by('node-operator:'.hash('sha256', $normalized).'|'.$ipKey),
                 Limit::perMinute(30)->by('node-operator-ip:'.$ipKey),
             ];
+        });
+
+        RateLimiter::for('node-operator-actions', function (Request $request) {
+            $operatorId = Auth::guard('node_operator')->id();
+            $peerAddress = $request->server->get('REMOTE_ADDR');
+            $peerKey = is_string($peerAddress) ? hash('sha256', $peerAddress) : 'unknown';
+
+            return Limit::perMinute(30)->by('node-operator-action:'.($operatorId ?? 'unknown').'|'.$peerKey);
         });
 
         RateLimiter::for('student-email', function (Request $request) {

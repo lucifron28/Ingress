@@ -21,4 +21,12 @@ class NodeStaffAccess
     {
         return $this->assignments()->where('event_staff.user_id', $userId)->exists();
     }
+
+    public function assignedToEvent(int $userId, int $eventId): bool
+    {
+        return $this->assignments()
+            ->where('event_staff.user_id', $userId)
+            ->where('events.id', $eventId)
+            ->exists();
+    }
 }

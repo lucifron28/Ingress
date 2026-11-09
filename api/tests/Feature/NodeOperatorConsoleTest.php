@@ -159,7 +159,7 @@ class NodeOperatorConsoleTest extends TestCase
             'action' => 'logout.succeeded',
         ]);
         $this->assertSame(
-            ['id', 'actor_id', 'action', 'created_at'],
+            ['id', 'actor_id', 'action', 'created_at', 'affected_user_id', 'affected_event_id', 'node_id', 'outcome'],
             Schema::getColumnListing('node_operator_audits'),
         );
     }
