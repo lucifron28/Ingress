@@ -173,3 +173,10 @@ jobs:
             set -e
             test "$status" -eq 0 -o "$status" -eq 124 -o "$status" -eq 143
           '
+
+      - name: Verify Nginx recreates missing temporary directories and binds Render PORT
+        working-directory: api
+        run: |
+          docker run --rm -e PORT=10000 \
+            --mount "type=bind,source=$PWD/tests/docker/nginx-startup.sh,target=/tmp/nginx-startup.sh,readonly" \
+            --entrypoint /bin/sh ingress-cloud:ci /tmp/nginx-startup.sh

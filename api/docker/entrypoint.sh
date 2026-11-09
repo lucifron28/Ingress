@@ -39,4 +39,8 @@ if ! php artisan view:cache --no-interaction; then
     exit 1
 fi
 
+if ! /var/www/html/docker/prepare-nginx-tmp.sh; then
+    exit 1
+fi
+
 exec supervisord -n -c /var/www/html/docker/supervisord.conf
