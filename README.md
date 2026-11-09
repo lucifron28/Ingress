@@ -113,28 +113,9 @@ ingress/
 
 ## Demo Mode and Demo Accounts
 
-The synthetic demonstration accounts below exist **only in demo mode**. Copying `api/.env.example` enables it (`INGRESS_DEMO_MODE=true`), which keeps the quickstart below working out of the box. The setting defaults to **off**, so an environment that does not opt in creates no predictable credential, and enabling it while `APP_ENV=production` is a hard boot error.
+Demo mode is for local development only. The `.env.example` opt-in creates predictable demo credentials and sample events; `APP_ENV=production` refuses to start when demo mode is enabled. Never enable it on Render or an Event Node. The current seeded sample data is documented in [Demo Data](docs/demo-data.md).
 
-Outside demo mode there are no accounts at all. Provision the first administrator yourself:
-
-```bash
-cd api
-php artisan tinker --execute="\App\Models\User::create(['name'=>'Event Administrator','email'=>'you@mseuf.edu.ph','role'=>'admin','password'=>bcrypt('a-real-password')]);"
-```
-
-| Role | Name | Email | Usage |
-| :--- | :--- | :--- | :--- |
-| **Admin** | MSEUF Administrator | `admin@mseuf.edu.ph` | Web Management |
-| **Organizer** | Prof. Juan Dela Cruz (CCS) | `organizer@mseuf.edu.ph` | Web Organizer Portal |
-| **Organizer 2**| Engr. Maria Santos (COE) | `organizer2@mseuf.edu.ph` | Web Organizer Portal |
-| **Staff Entrance 1**| Staff Alex Rivera | `staff.gate_a@mseuf.edu.ph` | Mobile Entrance 1 Scanner |
-| **Staff Entrance 2**| Staff Bea Ramos | `staff.gate_b@mseuf.edu.ph` | Mobile Entrance 2 Scanner |
-| **Staff Entrance 3**| Staff Chris Dizon | `staff.gate_c@mseuf.edu.ph` | Mobile Entrance 3 Scanner |
-| **Student 1 (Primary)**| Ron Vincent Cada (`A23-35524`)| `a23-35524@student.mseuf.edu.ph`| Mobile Attendee App |
-| **Student 2** | Patricia Reyes (`2024-01002`)| `student2@mseuf.edu.ph` | Mobile Attendee App |
-| **Student 3** | Mark Aquino (`2024-01003`) | `student3@mseuf.edu.ph` | Mobile Attendee App |
-
-All demo accounts use the standard password: `password`. The mobile demo quick-select and pre-filled password appear only when the app is built with `EXPO_PUBLIC_INGRESS_DEMO_MODE=true` (see `mobile/.env.example`).
+Do not create cloud administrators with Tinker or public registration. From a trusted Windows checkout, use `api\scripts\create_render_admin.ps1` for the first administrator. Use `api\scripts\provision_render_staging_account.ps1` for synthetic organizer, staff, or student accounts and reference venues. Use `api\scripts\register_render_node.ps1` to register an Event Node. Each script requires the cloud HTTPS origin, Neon direct URL with verified TLS, and a local trusted CA bundle; passwords and database secrets are prompted locally. Follow [Deployment and Operations](docs/deployment.md) and run these scripts only against the designated staging database.
 
 > **Transport security**: the LAN procedure in this README and in `docs/lan-demo.md` permits plain HTTP only for local development and demo builds. Production cloud and Event Node traffic must use trusted HTTPS certificates. Do not send passwords, bearer tokens, QR credentials, or identity data over production cleartext connections. See ADR 009 in `docs/design-decisions.md`.
 

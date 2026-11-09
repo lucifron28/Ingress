@@ -1,5 +1,7 @@
 # Ingress Demonstration Data & Real MSEUF Facts
 
+> **Local-only legacy fixture:** this page describes the opt-in demo seed, which contains realistic names, student identifiers, and public event labels. Do not seed it into Render, Neon staging, an Event Node, or any database that may hold real attendee records. Use the cloud operator workflow in [Deployment and Operations](deployment.md#prepare-synthetic-staging-accounts-and-venues) for `@example.test` accounts and create synthetic events in the organizer portal. Production refuses `INGRESS_DEMO_MODE=true`.
+
 **Manuel S. Enverga University Foundation (MSEUF)**  
 *Reference Guide: Real Public Facts vs. Synthetic Ingress Demo Configuration*
 
