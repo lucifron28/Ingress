@@ -126,6 +126,12 @@ class Event extends Model
             && $now->lte($this->ends_at);
     }
 
+    public function canTransferTickets(): bool
+    {
+        return $this->isPublished() && $this->ticket_transfers_allowed && $this->snapshot_prepared_at === null
+            && $this->ends_at !== null && Carbon::now()->lt($this->ends_at);
+    }
+
     public function assertSnapshotNotPrepared(): void
     {
         if ($this->snapshot_prepared_at !== null) {

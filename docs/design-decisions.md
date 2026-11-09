@@ -391,7 +391,7 @@ A transfer:
 
 Until the recipient accepts, the original owner keeps the ticket. Scanner staff see the current owner, not the full transfer history.
 
-Events default to transfers disabled and may enable them in event settings. Transfers require student accounts with verified institutional email addresses; this check does not prove enrollment. This version has no transfer-count limit or organizer approval step. Self-service transfer closes at snapshot preparation. Pending requests expire when the event disables transfers or prepares its snapshot. Guest, alumni, and walk-in passes do not support self-service transfer.
+Events default to transfers disabled and may enable them in event settings. Transfers require student accounts with verified institutional email addresses; this check does not prove enrollment. This version has no transfer-count limit or organizer approval step. New transfer requests and acceptance close at the event end or snapshot preparation; closing registration alone does not close transfers. A pending request after event end remains cancellable by its sender or declinable by its recipient. Pending requests expire when the event disables transfers or prepares its snapshot. Guest, alumni, and walk-in passes do not support self-service transfer.
 ---
 
 ## ADR 018: Student accounts with accountless guest and alumni passes

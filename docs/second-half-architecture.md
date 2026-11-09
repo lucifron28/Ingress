@@ -1,7 +1,7 @@
 # Ingress architecture and operating limits
 
 **Status:** The cloud and Event Node architecture is implemented. Safe authority recovery, automatic snapshot delivery, data-retention automation, and payments remain unimplemented. Device and venue verification is deferred to the project owner.
-**Current implementation:** Cloud accounts, event registration, ticket transfers, organizer reporting, snapshot transfer, Event Node admission, guest and alumni passes, node walk ins, entry and exit tracking, and retryable admission synchronization are implemented. Students with a verified institutional email can transfer eligible tickets before snapshot preparation. Email activation verifies control of the institutional address, not current enrollment. Admission requires the venue LAN and Event Node, but not public internet.
+**Current implementation:** Cloud accounts, event registration, ticket transfers, organizer reporting, snapshot transfer, Event Node admission, guest and alumni passes, node walk ins, entry and exit tracking, and retryable admission synchronization are implemented. Students with a verified institutional email can transfer eligible tickets before the event ends and before snapshot preparation. Email activation verifies control of the institutional address, not current enrollment. Admission requires the venue LAN and Event Node, but not public internet.
 
 ## Runtime boundaries
 
@@ -340,7 +340,7 @@ Walk-in ticket creation and admission are separate operations by default so regi
 
 ## 11. Ticket transfer
 
-The cloud supports ticket transfer before snapshot preparation. Events opt in; new events default to disabled. Only student accounts with a verified institutional email can send or receive a transfer. The email check does not prove current enrollment. Guest, alumni, and node walk-in tickets are excluded.
+The cloud supports ticket transfer only before the event end and before snapshot preparation. Events opt in; new events default to disabled. Only student accounts with a verified institutional email can send or receive a transfer. The email check does not prove current enrollment. Guest, alumni, and node walk-in tickets are excluded. Closing registration alone does not close transfers.
 
 A transfer changes ownership. It is not QR forwarding.
 
@@ -370,9 +370,9 @@ Rules:
 - transfer history is retained for organizer audit;
 - scanner staff see the current owner, not the full transfer history;
 - an event may disable transfers; this version does not impose a transfer count limit or organizer approval step;
-- self-service transfers stop when the event is finalized for admission.
+- self-service requests and acceptance stop at the event end or when the event is finalized for admission.
 
-A request appears in the recipient's online ticket wallet. The sender can cancel a pending request, and the recipient can accept or decline it. Disabling transfers expires pending requests. Snapshot preparation also expires pending requests while holding the event lock, so acceptance and finalization serialize. A transferred ticket uses the recipient account's name, email, and student number. The current account model has no attendee photo field.
+A request appears in the recipient's online ticket wallet. The sender can cancel a pending request, and the recipient can accept or decline it. After the event ends, a pending request cannot be accepted, but it remains cancellable by the sender or declinable by the recipient. Disabling transfers expires pending requests. Snapshot preparation also expires pending requests while holding the event lock, so acceptance and finalization serialize. A transferred ticket uses the recipient account's name, email, and student number. The current account model has no attendee photo field.
 
 The organizer event page paginates transfer history at 100 requests per page and shows sender, recipient, ticket reference, status, and transition timestamps. Scanner staff see only the current ticket owner.
 

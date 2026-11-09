@@ -94,7 +94,7 @@
                     <input type="checkbox" name="ticket_transfers_allowed" value="1" {{ old('ticket_transfers_allowed') ? 'checked' : '' }}>
                     <span>
                         <strong>Allow ticket transfers</strong>
-                        <span style="display: block; color: var(--neutral-muted); font-size: 0.8rem;">Verified students can transfer an unadmitted ticket to another verified student before the event snapshot is prepared.</span>
+                        <span style="display: block; color: var(--neutral-muted); font-size: 0.8rem;">Verified students can transfer an unadmitted ticket to another verified student before the event ends and before the admission snapshot is prepared. Closing registration does not close transfers.</span>
                     </span>
                 </label>
             </div>
