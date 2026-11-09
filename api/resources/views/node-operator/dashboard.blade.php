@@ -15,9 +15,10 @@
 
         <div class="status" role="status">
             <strong>Console access is active</strong>
-            <span>Manage scanner pairing and staff credentials for the current imported events.</span>
+            <span>Manage scanner pairing and staff credentials, then follow the staged event handoff.</span>
         </div>
 
         <p><a href="{{ route('node.operator.staff.index', absolute: false) }}">Open staff and scanner management</a></p>
+        <p><a href="{{ route('node.operator.handoff.index', absolute: false) }}">Open event handoff</a></p>
     </section>
 @endsection
