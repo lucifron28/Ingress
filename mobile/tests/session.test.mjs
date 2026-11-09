@@ -450,5 +450,63 @@ check(
 
 
 
+const originalReleaseFlag = globalThis.__DEV__;
+const originalApiUrl = process.env.EXPO_PUBLIC_API_URL;
+const releaseApiUrl = 'https://ingress-pp2u.onrender.com/api/v1';
+globalThis.__DEV__ = false;
+process.env.EXPO_PUBLIC_API_URL = releaseApiUrl;
+const { apiRequest: releaseApiRequest } = await import('../src/services/api-client.ts?release-origin-test');
+const legacyScope = { userId: 44, token: 'legacy-local-token', serverUrl: 'http://10.0.0.9:8000/api/v1' };
+await AuthStorage.saveServerUrl(legacyScope.serverUrl);
+await AuthStorage.saveToken(legacyScope.token);
+await AuthStorage.saveUser(JSON.stringify({ id: legacyScope.userId, name: 'Old profile' }));
+await TicketWallet.replace(legacyScope, [ticket]);
+let releaseRequest;
+globalThis.fetch = async (url, options) => {
+  releaseRequest = { url: String(url), options };
+  return new Response('{}', { status: 200 });
+};
+await releaseApiRequest('/me');
+check(
+  'release API migration clears a legacy origin session before sending a request',
+  releaseRequest?.url === `${releaseApiUrl}/me` &&
+    !releaseRequest?.options.headers.Authorization &&
+    (await AuthStorage.getServerUrl()) === releaseApiUrl &&
+    (await AuthStorage.getToken()) === null &&
+    (await AuthStorage.getUser()) === null &&
+    (await TicketWallet.read(legacyScope)) === null,
+);
+
+await AuthStorage.saveToken('current-cloud-token');
+await AuthStorage.saveUser(JSON.stringify({ id: 45, name: 'Current profile' }));
+await releaseApiRequest('/me');
+check(
+  'release API retains a session already scoped to the configured cloud',
+  releaseRequest?.url === `${releaseApiUrl}/me` &&
+    releaseRequest?.options.headers.Authorization === 'Bearer current-cloud-token' &&
+    (await AuthStorage.getToken()) === 'current-cloud-token',
+);
+
+await SecureStore.deleteItemAsync('ingress_server_url');
+await AuthStorage.saveToken('legacy-token-without-origin');
+await AuthStorage.saveUser(JSON.stringify({ id: 46, name: 'Unscoped profile' }));
+const missingOriginScope = { userId: 46, token: 'legacy-token-without-origin', serverUrl: releaseApiUrl };
+await TicketWallet.replace(missingOriginScope, [ticket]);
+await releaseApiRequest('/me');
+check(
+  'release API clears an upgraded session with no saved origin before sending a request',
+  releaseRequest?.url === `${releaseApiUrl}/me` &&
+    !releaseRequest?.options.headers.Authorization &&
+    (await AuthStorage.getToken()) === null &&
+    (await AuthStorage.getUser()) === null &&
+    (await TicketWallet.read(missingOriginScope)) === null,
+);
+
+globalThis.fetch = realFetch;
+if (originalReleaseFlag === undefined) delete globalThis.__DEV__;
+else globalThis.__DEV__ = originalReleaseFlag;
+if (originalApiUrl === undefined) delete process.env.EXPO_PUBLIC_API_URL;
+else process.env.EXPO_PUBLIC_API_URL = originalApiUrl;
+
 console.log(`\n${passed} checks passed, ${failures.length} failed`);
 process.exit(failures.length === 0 ? 0 : 1);

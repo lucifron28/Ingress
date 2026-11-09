@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { apiRequest, DEFAULT_API_URL, setUnauthorizedHandler } from '../services/api-client';
+import { apiRequest, DEFAULT_API_URL, getActiveApiUrl, IS_RELEASE_BUILD, setUnauthorizedHandler } from '../services/api-client';
 import { AuthStorage } from '../services/auth-storage';
 import { useNodeStaff } from './NodeStaffContext';
 
@@ -27,10 +27,7 @@ interface AuthContextType {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
-  /**
-   * Changes the cloud or legacy demo API URL. Resolves to true when the change
-   * invalidated the current session, so the caller can send the user to login.
-   */
+  /** Changes the development API URL. Resolves true when it clears the current session. */
   updateServerUrl: (url: string) => Promise<boolean>;
 }
 
@@ -58,10 +55,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     async function restoreSession() {
       try {
-        const storedUrl = await AuthStorage.getServerUrl();
-        if (storedUrl) {
-          setServerUrl(storedUrl.trim().replace(/\/+$/, ''));
-        }
+        setServerUrl(await getActiveApiUrl());
 
         const storedToken = await AuthStorage.getToken();
         const storedUser = await AuthStorage.getUser();
@@ -120,6 +114,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const updateServerUrl = async (newUrl: string): Promise<boolean> => {
+    if (IS_RELEASE_BUILD) {
+      setServerUrl(DEFAULT_API_URL);
+      return false;
+    }
+
     const formatted = newUrl.trim().replace(/\/+$/, '');
     const isChange = formatted !== serverUrl;
 

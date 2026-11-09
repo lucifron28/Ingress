@@ -94,7 +94,7 @@ test('release config rejects missing, insecure, placeholder, and incomplete clou
   }
 });
 
-test('release config accepts the HTTPS cloud API and keeps local HTTP disabled', () => {
+test('release config accepts the HTTPS cloud API and keeps Android on system certificate trust', () => {
   const config = withEnvironment({
     ...secureReleaseEnvironment,
     EXPO_PUBLIC_API_URL: 'https://ingress-pp2u.onrender.com/api/v1',
@@ -102,6 +102,7 @@ test('release config accepts the HTTPS cloud API and keeps local HTTP disabled',
   const buildProperties = config.plugins.find((plugin) => Array.isArray(plugin) && plugin[0] === 'expo-build-properties');
 
   assert.equal(buildProperties[1].android.usesCleartextTraffic, false);
+  assert.equal(config.android.networkSecurityConfig, undefined);
   assert.deepEqual(config.ios.infoPlist.NSAppTransportSecurity, {});
   assert.ok(config.android.blockedPermissions.includes('android.permission.SYSTEM_ALERT_WINDOW'));
 });
