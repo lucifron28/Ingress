@@ -113,7 +113,10 @@ class NodeOperatorOperationsStatus
             && ($parts['scheme'] ?? null) === 'https'
             && is_string($parts['host'] ?? null)
             && rtrim($parts['path'] ?? '', '/') === '/api/v1'
-            && ! isset($parts['user'], $parts['pass'], $parts['query'], $parts['fragment'])
+            && ! isset($parts['user'])
+            && ! isset($parts['pass'])
+            && ! isset($parts['query'])
+            && ! isset($parts['fragment'])
             && filter_var($url, FILTER_VALIDATE_URL) !== false
             && is_string($decodedKey)
             && strlen($decodedKey) === 32
@@ -129,7 +132,10 @@ class NodeOperatorOperationsStatus
         return is_array($parts)
             && ($parts['scheme'] ?? null) === 'https'
             && is_string($parts['host'] ?? null)
-            && ! isset($parts['user'], $parts['pass'], $parts['query'], $parts['fragment'])
+            && ! isset($parts['user'])
+            && ! isset($parts['pass'])
+            && ! isset($parts['query'])
+            && ! isset($parts['fragment'])
             && filter_var($url, FILTER_VALIDATE_URL) !== false
             ? $parts
             : null;
