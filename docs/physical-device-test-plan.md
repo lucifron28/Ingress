@@ -95,13 +95,14 @@ The internet may be unavailable during admission, but the venue LAN and the sing
 
 1. From the cloud organizer page, issue one guest and one alumni pass before registration cutoff. Open each printable pass and confirm it contains the correct synthetic identity and QR. Email delivery is not implemented; the organizer must hand each pass to its recipient through an approved private channel.
 2. With WAN still disconnected, issue a walk-in from the paired staff app. Confirm the node returns a pass, does not admit the person at issuance, and enforces the event capacity. Scan the pass, preview it, then explicitly confirm entry.
-3. Print a cloud guest/alumni pass from the organizer flow and a node walk-in pass from the mobile flow. Use a standard printer, verify the complete QR has a quiet margin, and scan the paper copy at normal gate distance and lighting. Record the printer model, paper size, scale, and scan result.
-4. Keep every printed pass controlled; its QR is a bearer credential. Shred or securely destroy test copies after the run.
+3. Test recovery with a synthetic walk-in attendee. Staff must verify the attendee in person under the event's approved identity procedure, select a recovery reason, and hand over the recovered pass directly. Confirm recovery does not admit the attendee. Do not record identity document numbers or keep copies.
+4. Print a cloud guest/alumni pass from the organizer flow and a node walk-in pass from the mobile flow. Use a standard printer, verify the complete QR has a quiet margin, and scan the paper copy at normal gate distance and lighting. Record the printer model, paper size, scale, and scan result.
+5. Keep every printed pass controlled; its QR is a bearer credential. Shred or securely destroy test copies after the run.
 
 ## 8. Restore internet and confirm synchronization
 
 1. Reconnect WAN while keeping the venue LAN and node running. Wait for the node scheduler, or run `php artisan ingress:sync-admissions CLOUD_EVENT_ID` on the node.
-2. Confirm the organizer attendance page shows the test entries, exits, guest/alumni movements, walk-in issuance, and any walk-in recovery records. Compare counts with the node event and gate notes.
+2. Confirm the organizer attendance page shows the test entries, exits, guest/alumni movements, walk-in issuance, and recovered pass actor, reason, and identity attestation. Compare counts with the node event and gate notes.
 3. Run the sync command again. The same requests must return the original receipts and must not duplicate admissions or walk-ins. Confirm the node has no pending batches after successful receipts.
 4. Restart the same node application service while keeping its database intact. Confirm its grant and local admissions persist and synchronization resumes. Do not restore this database to a second live node.
 5. The automated PostgreSQL harness covers the response-lost-after-cloud-commit case with separate cloud and node databases. Keep that automated CI result as evidence; do not simulate a lost response by changing a live database.
