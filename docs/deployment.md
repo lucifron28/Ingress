@@ -169,6 +169,212 @@ This checklist checks the cloud service only. It does not establish physical-dev
 
 ## Configure a Windows Event Node
 
+Ingress supports two Windows-hosted Event Node profiles. Use WSL2 with Ubuntu 26.04 and Nginx when the venue PC runs Windows 11 22H2 or later and mirrored WSL networking is permitted. Use native Windows IIS otherwise. Select one profile per host; do not run two copies of an activated Event Node. Both profiles use the same Laravel release, PostgreSQL schema, HTTPS API, scanner pairing flow, admission logic, and bounded synchronization scheduler. The WSL profile uses PHP 8.5 from Ubuntu because the locked Symfony packages require PHP 8.4.1 or later; IIS continues to use PHP 8.4 NTS. CI exercises both supported runtimes.
+
+### Preferred profile: WSL2 Ubuntu 26.04 with Nginx
+
+This profile requires Windows 11 22H2 or later, WSL 2, Ubuntu 26.04 LTS, a Windows host with a DHCP-reserved venue address, and an event hostname covered by a publicly trusted TLS certificate. Mirrored networking is required for staff phones to reach Nginx in WSL. Microsoft documents mirrored mode and its Windows 11 version requirement in the [WSL networking guide](https://learn.microsoft.com/en-us/windows/wsl/networking). This changes networking for WSL distributions on the Windows account, so use a dedicated venue host or review other WSL workloads first.
+
+From an elevated PowerShell window, install or update WSL and Ubuntu if needed. If Ubuntu is already installed, keep its existing data and confirm it uses WSL 2:
+
+```powershell
+wsl --update
+wsl --list --verbose
+# Run this only if Ubuntu-26.04 is not listed above.
+wsl --install --distribution Ubuntu-26.04
+```
+
+In `%UserProfile%\.wslconfig`, enable mirrored networking:
+
+```ini
+[wsl2]
+networkingMode=mirrored
+```
+
+In Ubuntu, enable systemd in `/etc/wsl.conf`:
+
+```ini
+[boot]
+systemd=true
+```
+
+Return to PowerShell and restart WSL so both settings take effect:
+
+```powershell
+wsl --shutdown
+wsl --distribution Ubuntu-26.04
+wsl --list --verbose
+```
+
+`wsl --shutdown` stops every running WSL distribution for this Windows account. Schedule it when other WSL applications can be paused.
+
+Install Nginx, PHP 8.5 FPM and the Laravel extensions, Composer, Git, and the scheduler. Ubuntu 26.04 provides PHP 8.5 in its distribution archive ([`php8.5-fpm` package](https://packages.ubuntu.com/resolute/php8.5-fpm)). The lockfile's Symfony 8.1 packages require PHP 8.4.1 or later, so PHP 8.3 from Ubuntu 24.04 cannot install this exact release even though the root Composer constraint is `^8.3`. Node.js 24 is needed only to build Laravel's frontend assets; install it under the deployment account with the pinned [nvm v0.41.0 release](https://github.com/nvm-sh/nvm/releases/tag/v0.41.0), then select a maintained Node 24 release from the [official Node.js downloads](https://nodejs.org/en/download):
+
+```bash
+sudo apt update
+sudo apt install -y nginx php8.5-cli php8.5-fpm php8.5-pgsql php8.5-mbstring php8.5-xml php8.5-curl php8.5-zip php8.5-bcmath php8.5-intl composer git unzip cron curl ca-certificates
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.41.0/install.sh | bash
+source ~/.bashrc
+nvm install 24
+nvm use 24
+php8.5 -v
+php8.5 -m | grep -E '^(mbstring|pdo_pgsql|sodium|xmlwriter)$'
+node --version
+npm --version
+```
+
+Ingress requires `pdo_pgsql`, `sodium`, and `xmlwriter`; the commands above print those module names without displaying application secrets. Do not install a third-party PHP PPA. Ubuntu's PHP packages and the upstream [PHP version support policy](https://www.php.net/supported-versions.php) are the runtime source for this profile.
+
+Install PostgreSQL 18 from the PostgreSQL project's apt repository. Ubuntu's default PostgreSQL version may differ. Follow the project's [Ubuntu installation instructions](https://www.postgresql.org/download/linux/ubuntu/):
+
+```bash
+sudo apt install -y postgresql-common
+sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh
+sudo apt update
+sudo apt install -y postgresql-18 postgresql-client-18
+```
+
+Keep PostgreSQL loopback-only. Set `listen_addresses = 'localhost'` in `/etc/postgresql/18/main/postgresql.conf`, then restart and confirm the listener:
+
+```bash
+sudo systemctl enable --now postgresql
+sudo systemctl restart postgresql
+sudo -u postgres psql -c 'SHOW listen_addresses;'
+ss -ltn | grep ':5432'
+```
+
+The database must listen only on `127.0.0.1:5432` and/or `[::1]:5432`, never `0.0.0.0:5432` or `[::]:5432`. Create one role and database for this node. Enter the password at PostgreSQL's hidden prompt; do not put it in shell history:
+
+```bash
+sudo -u postgres psql
+```
+
+At the `psql` prompt:
+
+```sql
+CREATE ROLE ingress_node_1 LOGIN;
+\password ingress_node_1
+CREATE DATABASE ingress_node_1 OWNER ingress_node_1;
+\q
+```
+
+Check out an approved, reviewed application commit into `/srv/ingress`. Keep the deployed commit fixed for the event. Do not update or replace an activated node during admission:
+
+```bash
+sudo install -d -o "$USER" -g www-data -m 0750 /srv/ingress
+git clone https://github.com/lucifron28/Ingress.git /srv/ingress
+cd /srv/ingress/api
+git checkout REPLACE_WITH_REVIEWED_COMMIT
+npm ci
+npm run build
+composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction
+cp .env.example .env
+chmod 0640 .env
+php artisan key:generate
+```
+
+Edit `/srv/ingress/api/.env` with this node's independent `APP_KEY`, database password, and one-time sync key. Keep the cloud runtime and each Event Node on separate databases and application keys. Do not place the cloud authority private key on this node. Use:
+
+```dotenv
+APP_ENV=production
+APP_DEBUG=false
+APP_URL=https://node-1.example.edu
+INGRESS_RUNTIME=node
+INGRESS_DEMO_MODE=false
+INGRESS_NODE_ID=node-1
+INGRESS_NODE_SYNC_KEY=SECRET_FROM_CLOUD_NODE_REGISTRATION
+INGRESS_CLOUD_SYNC_URL=https://ingress-pp2u.onrender.com/api/v1
+INGRESS_AUTHORITY_PUBLIC_KEY=BASE64_CLOUD_AUTHORITY_PUBLIC_KEY
+DB_CONNECTION=pgsql
+DB_HOST=127.0.0.1
+DB_PORT=5432
+DB_DATABASE=ingress_node_1
+DB_USERNAME=ingress_node_1
+DB_PASSWORD=REPLACE_WITH_NODE_DATABASE_PASSWORD
+DB_SSLMODE=disable
+SESSION_SECURE_COOKIE=true
+SESSION_ENCRYPT=true
+SESSION_DRIVER=database
+CACHE_STORE=database
+APP_MAINTENANCE_DRIVER=cache
+APP_MAINTENANCE_STORE=database
+TRUSTED_PROXIES=
+```
+
+Set `INGRESS_NODE_ID` to the cloud-registered node ID. Transfer the sync key out of band and copy only the cloud authority public key. After editing `.env`, apply migrations and build Laravel's production caches:
+
+```bash
+php artisan migrate --force
+php artisan config:cache
+php artisan route:cache
+php artisan view:cache
+```
+
+Install a publicly trusted certificate whose name matches `APP_URL`, using DNS-01 validation. Certificate issuance and renewal are not automated by this repository. Put the full chain at `/etc/ssl/ingress-node/fullchain.pem` and the private key at `/etc/ssl/ingress-node/privkey.pem`; keep the key readable only by root. Do not add an HTTP listener, use a private CA for scanner devices, or disable certificate verification. For campus-only DNS, use split-horizon DNS to resolve the same public hostname to the Windows host's reserved LAN address.
+
+Create the certificate directory as root and install the TLS files with root-only private-key access:
+
+```bash
+sudo install -d -o root -g root -m 0700 /etc/ssl/ingress-node
+sudo install -o root -g root -m 0600 /path/to/fullchain.pem /etc/ssl/ingress-node/fullchain.pem
+sudo install -o root -g root -m 0600 /path/to/privkey.pem /etc/ssl/ingress-node/privkey.pem
+```
+
+Give Nginx and PHP-FPM group read access to code and write access only to Laravel's `storage` and `bootstrap/cache` directories. Run these commands from `/srv/ingress` as the deployment account:
+
+```bash
+sudo chown -R "$USER":www-data /srv/ingress
+sudo find /srv/ingress -type d -exec chmod 0750 {} \;
+sudo find /srv/ingress -type f -exec chmod 0640 {} \;
+sudo find api/storage api/bootstrap/cache -type d -exec chmod 2770 {} \;
+sudo find api/storage api/bootstrap/cache -type f -exec chmod 0660 {} \;
+```
+
+Install the checked-in Nginx profile, changing `node-1.example.edu` if needed and preserving the `/srv/ingress/api/public` root, certificate paths, and PHP-FPM socket:
+
+```bash
+sudo install -o root -g root -m 0644 deploy/wsl/nginx/ingress-node.conf /etc/nginx/sites-available/ingress-node
+sudo ln -s /etc/nginx/sites-available/ingress-node /etc/nginx/sites-enabled/ingress-node
+sudo rm /etc/nginx/sites-enabled/default
+sudo nginx -t
+sudo systemctl enable --now php8.5-fpm nginx cron
+sudo systemctl reload nginx
+```
+
+Do not make the repository or `.env` writable by the web process. Use a dedicated deployment account and keep `.env` readable only to that account and the `www-data` group. The site rejects unknown TLS hosts, serves only HTTPS on port 443, routes Laravel through `api/public`, denies direct requests for `.env`, `.git`, `vendor`, and private Laravel directories, and does not trust or forward arbitrary proxy headers.
+
+To start the WSL services after Windows reboots, create a Windows Task Scheduler task under the Windows account that owns the Ubuntu distribution. Set the trigger to **At startup**, enable **Run whether user is logged on or not**, and use the action below. Replace `Ubuntu-26.04` with the exact name from `wsl --list --quiet` if it differs:
+
+- Program: `%SystemRoot%\System32\wsl.exe`
+- Arguments: `--distribution Ubuntu-26.04 --exec /usr/bin/systemctl start postgresql php8.5-fpm nginx cron`
+
+Set the task not to start a second instance when one is already running. The Linux services are also enabled under systemd, so WSL starts them when the distribution starts. Prevent Windows sleep during event operations and use wired power and network. Test a full Windows reboot and service recovery before the venue; this guide has not performed that field test.
+
+In elevated PowerShell, keep WSL inbound traffic blocked by default and allow HTTPS only from the staff-device subnet. Replace the example subnet before creating the rule. The WSL creator ID and firewall commands follow Microsoft's [Hyper-V firewall guidance](https://learn.microsoft.com/en-us/windows/security/operating-system-security/network-security/windows-firewall/hyper-v-firewall):
+
+```powershell
+$wslCreatorId = '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}'
+$staffSubnet = '192.168.50.0/24'
+Set-NetFirewallHyperVVMSetting -Name $wslCreatorId -DefaultInboundAction Block
+New-NetFirewallHyperVRule -Name 'IngressNodeHTTPS' -DisplayName 'Ingress Event Node HTTPS' -Direction Inbound -VMCreatorId $wslCreatorId -Protocol TCP -LocalPorts 443 -RemoteAddresses $staffSubnet -Action Allow
+Get-NetFirewallHyperVVMSetting -Name $wslCreatorId | Select-Object Name, DefaultInboundAction
+Get-NetFirewallHyperVRule -Name 'IngressNodeHTTPS'
+```
+
+Do not create a broad inbound rule for WSL. Confirm Windows has no other rule that exposes TCP 443 beyond the approved staff network. In the router and campus firewall, allow the same staff subnet and block attendee or guest networks. Do not expose PostgreSQL port 5432.
+
+Run the host-local HTTPS health check without disabling certificate validation. It must return HTTP 200 while PostgreSQL still reports a loopback-only listener:
+
+```bash
+curl --fail --proto '=https' --tlsv1.2 --resolve node-1.example.edu:443:127.0.0.1 https://node-1.example.edu/up
+ss -ltn | grep ':5432'
+sudo nginx -t
+```
+
+Use `sudo systemctl stop nginx` for a graceful web-server stop. Stop admission at every gate before stopping the Event Node or Windows host. Keep the database and backups on WSL's Linux filesystem, not under `/mnt/c`; WSL's virtual disk survives WSL restarts and ordinary Windows reboots, but it is not a backup. Back up the node database using the recovery rules below.
+
+### Compatibility profile: native Windows IIS
+
 The Windows Event Node can run directly on Windows without Docker. Use IIS with PHP FastCGI for the web process; do not expose Laravel's development server to the staff network. PHP's Windows guidance recommends a non-thread-safe build with FastCGI. Install PHP 8.4 NTS x64 with `php.exe` and `php-cgi.exe`, Composer, PostgreSQL 18, the IIS CGI feature, and the IIS URL Rewrite module. The checked-in [`api/public/web.config`](../api/public/web.config) disables directory listing, blocks hidden deployment paths, caps requests at 32 MiB, and routes Laravel requests to `index.php`; IIS needs URL Rewrite for that rule. See the [PHP IIS installation guide](https://www.php.net/manual/en/install.windows.iis.php) and [IIS FastCGI configuration](https://learn.microsoft.com/en-us/iis/configuration/system.webserver/fastcgi/).
 
 Unzip PHP to `C:\PHP`, add that directory to the system `PATH`, and create `php.ini` from the production template. In `php.ini`, set `extension_dir="ext"` and enable `mbstring`, `openssl`, `pdo_pgsql`, `sodium`, and `xmlwriter`. Then check both PHP entry points:

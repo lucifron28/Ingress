@@ -39,6 +39,34 @@ jobs:
         working-directory: api
         run: php artisan test
 
+  backend-php85:
+    name: Backend Compatibility Tests (PHP 8.5)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: mbstring, pdo, pdo_sqlite, sodium, xmlwriter
+          coverage: none
+
+      - name: Install Composer Dependencies
+        working-directory: api
+        run: composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Prepare Environment
+        working-directory: api
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: Run Backend Compatibility Tests
+        working-directory: api
+        run: php artisan test
+
   postgres-concurrency:
     name: PostgreSQL Concurrency Verification
     runs-on: ubuntu-24.04
@@ -180,3 +208,39 @@ jobs:
           docker run --rm -e PORT=10000 \
             --mount "type=bind,source=$PWD/tests/docker/nginx-startup.sh,target=/tmp/nginx-startup.sh,readonly" \
             --entrypoint /bin/sh ingress-cloud:ci /tmp/nginx-startup.sh
+
+      - name: Verify WSL Nginx configuration syntax
+        run: |
+          mkdir -p "$RUNNER_TEMP/ingress-certs"
+          openssl req -x509 -newkey rsa:2048 -nodes -keyout "$RUNNER_TEMP/ingress-certs/privkey.pem" -out "$RUNNER_TEMP/ingress-certs/fullchain.pem" -subj "/CN=node-1.example.edu" -days 1
+          sed \
+            -e 's|/etc/ssl/ingress-node/fullchain.pem|/tmp/ingress-certs/fullchain.pem|' \
+            -e 's|/etc/ssl/ingress-node/privkey.pem|/tmp/ingress-certs/privkey.pem|' \
+            api/deploy/wsl/nginx/ingress-node.conf > "$RUNNER_TEMP/ingress-nginx.conf"
+          docker run --rm \
+            --mount "type=bind,source=$RUNNER_TEMP/ingress-nginx.conf,target=/etc/nginx/conf.d/default.conf,readonly" \
+            --mount "type=bind,source=$RUNNER_TEMP/ingress-certs,target=/tmp/ingress-certs,readonly" \
+            nginx:1.28-alpine nginx -t
+          docker run --detach --name ingress-wsl-nginx-ci \
+            --publish 127.0.0.1:18443:443 \
+            --mount "type=bind,source=$RUNNER_TEMP/ingress-nginx.conf,target=/etc/nginx/conf.d/default.conf,readonly" \
+            --mount "type=bind,source=$RUNNER_TEMP/ingress-certs,target=/tmp/ingress-certs,readonly" \
+            nginx:1.28-alpine
+          cleanup() {
+            docker logs ingress-wsl-nginx-ci
+            docker rm --force ingress-wsl-nginx-ci >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          status=''
+          for attempt in $(seq 1 10); do
+            status=$(curl --insecure --silent --show-error --output /dev/null --write-out '%{http_code}' --resolve node-1.example.edu:18443:127.0.0.1 --path-as-is https://node-1.example.edu:18443/.env || true)
+            if [ "$status" = '403' ]; then
+              break
+            fi
+            sleep 1
+          done
+          test "$status" = '403'
+          if curl --insecure --silent --fail --output /dev/null https://127.0.0.1:18443/.env; then
+            echo 'Nginx accepted a request with an unknown TLS host.' >&2
+            exit 1
+          fi
