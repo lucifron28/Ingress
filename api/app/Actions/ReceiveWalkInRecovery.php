@@ -51,9 +51,21 @@ class ReceiveWalkInRecovery
                 }
                 $existing = DB::table('cloud_walk_in_recoveries')->where('node_id', $nodeId)->where('node_recovery_id', $data['recovery_id'])->first();
                 if ($existing) {
-                    if ((int) $existing->event_id !== $data['event_id'] || ! hash_equals($existing->payload_hash, $hash)) {
+                    if ((int) $existing->event_id !== $data['event_id']) {
                         $this->invalid();
                     }
+                    if (hash_equals($existing->payload_hash, $hash)) {
+                        return $this->receipt($data['recovery_id'], $hash, $secret);
+                    }
+                    $existingAt = CarbonImmutable::parse($existing->recovered_at, 'UTC')->utc()->format('Y-m-d\TH:i:s.u\Z');
+                    if ((int) $existing->recovered_by_user_id !== $data['staff_id'] || $existing->issuance_id !== $data['issuance_id']
+                        || $existingAt !== $data['recovered_at'] || (bool) $existing->identity_verified
+                        || $existing->reason !== RecoverNodeWalkIn::LEGACY_REASON || $data['identity_verified']
+                        || $data['reason'] !== RecoverNodeWalkIn::LEGACY_REASON) {
+                        $this->invalid();
+                    }
+                    DB::table('cloud_walk_in_recoveries')->where('node_id', $nodeId)
+                        ->where('node_recovery_id', $data['recovery_id'])->update(['payload_hash' => $hash]);
 
                     return $this->receipt($data['recovery_id'], $hash, $secret);
                 }
@@ -80,7 +92,8 @@ class ReceiveWalkInRecovery
                 DB::table('cloud_walk_in_recoveries')->insert([
                     'node_id' => $nodeId, 'node_recovery_id' => $data['recovery_id'], 'issuance_id' => $data['issuance_id'],
                     'event_id' => $data['event_id'], 'recovered_by_user_id' => $data['staff_id'],
-                    'recovered_at' => CarbonImmutable::parse($data['recovered_at'])->utc(), 'payload_hash' => $hash, 'received_at' => now(),
+                    'recovered_at' => CarbonImmutable::parse($data['recovered_at'])->utc(), 'identity_verified' => $data['identity_verified'],
+                    'reason' => $data['reason'], 'payload_hash' => $hash, 'received_at' => now(),
                 ]);
 
                 return $this->receipt($data['recovery_id'], $hash, $secret);

@@ -54,10 +54,11 @@ class SyncWalkInRecovery
             $this->invalid();
         }
 
-        return ['schema_version' => 1, 'node_id' => config('ingress.node_id'), 'event_id' => (int) $import->cloud_event_id,
+        return ['schema_version' => 2, 'node_id' => config('ingress.node_id'), 'event_id' => (int) $import->cloud_event_id,
             'snapshot_id' => $import->snapshot_id, 'version' => (int) $import->version, 'snapshot_sha256' => $import->sha256,
             'recovery_id' => (int) $row->id, 'issuance_id' => $row->issuance_uuid, 'staff_id' => (int) $row->cloud_staff_id,
-            'recovered_at' => CarbonImmutable::parse($row->recovered_at, 'UTC')->utc()->toISOString()];
+            'recovered_at' => CarbonImmutable::parse($row->recovered_at, 'UTC')->utc()->toISOString(),
+            'identity_verified' => (bool) $row->identity_verified, 'reason' => $row->reason];
     }
 
     public function prepare(int $cloudEventId): ?array
@@ -78,9 +79,18 @@ class SyncWalkInRecovery
             if ($row->sync_package_ciphertext !== null) {
                 $package = Crypt::decryptString($row->sync_package_ciphertext);
                 $saved = $this->envelope->open($package, $secret);
-                if (! is_string($row->sync_payload_hash) || ! hash_equals($row->sync_payload_hash, $hash)
-                    || ! hash_equals($hash, hash('sha256', $saved)) || $this->validator->execute($saved) !== $data) {
+                $savedData = $this->validator->execute($saved, allowLegacy: true);
+                $savedPayloadHash = hash('sha256', $saved);
+                $savedVersion = json_decode($saved, true, 8, JSON_THROW_ON_ERROR)['schema_version'] ?? null;
+                if (! is_string($row->sync_payload_hash) || ! hash_equals($row->sync_payload_hash, $savedPayloadHash)
+                    || $savedData !== $data || ($savedVersion !== 1 && ! hash_equals($hash, $savedPayloadHash))) {
                     $this->invalid();
+                }
+                if ($savedVersion === 1) {
+                    $package = $this->envelope->seal($json, $secret);
+                    DB::table('node_walk_in_recoveries')->where('id', $row->id)->update([
+                        'sync_package_ciphertext' => Crypt::encryptString($package), 'sync_payload_hash' => $hash,
+                    ]);
                 }
             } else {
                 $package = $this->envelope->seal($json, $secret);

@@ -13,14 +13,24 @@ use Illuminate\Validation\ValidationException;
 
 class RecoverNodeWalkIn
 {
-    public function execute(User $staff, int $eventId, string $email): Ticket
+    public const REASONS = ['lost', 'damaged', 'not_received'];
+
+    public const LEGACY_REASON = 'legacy';
+
+    public function execute(User $staff, int $eventId, string $email, string $reason, bool $identityVerified): Ticket
     {
         $email = Str::lower(trim($email));
         if (config('ingress.mode') !== 'node' || strlen($email) > 255 || ! filter_var($email, FILTER_VALIDATE_EMAIL)) {
             throw ValidationException::withMessages(['walk_in' => 'Provide a valid attendee email.']);
         }
+        if (! $identityVerified) {
+            throw ValidationException::withMessages(['identity_verified' => 'Verify the attendee in person before recovering a pass.']);
+        }
+        if (! in_array($reason, self::REASONS, true)) {
+            throw ValidationException::withMessages(['reason' => 'Choose a valid pass recovery reason.']);
+        }
 
-        return DB::transaction(function () use ($staff, $eventId, $email) {
+        return DB::transaction(function () use ($staff, $eventId, $email, $reason, $identityVerified) {
             if (! app(NodeAdmissionAccess::class)->allows($staff, $eventId, true)) {
                 abort(403, 'Node authority or staff session is unavailable.');
             }
@@ -43,6 +53,7 @@ class RecoverNodeWalkIn
             }
             DB::table('node_walk_in_recoveries')->insert([
                 'issuance_id' => $issuance->id, 'recovered_by_user_id' => $staff->id, 'recovered_at' => now(),
+                'identity_verified' => $identityVerified, 'reason' => $reason,
             ]);
 
             return $ticket;
