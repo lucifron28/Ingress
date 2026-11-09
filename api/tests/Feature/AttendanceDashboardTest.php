@@ -137,6 +137,56 @@ class AttendanceDashboardTest extends TestCase
         $this->assertEquals('Ron Vincent Cada', $response->json('recent_admissions.0.attendee_name'));
     }
 
+    public function test_inside_breakdown_includes_student_and_external_walk_ins(): void
+    {
+        $studentTicket = (new RegisterForEvent)->execute($this->student, $this->event->id)['ticket'];
+        Admission::create([
+            'ticket_id' => $studentTicket->id,
+            'access_point_id' => $this->gateA->id,
+            'scanned_by_user_id' => $this->organizerA->id,
+            'client_scan_id' => (string) Str::uuid(),
+            'credential_version' => 1,
+            'direction' => Admission::DIRECTION_ENTRY,
+            'admitted_at' => now(),
+        ]);
+
+        foreach (['student', 'guest', 'alumni'] as $index => $kind) {
+            $registration = Registration::create([
+                'event_id' => $this->event->id,
+                'user_id' => null,
+                'attendee_type' => 'walk_in',
+                'walk_in_kind' => $kind,
+                'guest_name' => "Walk-in {$kind}",
+                'guest_email' => "walkin-{$kind}@example.test",
+                'guest_student_id' => $kind === 'student' ? 'WI-1001' : null,
+                'status' => Registration::STATUS_CONFIRMED,
+            ]);
+            $ticket = Ticket::create([
+                'registration_id' => $registration->id,
+                'public_id' => 'ING-WALKIN'.str_pad((string) $index, 4, '0', STR_PAD_LEFT),
+                'qr_hash' => hash('sha256', "walk-in-{$kind}"),
+                'status' => Ticket::STATUS_ACTIVE,
+                'credential_version' => 1,
+                'issued_at' => now(),
+            ]);
+            Admission::create([
+                'ticket_id' => $ticket->id,
+                'access_point_id' => $this->gateA->id,
+                'scanned_by_user_id' => $this->organizerA->id,
+                'client_scan_id' => (string) Str::uuid(),
+                'credential_version' => 1,
+                'direction' => Admission::DIRECTION_ENTRY,
+                'admitted_at' => now(),
+            ]);
+        }
+
+        $this->actingAs($this->organizerA)->getJson("/organizer/events/{$this->event->id}/attendance/feed")
+            ->assertOk()
+            ->assertJsonPath('stats.inside_count', 4)
+            ->assertJsonPath('stats.envergan_inside_count', 2)
+            ->assertJsonPath('stats.external_inside_count', 2);
+    }
+
     public function test_organizer_cannot_view_another_organizers_attendance(): void
     {
         $response = $this->actingAs($this->organizerB)
