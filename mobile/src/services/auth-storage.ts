@@ -137,6 +137,31 @@ async function clearWalletUnsafe(): Promise<void> {
   await SecureStore.deleteItemAsync(WALLET_HEADER_KEY, WALLET_OPTIONS);
 }
 
+function normalizeServerUrl(url: string | null): string | null {
+  return url?.trim().replace(/\/+$/, '') || null;
+}
+
+async function enforceReleaseServerUrl(configuredUrl: string): Promise<void> {
+  const canonicalUrl = configuredUrl.trim().replace(/\/+$/, '');
+
+  await serializeWallet(async () => {
+    const savedUrl = normalizeServerUrl(await getItem(SERVER_URL_KEY));
+    if (savedUrl === canonicalUrl) return;
+
+    if (Platform.OS === 'web') {
+      await deleteItem(TOKEN_KEY);
+      await deleteItem(USER_KEY);
+      await saveItem(SERVER_URL_KEY, canonicalUrl);
+      return;
+    }
+
+    await clearWalletUnsafe();
+    await SecureStore.deleteItemAsync(TOKEN_KEY);
+    await SecureStore.deleteItemAsync(USER_KEY);
+    await SecureStore.setItemAsync(SERVER_URL_KEY, canonicalUrl);
+  });
+}
+
 async function readWalletUnsafe(scope: WalletScope): Promise<{ tickets: WalletTicket[]; savedAt: string } | null> {
   if (!(await scopeMatches(scope))) return null;
   const header = await readWalletHeader();
@@ -206,6 +231,7 @@ export const AuthStorage = {
 
   saveServerUrl: (url: string) => saveItem(SERVER_URL_KEY, url),
   getServerUrl: () => getItem(SERVER_URL_KEY),
+  enforceReleaseServerUrl,
 
   saveUser: (userJson: string) => saveItem(USER_KEY, userJson),
   getUser: () => getItem(USER_KEY),

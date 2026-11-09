@@ -10,6 +10,8 @@ import { AuthStorage } from './auth-storage';
 export const DEFAULT_API_URL =
   process.env.EXPO_PUBLIC_API_URL?.trim().replace(/\/+$/, '') || 'http://localhost:8000/api/v1';
 
+export const IS_RELEASE_BUILD = typeof __DEV__ !== 'undefined' && !__DEV__;
+
 /**
  * Whether this build may advertise the synthetic demonstration accounts.
  *
@@ -70,6 +72,11 @@ export function setUnauthorizedHandler(handler: ((token: string) => Promise<void
 }
 
 export async function getActiveApiUrl(): Promise<string> {
+  if (IS_RELEASE_BUILD) {
+    await AuthStorage.enforceReleaseServerUrl(DEFAULT_API_URL);
+    return DEFAULT_API_URL;
+  }
+
   const saved = await AuthStorage.getServerUrl();
   return (saved && saved.trim().length > 0) ? saved.trim().replace(/\/+$/, '') : DEFAULT_API_URL;
 }
