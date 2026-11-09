@@ -23,6 +23,7 @@ function Set-SecretEnvironmentVariable {
 $exitCode = 1
 $origin = Read-Host 'Render service HTTPS origin, for example https://ingress-cloud.onrender.com'
 $caBundle = Read-Host 'Path to a trusted PEM CA bundle on this computer'
+$configCache = Join-Path $env:TEMP ('ingress-admin-' + [guid]::NewGuid().ToString('N') + '.php')
 
 try {
     if (-not (Test-Path -LiteralPath $caBundle -PathType Leaf)) {
@@ -32,6 +33,7 @@ try {
     Set-SecretEnvironmentVariable -Name 'DB_URL' -Prompt 'Paste the Neon direct connection URL with sslmode=verify-full'
     Set-SecretEnvironmentVariable -Name 'APP_KEY' -Prompt 'Paste the APP_KEY shown by Render'
 
+    $env:APP_CONFIG_CACHE = $configCache
     $env:APP_ENV = 'production'
     $env:APP_DEBUG = 'false'
     $env:APP_URL = $origin
@@ -50,7 +52,7 @@ try {
         Pop-Location
     }
 } finally {
-    foreach ($name in @('DB_URL', 'APP_KEY', 'APP_ENV', 'APP_DEBUG', 'APP_URL', 'INGRESS_RUNTIME', 'INGRESS_DEMO_MODE', 'TRUSTED_PROXIES', 'DB_CONNECTION', 'DB_SSLMODE', 'DB_SSLROOTCERT')) {
+    foreach ($name in @('APP_CONFIG_CACHE', 'DB_URL', 'APP_KEY', 'APP_ENV', 'APP_DEBUG', 'APP_URL', 'INGRESS_RUNTIME', 'INGRESS_DEMO_MODE', 'TRUSTED_PROXIES', 'DB_CONNECTION', 'DB_SSLMODE', 'DB_SSLROOTCERT')) {
         Remove-Item -LiteralPath "Env:$name" -ErrorAction SilentlyContinue
     }
 }

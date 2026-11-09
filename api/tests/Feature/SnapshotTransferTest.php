@@ -24,6 +24,8 @@ use App\Models\Registration;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Models\Venue;
+use App\Support\CloudOperatorDatabase;
+use Illuminate\Database\Connection;
 use Illuminate\Encryption\Encrypter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
@@ -33,6 +35,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Mockery;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Symfony\Component\Process\Process;
 use Tests\TestCase;
@@ -60,6 +63,7 @@ class SnapshotTransferTest extends TestCase
     private function cloudEvent(bool $withStaff = false, bool $reEntryAllowed = false, bool $identityCheck = false): array
     {
         config(['ingress.mode' => 'cloud']);
+        $this->useCloudOperatorDatabase();
         $owner = User::factory()->create(['role' => User::ROLE_ORGANIZER]);
         $student = User::factory()->create(['name' => 'Private Attendee', 'role' => User::ROLE_STUDENT]);
         $venue = Venue::create(['name' => 'Hall', 'code' => 'HALL', 'location' => 'Campus', 'default_capacity' => 20]);
@@ -102,6 +106,21 @@ class SnapshotTransferTest extends TestCase
         $this->assertSame(1, preg_match('/INGRESS_NODE_SYNC_KEY=([A-Za-z0-9+\/=]+)/', Artisan::output(), $match));
 
         return [$event, $owner, $qr, $match[1], $cloudStaffId, $secondQr, $guestQr];
+    }
+
+    private function useCloudOperatorDatabase(): void
+    {
+        $database = Mockery::mock(CloudOperatorDatabase::class);
+        $database->shouldReceive('configurationErrors')->zeroOrMoreTimes()->andReturn([]);
+        $database->shouldReceive('connection')->zeroOrMoreTimes()->andReturn(DB::connection());
+        $database->shouldReceive('runLocked')->zeroOrMoreTimes()->andReturnUsing(
+            function (Connection $connection, callable $operation): bool {
+                $operation();
+
+                return true;
+            },
+        );
+        $this->app->instance(CloudOperatorDatabase::class, $database);
     }
 
     public function test_encrypted_transfer_and_signed_receipt_across_separate_databases(): void

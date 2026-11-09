@@ -1,5 +1,7 @@
 # Ingress legacy LAN demonstration guide
 
+> This is a legacy local-demo guide. It uses local demo credentials and development HTTP and must not be used as the Render staging procedure. For cloud and Event Node staging, use [Deployment and Operations](deployment.md) and the [physical-device test plan](physical-device-test-plan.md). Keep demo mode and HTTP disabled in release builds.
+
 **Manuel S. Enverga University Foundation (MSEUF)**  
 *Event Ticketing, Admission, and Attendance Management System*
 

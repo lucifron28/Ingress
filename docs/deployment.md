@@ -28,7 +28,9 @@ Keep the database URL private. Do not paste it into source control, issue commen
 
 ### Create the Resend sender
 
-In Resend, add and verify the sending domain from the Dashboard's **Domains** page. From **API Keys**, create a key with **Sending access** restricted to that domain. Set `MAIL_FROM_ADDRESS` to a verified address on it. The key is a secret and belongs only in Render's environment settings. See [Resend API key permissions](https://resend.com/changelog/new-api-key-permissions). Use a test recipient or a Resend test domain while validating email; do not send unsolicited messages.
+For an account-owner connectivity test before you own a sending domain, use `onboarding@resend.dev` as `MAIL_FROM_ADDRESS` and `lucifron28@gmail.com` as `INGRESS_MAIL_TEST_RECIPIENT`. Resend's shared test sender is restricted to account-owner testing; it cannot activate student accounts at other domains. The mail test sends a static message without a verification token or link.
+
+To send student activation messages to real `@student.mseuf.edu.ph` inboxes, add and verify a sending domain from the Resend Dashboard's **Domains** page. From **API Keys**, create a key with **Sending access** restricted to that domain and set `MAIL_FROM_ADDRESS` to an address on it. The key is a secret and belongs only in Render's environment settings. See [Resend API key permissions](https://resend.com/changelog/new-api-key-permissions) and the [domain verification guide](https://resend.com/docs/dashboard/domains/introduction). A verified sender domain and an authorized institutional mailbox are required for real student activation.
 
 ### Create the Render web service
 
@@ -54,7 +56,7 @@ Set the following in **Render → ingress-cloud → Environment**. Add secret va
 | --- | --- |
 | `APP_ENV` | `production` |
 | `APP_DEBUG` | `false` |
-| `APP_URL` | The public HTTPS origin only; path must be empty or `/`, with no query or fragment |
+| `APP_URL` | `https://ingress-pp2u.onrender.com` (public HTTPS origin only; no path, query, or fragment) |
 | `APP_KEY` | A fresh Laravel key generated for this cloud runtime |
 | `INGRESS_RUNTIME` | `cloud` |
 | `INGRESS_DEMO_MODE` | `false` |
@@ -77,10 +79,11 @@ Set the following in **Render → ingress-cloud → Environment**. Add secret va
 | `LOG_LEVEL` | `info` |
 | `MAIL_MAILER` | `resend` |
 | `RESEND_API_KEY` | The Resend API key |
-| `MAIL_FROM_ADDRESS` | An address on the verified Resend domain |
+| `MAIL_FROM_ADDRESS` | `onboarding@resend.dev` for account-owner-only testing, or an address on the verified sending domain |
 | `MAIL_FROM_NAME` | `Ingress` or the approved sender name |
+| `INGRESS_MAIL_TEST_RECIPIENT` | `lucifron28@gmail.com` for the authorized shared-sender test |
 
-If the Render URL is `https://ingress-cloud.onrender.com`, use that exact origin for `APP_URL`. Add custom domains only after Render reports HTTPS is active. Set `INGRESS_CORS_ALLOWED_ORIGINS` only when a browser client needs cross-origin API access; use exact HTTPS origins, comma-separated. Native mobile clients do not need a CORS entry.
+Use the current Render origin `https://ingress-pp2u.onrender.com` for `APP_URL`. If Render later assigns a different domain, replace it with the exact HTTPS origin shown on the service. Add custom domains only after Render reports HTTPS is active. Set `INGRESS_CORS_ALLOWED_ORIGINS` only when a browser client needs cross-origin API access; use exact HTTPS origins, comma-separated. Native mobile clients do not need a CORS entry.
 
 Generate `APP_KEY` on your Windows development machine from `api` using `php artisan key:generate --show`. Copy its output directly into the Render `APP_KEY` secret field. Do not commit the output or reuse a key from an Event Node.
 
@@ -116,6 +119,34 @@ powershell -ExecutionPolicy Bypass -File .\api\scripts\create_render_admin.ps1
 
 The script prompts securely for the Neon `DB_URL`, the Render `APP_KEY`, the public HTTPS `APP_URL`, and a local PostgreSQL CA bundle path. Use a trusted certificate bundle from your PostgreSQL distribution or operating system; do not disable certificate verification to work around a missing bundle. It passes these settings only to the Artisan command's process environment and clears them afterward. The command checks PostgreSQL 18, HTTPS/TLS settings, cloud runtime identity, and the shared migration lock before creating a verified administrator. Choose a unique password in the prompt and store it in the institution's approved password manager. Do not run this script on an untrusted machine.
 
+### Prepare synthetic staging accounts and venues
+
+Render Free has no shell, so run the operator scripts from a trusted Windows checkout with PHP 8.4, `pdo_pgsql`, Composer dependencies installed, and a trusted Neon CA bundle. Use only a Neon database reserved for staging. The preflight checks the cloud runtime identity and PostgreSQL 18, but it cannot determine whether a database contains real records.
+
+Create a synthetic organizer, staff member, or student and seed only the four reference venues:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\api\scripts\provision_render_staging_account.ps1
+```
+
+The script asks for the role and requires typing `STAGING` before connecting. It seeds `VenueSeeder`, then runs `ingress:provision-staging-account`. Use an email ending in `@example.test`; students also require an ID beginning with `STAGE-`. The password is entered through hidden prompts, hashed, and never printed. Synthetic students remain unverified. Repeating the same role and email leaves the existing account unchanged. The tool cannot create administrators; use `create_render_admin.ps1` for the first admin. After creating the organizer, sign in at `/login` and create events with synthetic titles, schedules, attendees, and gate names.
+
+Register a node from the same trusted Windows checkout:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\api\scripts\register_render_node.ps1
+```
+
+Use a new stable node ID. The command checks HTTPS/runtime configuration, direct Neon TLS, PostgreSQL 18, the cloud identity, and the migration advisory lock. It prints `INGRESS_NODE_SYNC_KEY` once after successful registration. Copy it directly into the matching node's private environment, then clear the terminal and do not save it in shell history, source control, or logs. Keep each node on a separate PostgreSQL database with a separate `APP_KEY`.
+
+Test Resend from Windows without sending a student verification link:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\api\scripts\send_render_mail_test.ps1
+```
+
+Enter `onboarding@resend.dev` until a sending domain is verified, and use the address registered to the Resend account as the recipient. The command sends a static message through Laravel's official Resend transport and reports when Resend accepts the request. Check **Resend → Emails** and the authorized inbox to distinguish provider acceptance from final inbox delivery. This test does not activate a student account. Gmail addresses are not accepted by public student registration; real student activation still requires the institutional domain and an authorized student mailbox.
+
 ### Verify the deployment
 
 After Render reports the deployment as live:
@@ -123,7 +154,7 @@ After Render reports the deployment as live:
 1. Open `https://<your-render-host>/up` and confirm an HTTP 200 response.
 2. In Render logs, confirm the fixed startup message `Cloud database migrations and runtime identity are ready.` Do not copy secret environment values into logs or support tickets.
 3. In Neon SQL Editor, confirm `select current_setting('server_version_num');` starts with `180`, and confirm the expected Ingress migration rows exist in `migrations`.
-4. Sign in with the administrator created above. Request a student verification email using a test address, and confirm Resend records a successful delivery. The app must use HTTPS and a verified sender.
+4. Sign in with the administrator created above. Run the Windows Resend connectivity script and inspect **Resend → Emails**. To test student activation, use a verified sender domain and an authorized `@student.mseuf.edu.ph` mailbox. The shared Resend testing sender does not deliver verification messages to arbitrary student addresses.
 5. Confirm the service can be reached over HTTPS and that production debug/demo mode remain disabled.
 
 This checklist checks the cloud service only. It does not establish physical-device, venue-network, printer, admission, or Event Node verification; see the [physical-device test plan](physical-device-test-plan.md).
