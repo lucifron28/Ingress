@@ -48,6 +48,18 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
 
+        RateLimiter::for('node-operator-login', function (Request $request) {
+            $email = $request->input('email');
+            $normalized = is_string($email) ? Str::lower(trim($email)) : '';
+            $peerAddress = $request->server->get('REMOTE_ADDR');
+            $ipKey = is_string($peerAddress) ? hash('sha256', $peerAddress) : 'unknown';
+
+            return [
+                Limit::perMinute(5)->by('node-operator:'.hash('sha256', $normalized).'|'.$ipKey),
+                Limit::perMinute(30)->by('node-operator-ip:'.$ipKey),
+            ];
+        });
+
         RateLimiter::for('student-email', function (Request $request) {
             $email = $request->input('email');
             $normalized = is_string($email) ? Str::lower(trim($email)) : '';

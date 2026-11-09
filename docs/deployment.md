@@ -282,6 +282,7 @@ APP_URL=https://node-1.example.edu
 INGRESS_RUNTIME=node
 INGRESS_DEMO_MODE=false
 INGRESS_NODE_ID=node-1
+INGRESS_OPERATOR_ALLOWED_CIDRS=127.0.0.1/32,::1/128
 INGRESS_NODE_SYNC_KEY=SECRET_FROM_CLOUD_NODE_REGISTRATION
 INGRESS_CLOUD_SYNC_URL=https://ingress-pp2u.onrender.com/api/v1
 INGRESS_AUTHORITY_PUBLIC_KEY=BASE64_CLOUD_AUTHORITY_PUBLIC_KEY
@@ -293,8 +294,10 @@ DB_USERNAME=ingress_node_1
 DB_PASSWORD=REPLACE_WITH_NODE_DATABASE_PASSWORD
 DB_SSLMODE=disable
 SESSION_SECURE_COOKIE=true
+SESSION_HTTP_ONLY=true
 SESSION_ENCRYPT=true
 SESSION_DRIVER=database
+SESSION_SAME_SITE=strict
 CACHE_STORE=database
 APP_MAINTENANCE_DRIVER=cache
 APP_MAINTENANCE_STORE=database
@@ -449,6 +452,7 @@ APP_KEY=base64:GENERATED_NODE_KEY
 INGRESS_RUNTIME=node
 INGRESS_DEMO_MODE=false
 INGRESS_NODE_ID=node-1
+INGRESS_OPERATOR_ALLOWED_CIDRS=127.0.0.1/32,::1/128
 INGRESS_NODE_SYNC_KEY=SECRET_FROM_CLOUD_NODE_REGISTRATION
 INGRESS_CLOUD_SYNC_URL=https://ingress-pp2u.onrender.com/api/v1
 INGRESS_AUTHORITY_PUBLIC_KEY=BASE64_CLOUD_AUTHORITY_PUBLIC_KEY
@@ -461,8 +465,10 @@ DB_USERNAME=ingress_node_1
 DB_PASSWORD=REPLACE_WITH_SECRET
 
 SESSION_SECURE_COOKIE=true
+SESSION_HTTP_ONLY=true
 SESSION_ENCRYPT=true
 SESSION_DRIVER=database
+SESSION_SAME_SITE=strict
 CACHE_STORE=database
 APP_MAINTENANCE_DRIVER=cache
 APP_MAINTENANCE_STORE=database
@@ -470,6 +476,14 @@ TRUSTED_PROXIES=
 ```
 
 Replace `node-1.example.edu` with the node's real campus DNS name and use a certificate valid for that name.
+
+After migrations finish, create the initial browser operator from the node's trusted local shell:
+
+```bash
+php artisan ingress:node-operator:create
+```
+
+The command is available only when `INGRESS_RUNTIME=node` and the database is bound to this node ID. It prompts for the operator name and email, then hides and confirms the password. Do not put the password in a command argument or shell history. Open `https://node-1.example.edu/node/operator` after replacing the example hostname. This console exists only on the Event Node. By default, it accepts loopback connections. If the browser is on another computer, set `INGRESS_OPERATOR_ALLOWED_CIDRS` to that computer's exact trusted address or a narrow management subnet, then rebuild Laravel's config cache and restart the web service. A browser on the Event Node using a hostname that resolves to its LAN address may also need that local interface address as a `/32`, or a local hosts entry mapping the same certificate hostname to `127.0.0.1`. Keep the venue firewall restricted to trusted operator devices. Do not use a public or attendee subnet. The application checks the socket peer and never grants access from `X-Forwarded-For` or the request host. The console requires HTTPS, encrypted database sessions, strict secure cookies, and the PostgreSQL cache store.
 
 Set `INGRESS_NODE_ID` to the same ID registered by `register_render_node.ps1`. Copy the printed one-time sync key into the node's private `.env` and copy only the cloud authority **public** key. Keep `APP_DEBUG=false`, `INGRESS_DEMO_MODE=false`, `SESSION_DRIVER=database`, and `CACHE_STORE=database`. For direct IIS HTTPS, leave `TRUSTED_PROXIES` empty; trust a proxy only if one is installed between IIS and the phone, and then list that exact peer. Never set it to `*`.
 

@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Middleware\ApplySecurityHeaders;
+use App\Http\Middleware\EnsureNodeOperatorAuthenticated;
+use App\Http\Middleware\EnsureNodeOperatorEnvironment;
 use App\Http\Middleware\EnsureNodeStaffToken;
 use App\Http\Middleware\EnsureOrganizer;
 use App\Http\Middleware\EnsureRuntimeDatabase;
@@ -32,6 +34,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'organizer' => EnsureOrganizer::class,
             'staff' => EnsureStaff::class,
             'node.staff' => EnsureNodeStaffToken::class,
+            'node.operator.environment' => EnsureNodeOperatorEnvironment::class,
+            'node.operator.auth' => EnsureNodeOperatorAuthenticated::class,
             'runtime' => RequireRuntime::class,
         ]);
     })
@@ -43,11 +47,14 @@ return Application::configure(basePath: dirname(__DIR__))
         // A throttled browser login returns to the form with a readable message
         // instead of a bare 429 page. API clients keep the JSON 429.
         $exceptions->render(function (ThrottleRequestsException $e, Request $request) {
-            if ($request->expectsJson() || $request->is('api/*') || ! ($request->isMethod('post') && $request->is('login'))) {
+            $isBrowserLogin = $request->is('login') || $request->is('node/operator/login');
+            if ($request->expectsJson() || $request->is('api/*') || ! $request->isMethod('post') || ! $isBrowserLogin) {
                 return null;
             }
 
-            return redirect()->route('login')->withErrors([
+            $loginRoute = $request->is('node/operator/login') ? 'node.operator.login' : 'login';
+
+            return redirect()->to(route($loginRoute, absolute: false))->withErrors([
                 'email' => 'Too many login attempts. Please try again in a minute.',
             ])->onlyInput('email');
         });
