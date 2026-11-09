@@ -58,7 +58,7 @@ class RuntimeBoundaryTest extends TestCase
     public function test_database_rejects_a_different_runtime_or_node_identity(): void
     {
         config(['ingress.mode' => 'node', 'ingress.node_id' => 'node-1']);
-        $this->get('/login')->assertOk();
+        $this->get('/login')->assertStatus(503);
         config(['ingress.node_id' => 'node-2']);
         $this->get('/login')->assertStatus(503);
         config(['ingress.mode' => 'cloud']);

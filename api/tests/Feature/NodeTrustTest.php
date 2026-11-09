@@ -72,7 +72,7 @@ class NodeTrustTest extends TestCase
     public function test_node_bound_database_rejects_cloud_node_registration(): void
     {
         config(['ingress.mode' => 'node', 'ingress.node_id' => 'node-1']);
-        $this->get('/login')->assertOk();
+        $this->get('/login')->assertStatus(503);
         config(['ingress.mode' => 'cloud']);
         $this->assertSame(1, Artisan::call('ingress:register-node', ['node_id' => 'node-2']));
         $this->assertDatabaseCount('event_nodes', 0);

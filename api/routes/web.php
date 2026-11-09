@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\NodeOperatorConsoleController;
 use App\Http\Controllers\StudentEmailVerificationController;
 use App\Http\Controllers\Web\AuthController;
 use App\Http\Controllers\Web\GuestTicketController;
@@ -8,16 +9,36 @@ use App\Http\Controllers\Web\OrganizerEventController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
-    return redirect()->route('login');
+    if (config('ingress.mode') === 'node') {
+        return redirect()->to(route('node.operator.login', absolute: false));
+    }
+
+    return redirect()->to(route('login', absolute: false));
 });
 
 Route::get('/student/complete', [StudentEmailVerificationController::class, 'show'])->middleware('runtime:cloud');
 Route::post('/student/complete', [StudentEmailVerificationController::class, 'complete'])->middleware(['runtime:cloud', 'throttle:student-complete']);
 
-Route::get('/login', [AuthController::class, 'showLoginForm'])->name('login');
+Route::get('/login', [AuthController::class, 'showLoginForm'])->middleware('runtime:legacy,cloud')->name('login');
 Route::post('/login', [AuthController::class, 'login'])
+    ->middleware('runtime:legacy,cloud')
     ->middleware('throttle:login');
-Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
+Route::post('/logout', [AuthController::class, 'logout'])->middleware('runtime:legacy,cloud')->name('logout');
+
+Route::prefix('node/operator')->name('node.operator.')->middleware([
+    'runtime:node',
+    'node.operator.environment',
+])->group(function (): void {
+    Route::get('/login', [NodeOperatorConsoleController::class, 'showLogin'])->name('login');
+    Route::post('/login', [NodeOperatorConsoleController::class, 'login'])
+        ->middleware('throttle:node-operator-login')
+        ->name('login.store');
+
+    Route::middleware('node.operator.auth')->group(function (): void {
+        Route::get('/', [NodeOperatorConsoleController::class, 'dashboard'])->name('dashboard');
+        Route::post('/logout', [NodeOperatorConsoleController::class, 'logout'])->name('logout');
+    });
+});
 
 Route::middleware(['auth', 'organizer', 'runtime:legacy,cloud'])->prefix('organizer')->name('organizer.')->group(function () {
     Route::get('/dashboard', [OrganizerEventController::class, 'dashboard'])->name('dashboard');
