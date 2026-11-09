@@ -34,7 +34,10 @@ use App\Http\Controllers\StudentEmailVerificationController;
 use App\Http\Middleware\EnsureRuntimeDatabase;
 use App\Models\TicketTransfer;
 use App\Models\User;
+use App\Support\CloudOperatorDatabase;
+use App\Support\PostgresAdvisoryMigrationLock;
 use Illuminate\Contracts\Console\Kernel;
+use Illuminate\Database\Connection;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Artisan;
@@ -166,6 +169,26 @@ try {
         $emit(['ok' => $result['http_code'] === 200, 'http_code' => $result['http_code'], 'status' => $result['status']]);
     } elseif ($mode === 'register_node') {
         config(['ingress.mode' => 'cloud']);
+        $cloudDatabase = new class extends CloudOperatorDatabase
+        {
+            public function __construct() {}
+
+            public function configurationErrors(): array
+            {
+                return [];
+            }
+
+            public function connection(): Connection
+            {
+                return DB::connection();
+            }
+
+            public function runLocked(Connection $connection, callable $operation): bool
+            {
+                return app(PostgresAdvisoryMigrationLock::class)->run($connection, $operation, 30);
+            }
+        };
+        app()->instance(CloudOperatorDatabase::class, $cloudDatabase);
         $exitCode = Artisan::call('ingress:register-node', ['node_id' => $payload['node_id']]);
         $output = Artisan::output();
         $emit(['ok' => $exitCode === 0, 'key_shown' => str_contains($output, 'INGRESS_NODE_SYNC_KEY=')]);

@@ -1180,6 +1180,7 @@ echo "\n";
 // =============================================================================
 echo "CASE N: concurrent registration of one node\n";
 DB::table('runtime_identity')->delete();
+DB::table('runtime_identity')->insert(['id' => 1, 'mode' => 'cloud', 'identity' => 'cloud']);
 $nodeJobs = [
     ['register_node', ['node_id' => 'registered-race-node']],
     ['register_node', ['node_id' => 'registered-race-node']],
