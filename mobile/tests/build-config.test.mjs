@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 
 const require = createRequire(import.meta.url);
 const appJson = require('../app.json');
 const easJson = require('../eas.json');
 const resolveAppConfig = require('../app.config.js');
+const mobileEnvironmentExample = readFileSync(new URL('../.env.example', import.meta.url), 'utf8');
 const environmentKeys = [
   'EXPO_PUBLIC_API_URL',
   'EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE',
@@ -73,6 +75,10 @@ test('EAS profiles explicitly select safe environments and Android artifact type
   }
 });
 
+test('mobile environment example targets the current Render staging API', () => {
+  assert.match(mobileEnvironmentExample, /^EXPO_PUBLIC_API_URL=https:\/\/ingress-pp2u\.onrender\.com\/api\/v1$/m);
+});
+
 test('release config rejects missing, insecure, placeholder, and incomplete cloud API URLs', () => {
   const invalidUrls = [
     undefined,
@@ -91,7 +97,7 @@ test('release config rejects missing, insecure, placeholder, and incomplete clou
 test('release config accepts the HTTPS cloud API and keeps local HTTP disabled', () => {
   const config = withEnvironment({
     ...secureReleaseEnvironment,
-    EXPO_PUBLIC_API_URL: 'https://ingress.staging.example.org/api/v1',
+    EXPO_PUBLIC_API_URL: 'https://ingress-pp2u.onrender.com/api/v1',
   }, () => resolveAppConfig({ config: appJson.expo }));
   const buildProperties = config.plugins.find((plugin) => Array.isArray(plugin) && plugin[0] === 'expo-build-properties');
 
@@ -108,7 +114,7 @@ test('release config rejects local HTTP or demo credential overrides', () => {
   ]) {
     assert.throws(() => withEnvironment({
       ...secureReleaseEnvironment,
-      EXPO_PUBLIC_API_URL: 'https://ingress.staging.example.org/api/v1',
+      EXPO_PUBLIC_API_URL: 'https://ingress-pp2u.onrender.com/api/v1',
       ...override,
     }, () => resolveAppConfig({ config: appJson.expo })), /disable local HTTP and demo credentials/);
   }
