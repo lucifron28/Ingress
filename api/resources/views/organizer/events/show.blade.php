@@ -161,7 +161,7 @@
     @if (auth()->user()->can('update', $event))
         <section class="card" style="grid-column: 1 / -1;">
             <h2>Ticket transfer history</h2>
-            <p>{{ $event->ticket_transfers_allowed ? 'Transfers are enabled until the event snapshot is prepared.' : 'Transfers are disabled.' }} History is paginated at 100 requests.</p>
+            <p>Student transfers require the event flag, a published event before its end time, and no prepared admission snapshot. History is paginated at 100 requests.</p>
             @forelse ($ticketTransfers as $transfer)
                 <p>{{ $transfer->ticket_public_id }} &middot; {{ $transfer->from_name }} ({{ $transfer->from_email }}) &rarr; {{ $transfer->recipient_name }} ({{ $transfer->recipient_email }}) &middot; {{ ucfirst($transfer->status) }} &middot; Requested {{ $transfer->requested_at->format('M d, Y h:i A') }}
                     @if ($transfer->accepted_at) &middot; Accepted {{ $transfer->accepted_at->format('M d, Y h:i A') }} @endif

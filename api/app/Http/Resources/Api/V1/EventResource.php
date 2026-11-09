@@ -55,7 +55,7 @@ class EventResource extends JsonResource
             'starts_at' => $this->starts_at?->toISOString(),
             'ends_at' => $this->ends_at?->toISOString(),
             'status' => $this->status,
-            'ticket_transfers_allowed' => (bool) $this->ticket_transfers_allowed && $this->snapshot_prepared_at === null,
+            'ticket_transfers_allowed' => $this->canTransferTickets(),
             'is_user_registered' => $isUserRegistered,
             'user_ticket' => $userTicket,
         ];

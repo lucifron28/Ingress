@@ -200,7 +200,7 @@ class TicketTransferController extends Controller
         if (config('ingress.mode') === 'node') {
             throw ValidationException::withMessages(['transfer' => 'Ticket transfers are available only on the cloud.']);
         }
-        if (! $event->isPublished() || ! $event->ticket_transfers_allowed || $event->snapshot_prepared_at !== null) {
+        if (! $event->canTransferTickets()) {
             throw ValidationException::withMessages(['transfer' => 'Ticket transfers are not available for this event.']);
         }
     }

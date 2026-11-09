@@ -277,7 +277,7 @@ class TicketTransferTest extends TestCase
 
     public function test_registration_cutoff_does_not_close_transfers_but_snapshot_preparation_does(): void
     {
-        $this->event->update(['registration_closed_at' => now()]);
+        $this->event->update(['registration_closed_at' => now(), 'registration_closes_at' => now()->subSecond()]);
         $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/tickets/{$this->ticket->id}/transfers", [
             'recipient' => $this->recipient->email,
         ])->assertCreated();
@@ -295,6 +295,35 @@ class TicketTransferTest extends TestCase
         $this->actingAs($this->recipient, 'sanctum')
             ->postJson("/api/v1/ticket-transfers/{$transferId}/accept")->assertUnprocessable();
         $this->assertDatabaseHas('registrations', ['id' => $this->ticket->registration_id, 'user_id' => $this->sender->id]);
+    }
+
+    public function test_transfer_request_and_accept_are_rejected_at_or_after_event_end(): void
+    {
+        $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/tickets/{$this->ticket->id}/transfers", [
+            'recipient' => $this->recipient->email,
+        ])->assertCreated();
+        $transferId = TicketTransfer::firstOrFail()->id;
+        $eventEnd = $this->event->ends_at->copy();
+
+        Carbon::setTestNow($eventEnd);
+        try {
+            $this->actingAs($this->sender, 'sanctum')->getJson("/api/v1/tickets/{$this->ticket->id}")
+                ->assertOk()->assertJsonPath('ticket.event.ticket_transfers_allowed', false);
+            $this->actingAs($this->recipient, 'sanctum')
+                ->postJson("/api/v1/ticket-transfers/{$transferId}/accept")->assertUnprocessable();
+            $this->assertDatabaseHas('ticket_transfers', ['id' => $transferId, 'status' => TicketTransfer::STATUS_PENDING]);
+            $this->assertDatabaseHas('registrations', ['id' => $this->ticket->registration_id, 'user_id' => $this->sender->id]);
+
+            $this->actingAs($this->sender, 'sanctum')->deleteJson("/api/v1/ticket-transfers/{$transferId}")->assertOk();
+            Carbon::setTestNow($eventEnd->copy()->addSecond());
+            $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/tickets/{$this->ticket->id}/transfers", [
+                'recipient' => $this->recipient->email,
+            ])->assertUnprocessable();
+            $this->assertDatabaseHas('ticket_transfers', ['id' => $transferId, 'status' => TicketTransfer::STATUS_CANCELLED]);
+            $this->assertDatabaseCount('ticket_transfers', 1);
+        } finally {
+            Carbon::setTestNow();
+        }
     }
 
     public function test_organizer_event_page_shows_transfer_audit_history(): void
