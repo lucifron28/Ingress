@@ -434,7 +434,7 @@ Previously synchronized ticket remains viewable offline.
 The app cannot invent a ticket. The attendee needs connectivity or event staff assistance.
 
 ### Student reinstalls the app at the venue
-Ticket recovery requires connectivity to the cloud unless a separate recovery process is introduced later.
+The attendee app cannot recover a ticket while offline. Assigned staff can recover an active walk-in pass on the authoritative Event Node without public internet, but they must verify the attendee in person under the event's approved identity procedure. Email alone is not proof of identity.
 
 ### Cloud is unavailable during admission
 Scanning and walk-in registration continue as long as the Event Node and venue LAN are operating.
@@ -490,6 +490,8 @@ Organizers can issue guest and alumni passes before registration closes. The att
 The attendee type is stored with the registration, so the organizer report can distinguish student accounts, guests, and alumni without inferring identity from an email domain. Guest and alumni tickets use the same opaque credential and Event Node validation pipeline as student tickets.
 
 Node staff can issue student, guest, or alumni walk-in passes after authority activation. The node checks capacity and existing event registrations before creating the pass. A student number entered for a walk-in remains self reported.
+
+Assigned staff can recover an active walk-in pass on the Event Node while the venue LAN is available, including when public internet is down. Staff must verify the attendee in person under the event's approved identity procedure, then select `lost`, `damaged or unreadable`, or `pass not received`. The recovery stores the staff member, time, attestation, and reason on the node and syncs them to the organizer history when cloud connectivity returns. The returned QR is a bearer credential, so staff must hand it directly to the attendee. Do not collect identity document numbers or copies. If identity cannot be verified, do not recover the pass. Recovery does not admit the attendee; admission still requires the normal scan and confirmation.
 
 Paid ticket flows, automatic guest email delivery, and photo collection are not implemented. Email verification for student signup proves control of the institutional address, not student number ownership or current enrollment.
 

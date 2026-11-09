@@ -513,7 +513,7 @@ class SnapshotTransferTest extends TestCase
                 'client_request_id' => (string) Str::uuid(), 'name' => 'Walk In', 'email' => 'walkin@example.test', 'kind' => 'guest',
             ])->assertOk()->json();
             $this->withToken($staffToken)->postJson("/api/v1/staff/events/{$localId}/walk-ins/recover", [
-                'email' => 'walkin@example.test',
+                'email' => 'walkin@example.test', 'identity_verified' => true, 'reason' => 'lost',
             ])->assertOk()->assertJsonPath('qr_payload', $walkIn['qr_payload']);
             $this->assertNull(app(SyncWalkInRecovery::class)->prepare($event->id));
             $this->withToken($staffToken)->postJson("/api/v1/staff/events/{$localId}/admissions", [
@@ -552,6 +552,10 @@ class SnapshotTransferTest extends TestCase
             config(['ingress.mode' => 'cloud', 'ingress.node_id' => null, 'ingress.node_sync_key' => null]);
             $recoveryReceipt = $this->call('POST', '/api/v1/node-sync/walk-in-recoveries', [], [], [], $headers, $recovery['package'])->assertOk()->json();
             $this->call('POST', '/api/v1/node-sync/walk-in-recoveries', [], [], [], $headers, $recovery['package'])->assertOk()->assertExactJson($recoveryReceipt);
+            $this->assertDatabaseHas('cloud_walk_in_recoveries', [
+                'node_id' => 'node-1', 'node_recovery_id' => $recovery['recovery_id'], 'recovered_by_user_id' => $cloudStaffId,
+                'identity_verified' => true, 'reason' => 'lost',
+            ]);
             $badRecovery = json_decode(app(AdmissionSyncEnvelope::class)->open($recovery['package'], $secret), true, 8, JSON_THROW_ON_ERROR);
             $badRecovery['staff_id'] = $owner->id;
             $badRecoveryPackage = app(AdmissionSyncEnvelope::class)->seal(json_encode($badRecovery, JSON_THROW_ON_ERROR), $secret);
@@ -559,7 +563,8 @@ class SnapshotTransferTest extends TestCase
             $this->assertDatabaseCount('cloud_walk_in_recoveries', 1);
             $this->actingAs($owner)->get("/organizer/events/{$event->id}")->assertOk()
                 ->assertSee('Recent walk-in pass recoveries')->assertSee($walkIn['public_id'])
-                ->assertSee(DB::table('users')->where('id', $cloudStaffId)->value('name'));
+                ->assertSee(DB::table('users')->where('id', $cloudStaffId)->value('name'))
+                ->assertSee('Identity verified in person')->assertSee('Lost');
             $originalHash = DB::table('tickets')->where('id', $walkInReceipt['ticket_id'])->value('qr_hash');
             DB::table('tickets')->where('id', $walkInReceipt['ticket_id'])->update(['qr_hash' => str_repeat('0', 64)]);
             $this->call('POST', '/api/v1/node-sync/admissions', [], [], [], $headers, $walkInAdmission['package'])->assertStatus(422);
@@ -578,6 +583,49 @@ class SnapshotTransferTest extends TestCase
             }
             app(SyncWalkInRecovery::class)->acknowledge($event->id, $recoveryReceipt['recovery_id'], $recoveryReceipt['receipt']);
             $this->assertNull(app(SyncWalkInRecovery::class)->prepare($event->id));
+
+            $nodeStaffId = DB::table('node_import_ids')->where('kind', 'user')->where('cloud_id', $cloudStaffId)->value('local_id');
+            $nodeIssuanceId = DB::table('node_walk_in_issuances')->where('event_id', $localId)->value('id');
+            $legacyRecoveryId = DB::table('node_walk_in_recoveries')->insertGetId([
+                'issuance_id' => $nodeIssuanceId, 'recovered_by_user_id' => $nodeStaffId, 'recovered_at' => now(),
+                'identity_verified' => false, 'reason' => 'legacy',
+            ]);
+            $legacyCurrent = app(SyncWalkInRecovery::class)->prepare($event->id);
+            $legacyData = json_decode(app(AdmissionSyncEnvelope::class)->open($legacyCurrent['package'], $secret), true, 8, JSON_THROW_ON_ERROR);
+            $legacyData['schema_version'] = 1;
+            unset($legacyData['identity_verified'], $legacyData['reason']);
+            $legacyJson = json_encode($legacyData, JSON_THROW_ON_ERROR);
+            $legacyOldPackage = app(AdmissionSyncEnvelope::class)->seal($legacyJson, $secret);
+            DB::table('node_walk_in_recoveries')->where('id', $legacyRecoveryId)->update([
+                'sync_package_ciphertext' => Crypt::encryptString($legacyOldPackage), 'sync_payload_hash' => hash('sha256', $legacyJson),
+            ]);
+            $upgradedRecovery = app(SyncWalkInRecovery::class)->prepare($event->id);
+            $upgradedJson = app(AdmissionSyncEnvelope::class)->open($upgradedRecovery['package'], $secret);
+            $upgradedData = json_decode($upgradedJson, true, 8, JSON_THROW_ON_ERROR);
+            $this->assertSame(2, $upgradedData['schema_version']);
+            $this->assertFalse($upgradedData['identity_verified']);
+            $this->assertSame('legacy', $upgradedData['reason']);
+
+            DB::setDefaultConnection($cloudConnection);
+            Crypt::swap($cloudEncrypter);
+            config(['ingress.mode' => 'cloud', 'ingress.node_id' => null, 'ingress.node_sync_key' => null]);
+            DB::table('cloud_walk_in_recoveries')->insert([
+                'node_id' => 'node-1', 'node_recovery_id' => $legacyRecoveryId, 'issuance_id' => $upgradedData['issuance_id'],
+                'event_id' => $event->id, 'recovered_by_user_id' => $cloudStaffId, 'recovered_at' => $legacyData['recovered_at'],
+                'identity_verified' => false, 'reason' => 'legacy', 'payload_hash' => hash('sha256', $legacyJson), 'received_at' => now(),
+            ]);
+            $legacyReceipt = $this->call('POST', '/api/v1/node-sync/walk-in-recoveries', [], [], [], $headers, $upgradedRecovery['package'])
+                ->assertOk()->json();
+            $this->assertDatabaseHas('cloud_walk_in_recoveries', [
+                'node_id' => 'node-1', 'node_recovery_id' => $legacyRecoveryId, 'payload_hash' => hash('sha256', $upgradedJson),
+            ]);
+
+            DB::setDefaultConnection('authority_node');
+            Crypt::swap($nodeEncrypter);
+            config(['ingress.mode' => 'node', 'ingress.node_id' => 'node-1', 'ingress.node_sync_key' => $secret]);
+            app(SyncWalkInRecovery::class)->acknowledge($event->id, $legacyRecoveryId, $legacyReceipt['receipt']);
+            $this->assertNull(app(SyncWalkInRecovery::class)->prepare($event->id));
+
             app(AcknowledgeAdmissionBatch::class)->execute($event->id, $walkInAdmission['batch_id'], $walkInAdmissionReceipt);
             $this->assertDatabaseCount('node_synced_admissions', 6);
             DB::setDefaultConnection($cloudConnection);

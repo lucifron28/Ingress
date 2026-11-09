@@ -1851,10 +1851,10 @@ echo "\n";
 // =============================================================================
 echo "CASE AJ: concurrent cloud recovery audit delivery\n";
 $recoveryData = [
-    'schema_version' => 1, 'node_id' => 'sync-race-node', 'event_id' => $syncEvent->id,
+    'schema_version' => 2, 'node_id' => 'sync-race-node', 'event_id' => $syncEvent->id,
     'snapshot_id' => $syncSnapshotId, 'version' => (int) $syncSnapshot->version, 'snapshot_sha256' => $syncSnapshot->sha256,
     'recovery_id' => 1, 'issuance_id' => $walkInSync['issuance_id'], 'staff_id' => $syncStaff->id,
-    'recovered_at' => now()->utc()->toISOString(),
+    'recovered_at' => now()->utc()->toISOString(), 'identity_verified' => true, 'reason' => 'lost',
 ];
 $recoveryPackage = $syncEnvelope->seal(json_encode($recoveryData, JSON_THROW_ON_ERROR), $syncSecret);
 $recoveryDeliveries = $runConcurrently([
@@ -1864,6 +1864,8 @@ $recoveryDeliveries = $runConcurrently([
 $assert(($recoveryDeliveries[0]['ok'] ?? false) && ($recoveryDeliveries[1]['ok'] ?? false), 'both recovery deliveries succeeded');
 $assert(! empty($recoveryDeliveries[0]['receipt']) && $recoveryDeliveries[0]['receipt'] === ($recoveryDeliveries[1]['receipt'] ?? null), 'both deliveries returned the same recovery receipt');
 $assert(DB::table('cloud_walk_in_recoveries')->where('node_id', 'sync-race-node')->where('node_recovery_id', 1)->count() === 1, 'one cloud recovery audit record exists');
+$assert(DB::table('cloud_walk_in_recoveries')->where('node_id', 'sync-race-node')->where('node_recovery_id', 1)
+    ->where('identity_verified', true)->where('reason', 'lost')->exists(), 'recovery attestation and reason synchronized');
 echo "\n";
 
 // =============================================================================
@@ -1873,7 +1875,9 @@ echo "CASE AK: concurrent recovery package preparation\n";
 config(['ingress.mode' => 'node', 'ingress.node_id' => 'race-node', 'ingress.node_sync_key' => $nodeSecret,
     'ingress.authority_public_key' => $authorityPublic]);
 $recoveringStaff = User::findOrFail($nodeStaffId)->withAccessToken($walkInToken);
-app(RecoverNodeWalkIn::class)->execute($recoveringStaff, $nodeEventId, $replayJob['email']);
+app(RecoverNodeWalkIn::class)->execute($recoveringStaff, $nodeEventId, $replayJob['email'], 'lost', true);
+$assert(DB::table('node_walk_in_recoveries')->where('recovered_by_user_id', $nodeStaffId)
+    ->where('identity_verified', true)->where('reason', 'lost')->exists(), 'node recovery records staff attestation and reason');
 $assert(app(SyncWalkInRecovery::class)->prepare($nodePayload['event']['id']) === null, 'recovery waits for its issuance mapping');
 DB::table('node_walk_in_issuances')->where('client_request_id', $replayJob['request_id'])->update(['synced_at' => now()]);
 $recoveryJob = ['node_id' => 'race-node', 'secret' => $nodeSecret, 'public_key' => $authorityPublic, 'event_id' => $nodePayload['event']['id']];

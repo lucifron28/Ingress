@@ -9,9 +9,15 @@ import { useNodeStaff } from '../../src/context/NodeStaffContext';
 import { nodeRequest } from '../../src/services/node-session';
 
 type Kind = 'student' | 'guest' | 'alumni';
+type RecoveryReason = 'lost' | 'damaged' | 'not_received';
 type Request = { client_request_id: string; name: string; email: string; kind: Kind; student_id: string | null };
 type Pass = { public_id: string; qr_payload: string; attendee_name: string; student_id: string | null };
 type QrRef = { toDataURL: (callback: (data: string) => void) => void };
+const recoveryReasons: { value: RecoveryReason; label: string }[] = [
+  { value: 'lost', label: 'Lost' },
+  { value: 'damaged', label: 'Damaged or unreadable' },
+  { value: 'not_received', label: 'Pass not received' },
+];
 
 const options = { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY };
 const htmlEntities: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
@@ -25,6 +31,8 @@ export default function WalkInScreen() {
   const [studentId, setStudentId] = useState('');
   const [kind, setKind] = useState<Kind>('guest');
   const [recovering, setRecovering] = useState(false);
+  const [identityVerified, setIdentityVerified] = useState(false);
+  const [recoveryReason, setRecoveryReason] = useState<RecoveryReason | null>(null);
   const [storageKey, setStorageKey] = useState<string | null>(null);
   const [pending, setPending] = useState<Request | null>(null);
   const [pass, setPass] = useState<Pass | null>(null);
@@ -39,6 +47,9 @@ export default function WalkInScreen() {
     setStorageKey(null);
     setPending(null);
     setPass(null);
+    setRecovering(false);
+    setIdentityVerified(false);
+    setRecoveryReason(null);
     async function restore() {
       if (!session || !/^[1-9][0-9]*$/.test(eventId ?? '')) return;
       try {
@@ -96,13 +107,15 @@ export default function WalkInScreen() {
   };
 
   const recover = async () => {
-    if (!storageKey || !session || submitting.current || !email.trim()) return;
+    if (!storageKey || !session || submitting.current || !email.trim() || !identityVerified || !recoveryReason) return;
     submitting.current = true;
     setBusy(true);
     setError(null);
     try {
       const result = await nodeRequest<Pass>(`/staff/events/${eventId}/walk-ins/recover`, {
-        method: 'POST', body: JSON.stringify({ email: email.trim().toLowerCase() }),
+        method: 'POST', body: JSON.stringify({
+          email: email.trim().toLowerCase(), identity_verified: identityVerified, reason: recoveryReason,
+        }),
       });
       if (typeof result?.public_id !== 'string' || typeof result?.attendee_name !== 'string'
         || (result.student_id !== null && typeof result.student_id !== 'string')
@@ -123,7 +136,8 @@ export default function WalkInScreen() {
       if (!storageKey) return;
       try {
         await SecureStore.deleteItemAsync(storageKey, options);
-        setPending(null); setPass(null); setName(''); setEmail(''); setStudentId(''); setKind('guest'); setRecovering(false); setError(null);
+        setPending(null); setPass(null); setName(''); setEmail(''); setStudentId(''); setKind('guest'); setRecovering(false);
+        setIdentityVerified(false); setRecoveryReason(null); setError(null);
       } catch { setError('Could not clear the saved request.'); }
     } },
   ]);
@@ -165,10 +179,19 @@ export default function WalkInScreen() {
         </View>
       ) : recovering ? (
         <View>
-          <Text style={styles.label}>Attendee email</Text><TextInput style={styles.input} value={email} onChangeText={setEmail} maxLength={255} autoCapitalize="none" keyboardType="email-address" autoComplete="email" />
-          <Text style={styles.description}>Recovery is recorded in the event node audit history.</Text>
-          <Pressable accessibilityRole="button" style={styles.button} disabled={busy} onPress={recover}><Text style={styles.buttonText}>{busy ? 'Contacting node...' : 'Recover pass'}</Text></Pressable>
-          <Pressable accessibilityRole="button" style={styles.secondary} disabled={busy} onPress={() => { setRecovering(false); setError(null); }}><Text>Register a new attendee</Text></Pressable>
+          <Text style={styles.label}>Attendee email</Text><TextInput style={styles.input} value={email} onChangeText={(value) => { setEmail(value); setIdentityVerified(false); setRecoveryReason(null); }} maxLength={255} autoCapitalize="none" keyboardType="email-address" autoComplete="email" />
+          <Text style={styles.description}>Verify the attendee in person using the event&apos;s approved identity procedure. Do not enter identity document numbers or take copies. This attestation and the selected reason are recorded with your staff account and synced to the organizer.</Text>
+          <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: identityVerified }} style={[styles.attestation, identityVerified && styles.selected]} onPress={() => setIdentityVerified((checked) => !checked)}>
+            <Text style={identityVerified ? styles.buttonText : undefined}>I verified this attendee in person</Text>
+          </Pressable>
+          <Text style={styles.label}>Why does the attendee need another pass?</Text>
+          <View style={styles.reasons}>{recoveryReasons.map((reason) => (
+            <Pressable key={reason.value} accessibilityRole="radio" accessibilityState={{ checked: recoveryReason === reason.value }} style={[styles.choice, recoveryReason === reason.value && styles.selected]} onPress={() => setRecoveryReason(reason.value)}>
+              <Text style={recoveryReason === reason.value ? styles.buttonText : undefined}>{reason.label}</Text>
+            </Pressable>
+          ))}</View>
+          <Pressable accessibilityRole="button" style={[styles.button, (busy || !identityVerified || !recoveryReason) && styles.disabled]} disabled={busy || !identityVerified || !recoveryReason} onPress={recover}><Text style={styles.buttonText}>{busy ? 'Contacting node...' : 'Recover pass'}</Text></Pressable>
+          <Pressable accessibilityRole="button" style={styles.secondary} disabled={busy} onPress={() => { setRecovering(false); setIdentityVerified(false); setRecoveryReason(null); setError(null); }}><Text>Register a new attendee</Text></Pressable>
         </View>
       ) : (
         <View>
@@ -180,7 +203,7 @@ export default function WalkInScreen() {
           <Text style={styles.label}>Email</Text><TextInput style={styles.input} value={email} onChangeText={setEmail} maxLength={255} autoCapitalize="none" keyboardType="email-address" autoComplete="email" />
           {kind === 'student' && <><Text style={styles.label}>Student ID</Text><TextInput style={styles.input} value={studentId} onChangeText={setStudentId} maxLength={255} autoCapitalize="none" /></>}
           <Pressable accessibilityRole="button" style={styles.button} disabled={busy} onPress={submit}><Text style={styles.buttonText}>{busy ? 'Registering...' : 'Issue pass'}</Text></Pressable>
-          <Pressable accessibilityRole="button" style={styles.secondary} disabled={busy} onPress={() => { setRecovering(true); setError(null); }}><Text>Recover an existing walk-in pass</Text></Pressable>
+          <Pressable accessibilityRole="button" style={styles.secondary} disabled={busy} onPress={() => { setRecovering(true); setIdentityVerified(false); setRecoveryReason(null); setError(null); }}><Text>Recover an existing walk-in pass</Text></Pressable>
         </View>
       )}
     </ScrollView>
@@ -196,8 +219,11 @@ const styles = StyleSheet.create({
   input: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#94a3b8', borderRadius: 6, padding: 12, fontSize: 16 },
   row: { flexDirection: 'row', gap: 8 },
   choice: { flex: 1, alignItems: 'center', padding: 10, borderWidth: 1, borderColor: '#94a3b8', borderRadius: 6 },
+  attestation: { padding: 14, borderWidth: 1, borderColor: '#94a3b8', borderRadius: 6 },
+  reasons: { gap: 8 },
   selected: { backgroundColor: '#800000', borderColor: '#800000' },
   button: { backgroundColor: '#800000', padding: 14, borderRadius: 6, alignItems: 'center', marginTop: 18 },
+  disabled: { opacity: 0.55 },
   buttonText: { color: '#fff', fontWeight: '700' },
   secondary: { padding: 14, alignItems: 'center' },
   pass: { alignItems: 'center', gap: 16, backgroundColor: '#fff', padding: 20, borderRadius: 8 },

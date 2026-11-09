@@ -160,7 +160,20 @@ class OrganizerEventController extends Controller
                 ->join('tickets as ticket', 'ticket.id', '=', 'issuance.ticket_id')
                 ->join('users as staff', 'staff.id', '=', 'recovery.recovered_by_user_id')
                 ->where('recovery.event_id', $event->id)->orderByDesc('recovery.recovered_at')->limit(50)
-                ->get(['recovery.recovered_at', 'recovery.node_id', 'staff.name as staff_name', 'ticket.public_id']) : collect();
+                ->get(['recovery.recovered_at', 'recovery.node_id', 'recovery.identity_verified', 'recovery.reason',
+                    'staff.name as staff_name', 'ticket.public_id'])
+                ->map(function ($recovery) {
+                    $recovery->identity_label = $recovery->identity_verified
+                        ? 'Identity verified in person' : 'Legacy record, no identity attestation';
+                    $recovery->reason_label = match ($recovery->reason) {
+                        'lost' => 'Lost',
+                        'damaged' => 'Damaged or unreadable',
+                        'not_received' => 'Pass not received',
+                        default => 'Legacy reason not recorded',
+                    };
+
+                    return $recovery;
+                }) : collect();
         $receiptNodeId = null;
         $importReceiptNodeId = null;
         $authority = DB::table('cloud_event_authorities')->where('event_id', $event->id)->first();

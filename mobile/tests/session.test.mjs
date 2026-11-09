@@ -494,6 +494,22 @@ check(
     (staffEventsSource.match(/if \(!isCurrent\(\)\) return;/g) || []).length >= 2,
 );
 
+const walkInSource = fs.readFileSync(path.resolve('app/(staff)/walk-in.tsx'), 'utf-8');
+check(
+  'walk-in pass recovery sends the identity attestation and selected reason',
+  walkInSource.includes('identity_verified: identityVerified') && walkInSource.includes('reason: recoveryReason'),
+);
+check(
+  'walk-in recovery stays disabled until staff confirms identity and selects a reason',
+  walkInSource.includes('accessibilityRole="checkbox"') &&
+    /disabled=\{busy \|\| !identityVerified \|\| !recoveryReason\}/.test(walkInSource),
+);
+check(
+  'walk-in recovery explains in-person verification and limits reasons to the approved choices',
+  walkInSource.toLowerCase().includes('verify the attendee in person') &&
+    walkInSource.includes('Damaged or unreadable') && walkInSource.includes('Pass not received'),
+);
+
 const loginScreenSource = fs.readFileSync(path.resolve('app/node-staff-login.tsx'), 'utf-8');
 const resumeStart = nodeStaffContextSource.indexOf('const resume = async');
 const resumeEnd = nodeStaffContextSource.indexOf('const logout = async', resumeStart);

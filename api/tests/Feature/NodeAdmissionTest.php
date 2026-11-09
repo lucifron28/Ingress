@@ -210,17 +210,27 @@ class NodeAdmissionTest extends TestCase
     public function test_walk_in_pass_recovery_requires_authority_and_records_the_staff_member(): void
     {
         $url = "/api/v1/staff/events/{$this->eventId}/walk-ins";
-        $this->withToken($this->token)->postJson($url.'/recover', ['email' => 'walkin@example.test'])->assertForbidden();
+        $recovery = ['email' => 'walkin@example.test', 'identity_verified' => true, 'reason' => 'lost'];
+        $this->withToken($this->token)->postJson($url.'/recover', $recovery)->assertForbidden();
         app(ActivateEventAuthority::class)->execute($this->grant);
         $pass = $this->withToken($this->token)->postJson($url, [
             'client_request_id' => (string) Str::uuid(), 'name' => 'Walk In', 'email' => 'walkin@example.test',
             'kind' => 'student', 'student_id' => '456',
         ])->assertOk()->json();
-        $this->withToken($this->token)->postJson($url.'/recover', ['email' => 'WALKIN@example.test'])
+        $staffId = PersonalAccessToken::findToken($this->token)->tokenable_id;
+        $assignment = DB::table('event_staff')->where('event_id', $this->eventId)->where('user_id', $staffId)->first();
+        DB::table('event_staff')->where('event_id', $this->eventId)->where('user_id', $staffId)->delete();
+        $this->withToken($this->token)->postJson($url.'/recover', $recovery)->assertUnauthorized();
+        $this->assertDatabaseCount('node_walk_in_recoveries', 0);
+        DB::table('event_staff')->insert((array) $assignment);
+        $this->withToken($this->token)->postJson($url.'/recover', [...$recovery, 'identity_verified' => false])->assertStatus(422);
+        $this->withToken($this->token)->postJson($url.'/recover', [...$recovery, 'reason' => 'other'])->assertStatus(422);
+        $this->withToken($this->token)->postJson($url.'/recover', [...$recovery, 'email' => 'WALKIN@example.test'])
             ->assertOk()->assertHeader('Cache-Control', 'no-store, private')
             ->assertJsonPath('qr_payload', $pass['qr_payload'])->assertJsonPath('student_id', '456');
-        $staffId = PersonalAccessToken::findToken($this->token)->tokenable_id;
-        $this->assertDatabaseHas('node_walk_in_recoveries', ['recovered_by_user_id' => $staffId]);
+        $this->assertDatabaseHas('node_walk_in_recoveries', [
+            'recovered_by_user_id' => $staffId, 'identity_verified' => true, 'reason' => 'lost',
+        ]);
         $this->withToken($this->token)->postJson($url.'/recover', ['email' => 'missing@example.test'])->assertStatus(422);
         DB::table('tickets')->where('public_id', $pass['public_id'])->update(['status' => 'revoked']);
         $this->withToken($this->token)->postJson($url.'/recover', ['email' => 'walkin@example.test'])->assertStatus(422);
