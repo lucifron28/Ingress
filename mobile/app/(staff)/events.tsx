@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -35,28 +35,44 @@ export default function StaffEventsScreen() {
   const node = useNodeStaff();
   const user = node.active ? node.session?.user : cloud.user;
   const request = node.active ? nodeRequest : apiRequest;
+  const sessionIdentity = node.active && node.session
+    ? `node:${node.session.url}:${node.session.token}`
+    : `cloud:${cloud.token ?? ''}`;
+  const requestGeneration = useRef(0);
   const [events, setEvents] = useState<AssignedEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const fetchAssignedEvents = async () => {
+  const fetchAssignedEvents = useCallback(async (generation: number) => {
+    const isCurrent = () => generation === requestGeneration.current;
     try {
       setErrorMessage(null);
       const res = await request<{ events: AssignedEvent[] }>('/staff/events');
+      if (!isCurrent()) return;
       setEvents(res.events || []);
     } catch (err: unknown) {
+      if (!isCurrent()) return;
       const errorObj = err as { message?: string };
       setErrorMessage(errorObj?.message || 'Could not load assigned events.');
     } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
+      if (isCurrent()) {
+        setIsLoading(false);
+        setIsRefreshing(false);
+      }
     }
-  };
+  }, [request]);
 
   useEffect(() => {
-    fetchAssignedEvents();
-  }, []);
+    const generation = ++requestGeneration.current;
+    setEvents([]);
+    setErrorMessage(null);
+    setIsLoading(true);
+    void fetchAssignedEvents(generation);
+    return () => {
+      if (requestGeneration.current === generation) requestGeneration.current++;
+    };
+  }, [sessionIdentity, fetchAssignedEvents]);
 
   const handleSelectGate = (event: AssignedEvent, gateId: number, gateName: string) => {
     router.push({
@@ -142,7 +158,7 @@ export default function StaffEventsScreen() {
             refreshing={isRefreshing}
             onRefresh={() => {
               setIsRefreshing(true);
-              fetchAssignedEvents();
+              void fetchAssignedEvents(requestGeneration.current);
             }}
             colors={['#800000']}
           />

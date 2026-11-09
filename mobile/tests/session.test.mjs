@@ -66,6 +66,7 @@ export async function resolve(specifier, context, nextResolve) {
 register(LOADER, import.meta.url);
 
 const { AuthStorage, TicketWallet } = await import('../src/services/auth-storage.ts');
+const { INITIAL_NODE_STAFF_STATE, nodeStaffReducer } = await import('../src/services/node-staff-state.ts');
 const SecureStore = await import('expo-secure-store');
 const { Platform } = await import('react-native');
 const { canUseStaffEntry } = await import('../src/services/staff-access.ts');
@@ -445,6 +446,64 @@ check(
   scanScreenSource.includes('isAmbiguous') &&
     scanScreenSource.includes('confirmError') &&
     scanScreenSource.includes('pendingPreview.clientScanId'),
+);
+
+const nodeStaffContextSource = fs.readFileSync(path.resolve('src/context/NodeStaffContext.tsx'), 'utf-8');
+const nodeUnauthorizedHandler = nodeStaffContextSource.match(
+  /setNodeUnauthorizedHandler\(\(token\) => \{([\s\S]*?)\n    \}\);/,
+)?.[1] || '';
+check(
+  'a matching node 401 clears both the session and active mode',
+  nodeUnauthorizedHandler.includes("dispatch({ type: 'unauthorized', token })"),
+);
+check(
+  'a delayed node 401 leaves a newer session untouched',
+  nodeUnauthorizedHandler.indexOf('current.current?.token !== token') >= 0 &&
+    nodeUnauthorizedHandler.indexOf('current.current?.token !== token') < nodeUnauthorizedHandler.indexOf('current.current = null'),
+);
+const activeNodeState = {
+  session: { token: 'active-node-token', url: 'https://node.example/api/v1' },
+  active: true,
+};
+const unauthorizedNodeState = nodeStaffReducer(activeNodeState, {
+  type: 'unauthorized',
+  token: 'active-node-token',
+});
+check(
+  'a matching node 401 atomically clears the saved context state',
+  unauthorizedNodeState.session === null && unauthorizedNodeState.active === false,
+);
+const delayedUnauthorizedState = nodeStaffReducer(activeNodeState, {
+  type: 'unauthorized',
+  token: 'older-node-token',
+});
+check(
+  'the node state reducer ignores a delayed 401 for an older session',
+  delayedUnauthorizedState === activeNodeState && delayedUnauthorizedState.active,
+);
+
+const staffEventsSource = fs.readFileSync(path.resolve('app/(staff)/events.tsx'), 'utf-8');
+check(
+  'staff events refresh when the active session identity changes',
+  staffEventsSource.includes('sessionIdentity') &&
+    /useEffect\([\s\S]*?\}, \[sessionIdentity, fetchAssignedEvents\]\)/.test(staffEventsSource),
+);
+check(
+  'staff events ignore responses from a previous session',
+  staffEventsSource.includes('requestGeneration.current') &&
+    (staffEventsSource.match(/if \(!isCurrent\(\)\) return;/g) || []).length >= 2,
+);
+
+const loginScreenSource = fs.readFileSync(path.resolve('app/node-staff-login.tsx'), 'utf-8');
+const resumeStart = nodeStaffContextSource.indexOf('const resume = async');
+const resumeEnd = nodeStaffContextSource.indexOf('const logout = async', resumeStart);
+const resumeSource = nodeStaffContextSource.slice(resumeStart, resumeEnd);
+check(
+  'cached node staff session stays inactive until the user resumes online',
+  INITIAL_NODE_STAFF_STATE.active === false &&
+    loginScreenSource.includes('onPress={resume}') &&
+    resumeSource.indexOf("await nodeRequest<{ user: UserProfile }>('/me')") >= 0 &&
+    resumeSource.indexOf("await nodeRequest<{ user: UserProfile }>('/me')") < resumeSource.indexOf("dispatch({ type: 'activate', session: next })"),
 );
 
 
