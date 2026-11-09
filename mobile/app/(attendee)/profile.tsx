@@ -1,3 +1,4 @@
+import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import React from 'react';
 import {
@@ -93,7 +94,7 @@ export default function ProfileScreen() {
 
       <View style={styles.footer}>
         <Text style={styles.footerMotto}>"Pro Deo et Patria" &bull; For God and Country</Text>
-        <Text style={styles.footerVersion}>Ingress v1.0 (50% Milestone Build)</Text>
+        <Text style={styles.footerVersion}>Ingress v{Constants.expoConfig?.version ?? 'staging'}</Text>
       </View>
     </ScrollView>
   );
