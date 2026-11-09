@@ -190,9 +190,13 @@ class OrganizerAttendanceController extends Controller
             ->whereHas('ticket.registration', fn ($query) => $query
                 ->where('event_id', $event->id)->where('status', Registration::STATUS_CONFIRMED))->count();
         $reentries = max(0, $entryMovements - $checkedIn);
-        $enverganInside = (clone $confirmed)->where('attendee_type', 'student')
+        $enverganInside = (clone $confirmed)->where(fn ($query) => $query
+            ->where('attendee_type', 'student')
+            ->orWhere(fn ($walkIns) => $walkIns->where('attendee_type', 'walk_in')->where('walk_in_kind', 'student')))
             ->whereHas('ticket.latestAdmission', fn ($query) => $query->where('direction', Admission::DIRECTION_ENTRY))->count();
-        $externalInside = (clone $confirmed)->whereIn('attendee_type', ['guest', 'alumni'])
+        $externalInside = (clone $confirmed)->where(fn ($query) => $query
+            ->whereIn('attendee_type', ['guest', 'alumni'])
+            ->orWhere(fn ($walkIns) => $walkIns->where('attendee_type', 'walk_in')->whereIn('walk_in_kind', ['guest', 'alumni'])))
             ->whereHas('ticket.latestAdmission', fn ($query) => $query->where('direction', Admission::DIRECTION_ENTRY))->count();
         $percentage = $registered > 0 ? round(($checkedIn / $registered) * 100, 1) : 0.0;
 
