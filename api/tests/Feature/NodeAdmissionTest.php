@@ -10,8 +10,11 @@ use App\Actions\IssueNodeWalkIn;
 use App\Actions\PrepareAdmissionBatch;
 use App\Actions\ReceiveSnapshot;
 use App\Actions\SnapshotEnvelope;
+use App\Models\NodeOperator;
+use App\Support\NodeOperatorOperationsStatus;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
@@ -205,6 +208,178 @@ class NodeAdmissionTest extends TestCase
         $this->assertSame(1, Artisan::call('ingress:sync-admissions', ['event_id' => '10']));
         $this->assertDatabaseCount('node_synced_admissions', 1);
         $this->assertNull(DB::table('node_walk_in_issuances')->value('synced_at'));
+    }
+
+    public function test_operator_status_counts_pending_admissions_walk_ins_and_recoveries(): void
+    {
+        app(ActivateEventAuthority::class)->execute($this->grant);
+        config(['ingress.cloud_sync_url' => 'https://cloud.example/api/v1']);
+        $this->scan('', $this->gateId)->assertOk();
+        $walkInUrl = "/api/v1/staff/events/{$this->eventId}/walk-ins";
+        $this->withToken($this->token)->postJson($walkInUrl, [
+            'client_request_id' => (string) Str::uuid(),
+            'name' => 'Walk In',
+            'email' => 'walkin-ops@example.test',
+            'kind' => 'guest',
+        ])->assertOk();
+
+        $status = app(NodeOperatorOperationsStatus::class)->dashboard();
+        $this->assertTrue($status['events'][0]['authorityValid']);
+        $this->assertSame([
+            'admissions' => 1,
+            'walkIns' => 1,
+            'recoveries' => 0,
+        ], $status['events'][0]['local']);
+        $this->assertSame([
+            'admissions' => 1,
+            'walkIns' => 1,
+            'recoveries' => 0,
+            'total' => 2,
+        ], $status['events'][0]['pending']);
+        $this->assertNull($status['events'][0]['lastAcknowledgedAt']);
+
+        $acknowledgedAt = now()->subMinute()->startOfSecond();
+        DB::table('node_walk_in_issuances')->update(['synced_at' => $acknowledgedAt->copy()->subSeconds(30)]);
+        $this->withToken($this->token)->postJson($walkInUrl.'/recover', [
+            'email' => 'walkin-ops@example.test',
+            'identity_verified' => true,
+            'reason' => 'lost',
+        ])->assertOk();
+        $admissionId = (int) DB::table('admissions')->value('id');
+        DB::table('node_synced_admissions')->insert([
+            'admission_id' => $admissionId,
+            'batch_id' => (string) Str::uuid(),
+            'synced_at' => $acknowledgedAt,
+        ]);
+
+        $status = app(NodeOperatorOperationsStatus::class)->dashboard();
+        $this->assertSame([
+            'admissions' => 0,
+            'walkIns' => 0,
+            'recoveries' => 1,
+            'total' => 1,
+        ], $status['events'][0]['pending']);
+        $this->assertSame([
+            'admissions' => 1,
+            'walkIns' => 1,
+            'recoveries' => 1,
+        ], $status['events'][0]['local']);
+        $this->assertSame($acknowledgedAt->timestamp, $status['events'][0]['lastAcknowledgedAt']->timestamp);
+    }
+
+    public function test_single_pass_sync_uses_the_shared_scheduler_lock(): void
+    {
+        app(ActivateEventAuthority::class)->execute($this->grant);
+        $this->configureNodeOperatorConsole();
+        $this->scan('', $this->gateId)->assertOk();
+        Http::fake();
+        $operator = NodeOperator::factory()->create();
+        $schedulerLock = Cache::lock('ingress:sync-admissions', 600);
+        $this->assertTrue($schedulerLock->get());
+
+        try {
+            $this->assertSame(75, Artisan::call('ingress:sync-admissions', [
+                'event_id' => '10',
+                '--single-pass' => true,
+            ]));
+            Http::assertNothingSent();
+            $this->assertDatabaseCount('node_synced_admissions', 0);
+            $this->actingAs($operator, 'node_operator')
+                ->post("/node/operator/events/{$this->eventId}/sync")
+                ->assertRedirect('/node/operator')
+                ->assertSessionHas('syncStatus.kind', 'warning')
+                ->assertSessionHas('syncStatus.message', fn (string $message): bool => str_contains($message, 'already running'));
+            $this->assertSame('busy', app(NodeOperatorOperationsStatus::class)->dashboard()['events'][0]['lastSyncRun']['result']);
+            $this->assertDatabaseHas('node_operator_audits', [
+                'actor_id' => $operator->id,
+                'action' => 'sync.requested',
+                'affected_event_id' => $this->eventId,
+                'outcome' => 'busy',
+            ]);
+            Http::assertNothingSent();
+        } finally {
+            $schedulerLock->release();
+        }
+    }
+
+    public function test_operator_sync_posts_a_receipted_batch_and_records_the_result(): void
+    {
+        app(ActivateEventAuthority::class)->execute($this->grant);
+        $this->configureNodeOperatorConsole();
+        $this->scan('', $this->gateId)->assertOk();
+        $batch = app(PrepareAdmissionBatch::class)->execute(10);
+        $secret = config('ingress.node_sync_key');
+        $payload = app(AdmissionSyncEnvelope::class)->open($batch['package'], $secret);
+        $receipt = app(AdmissionSyncEnvelope::class)->receipt($batch['batch_id'], hash('sha256', $payload), $secret);
+        Http::fake([
+            'https://cloud.example/api/v1/node-sync/admissions' => Http::response([
+                'batch_id' => $batch['batch_id'],
+                'receipt' => $receipt,
+            ]),
+        ]);
+        $operator = NodeOperator::factory()->create();
+
+        $this->actingAs($operator, 'node_operator')
+            ->get('/node/operator')
+            ->assertOk()
+            ->assertSee('Run one bounded sync pass');
+        $this->actingAs($operator, 'node_operator')
+            ->post("/node/operator/events/{$this->eventId}/sync")
+            ->assertRedirect('/node/operator')
+            ->assertSessionHas('syncStatus.kind', 'success');
+
+        Http::assertSentCount(1);
+        $this->assertDatabaseCount('node_synced_admissions', 1);
+        $this->assertDatabaseHas('node_operator_audits', [
+            'actor_id' => $operator->id,
+            'action' => 'sync.requested',
+            'affected_event_id' => $this->eventId,
+            'outcome' => 'succeeded',
+        ]);
+        $status = app(NodeOperatorOperationsStatus::class)->dashboard();
+        $this->assertSame('succeeded', $status['events'][0]['lastSyncRun']['result']);
+        $this->assertNotNull($status['events'][0]['lastAcknowledgedAt']);
+        $this->assertSame(0, $status['events'][0]['pending']['total']);
+    }
+
+    public function test_operator_sync_failure_keeps_admissions_available_and_pending(): void
+    {
+        app(ActivateEventAuthority::class)->execute($this->grant);
+        $this->configureNodeOperatorConsole();
+        $this->scan('', $this->gateId)->assertOk();
+        Http::fake(['https://cloud.example/api/v1/node-sync/admissions' => Http::response([], 503)]);
+        $operator = NodeOperator::factory()->create();
+
+        $this->actingAs($operator, 'node_operator')
+            ->post("/node/operator/events/{$this->eventId}/sync")
+            ->assertRedirect('/node/operator')
+            ->assertSessionHas('syncStatus.kind', 'warning')
+            ->assertSessionHas('syncStatus.message', fn (string $message): bool => str_contains($message, 'Pending records remain on this node'));
+
+        Http::assertSent(fn ($request): bool => $request->url() === 'https://cloud.example/api/v1/node-sync/admissions');
+        $this->assertDatabaseCount('admissions', 1);
+        $this->assertDatabaseCount('node_synced_admissions', 0);
+        $this->assertDatabaseHas('node_operator_audits', [
+            'actor_id' => $operator->id,
+            'action' => 'sync.requested',
+            'affected_event_id' => $this->eventId,
+            'outcome' => 'failed',
+        ]);
+    }
+
+    private function configureNodeOperatorConsole(): void
+    {
+        config([
+            'app.url' => 'https://node.example.edu',
+            'ingress.cloud_sync_url' => 'https://cloud.example/api/v1',
+            'ingress.operator_allowed_cidrs' => ['127.0.0.1/32', '::1/128'],
+            'session.driver' => 'database',
+            'session.secure' => true,
+            'session.http_only' => true,
+            'session.encrypt' => true,
+            'session.same_site' => 'strict',
+            'cache.default' => 'database',
+        ]);
     }
 
     public function test_walk_in_pass_recovery_requires_authority_and_records_the_staff_member(): void

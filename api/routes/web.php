@@ -38,6 +38,8 @@ Route::prefix('node/operator')->name('node.operator.')->middleware([
 
     Route::middleware('node.operator.auth')->group(function (): void {
         Route::get('/', [NodeOperatorConsoleController::class, 'dashboard'])->name('dashboard');
+        Route::post('/events/{event}/sync', [NodeOperatorConsoleController::class, 'syncEvent'])
+            ->whereNumber('event')->middleware('throttle:node-operator-actions')->name('events.sync');
         Route::post('/logout', [NodeOperatorConsoleController::class, 'logout'])->name('logout');
 
         Route::get('/staff', [NodeOperatorStaffController::class, 'index'])->name('staff.index');
