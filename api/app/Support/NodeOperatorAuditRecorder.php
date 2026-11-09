@@ -58,8 +58,17 @@ class NodeOperatorAuditRecorder
         $this->record($operatorId, $action, $outcome, affectedEventId: $affectedEventId);
     }
 
+    public function recordSyncRun(int $operatorId, int $affectedEventId, string $outcome): void
+    {
+        if (! in_array($outcome, ['succeeded', 'failed', 'busy'], true)) {
+            throw new LogicException('Unsupported node operator audit event.');
+        }
+
+        $this->record($operatorId, 'sync.requested', $outcome, affectedEventId: $affectedEventId);
+    }
+
     private function record(
-        int $operatorId,
+        ?int $operatorId,
         string $action,
         string $outcome,
         ?int $affectedUserId = null,

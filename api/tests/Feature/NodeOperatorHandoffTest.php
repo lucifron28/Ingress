@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Actions\ActivateEventAuthority;
 use App\Actions\AuthorityGrant;
 use App\Actions\ImportReceivedSnapshot;
 use App\Actions\IssueImportReceipt;
@@ -11,6 +12,7 @@ use App\Models\NodeOperator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -39,6 +41,7 @@ class NodeOperatorHandoffTest extends TestCase
             'ingress.node_sync_key' => $this->transferKey,
             'ingress.authority_private_key' => $this->authoritySecretKey,
             'ingress.authority_public_key' => base64_encode(sodium_crypto_sign_publickey($keyPair)),
+            'ingress.cloud_sync_url' => 'https://cloud.example/api/v1',
             'ingress.operator_allowed_cidrs' => ['127.0.0.1/32', '::1/128'],
             'app.url' => 'https://node.example.edu',
             'session.driver' => 'database',
@@ -88,6 +91,69 @@ class NodeOperatorHandoffTest extends TestCase
         config(['ingress.mode' => 'cloud']);
         $this->get('/node/operator/handoff')->assertStatus(503);
         $this->assertDatabaseCount('node_event_authorities', 0);
+    }
+
+    public function test_operator_dashboard_shows_verified_status_and_no_sync_action_without_pending_records(): void
+    {
+        $eventId = $this->activateCurrentEvent();
+        DB::table('events')->where('id', $eventId)->update(['title' => '<script>alert(1)</script>']);
+        $operator = NodeOperator::factory()->create();
+
+        $response = $this->actingAs($operator, 'node_operator')
+            ->get('/node/operator')
+            ->assertOk()
+            ->assertSee('Node identity and event authority verified')
+            ->assertSee('Node ID')
+            ->assertSee('node-1')
+            ->assertSee('Snapshot version 1')
+            ->assertSee('Most recent acknowledged record')
+            ->assertSee('Last sync pass result')
+            ->assertSee('No pending records to send')
+            ->assertDontSee('Run one bounded sync pass')
+            ->assertSee('&lt;script&gt;alert(1)&lt;/script&gt;', false)
+            ->assertDontSee('<script>alert(1)</script>', false)
+            ->assertDontSee('test-payload-private')
+            ->assertHeader('X-Robots-Tag', 'noindex, nofollow');
+
+        $this->assertStringContainsString('no-store', $response->headers->get('Cache-Control'));
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('node_operator_audits', 0);
+    }
+
+    public function test_uncertain_authority_blocks_dashboard_sync_action(): void
+    {
+        $eventId = $this->activateCurrentEvent();
+        DB::table('node_event_authorities')->where('event_id', $eventId)->update(['grant' => 'tampered']);
+        $operator = NodeOperator::factory()->create();
+
+        $this->actingAs($operator, 'node_operator')
+            ->get('/node/operator')
+            ->assertOk()
+            ->assertSee('Stop all gates')
+            ->assertDontSee('Run one bounded sync pass');
+        $this->actingAs($operator, 'node_operator')
+            ->post("/node/operator/events/{$eventId}/sync")
+            ->assertStatus(409);
+        $this->assertDatabaseCount('node_operator_audits', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_non_https_node_url_disables_manual_sync(): void
+    {
+        $eventId = $this->activateCurrentEvent();
+        config(['app.url' => 'http://node.example.edu']);
+        $operator = NodeOperator::factory()->create();
+
+        $this->actingAs($operator, 'node_operator')
+            ->get('/node/operator')
+            ->assertOk()
+            ->assertSee('HTTPS URL not configured')
+            ->assertSee('Not safely configured')
+            ->assertDontSee('Run one bounded sync pass');
+        $this->actingAs($operator, 'node_operator')
+            ->post("/node/operator/events/{$eventId}/sync")
+            ->assertStatus(409);
+        Http::assertNothingSent();
     }
 
     public function test_snapshot_upload_uses_the_existing_receiver_and_returns_a_no_store_receipt(): void
@@ -387,6 +453,24 @@ class NodeOperatorHandoffTest extends TestCase
     {
         [$sealed] = $this->snapshotPackage();
         app(ReceiveSnapshot::class)->execute($sealed);
+    }
+
+    private function activateCurrentEvent(): int
+    {
+        $this->stageSnapshot();
+        $eventId = app(ImportReceivedSnapshot::class)->execute(10);
+        $import = DB::table('node_event_imports')->where('cloud_event_id', 10)->first();
+        $grant = app(AuthorityGrant::class)->sign([
+            'protocol' => 1,
+            'node_id' => 'node-1',
+            'snapshot_id' => $import->snapshot_id,
+            'event_id' => 10,
+            'version' => 1,
+            'sha256' => $import->sha256,
+        ]);
+        app(ActivateEventAuthority::class)->execute($grant);
+
+        return $eventId;
     }
 
     private function payload(): array

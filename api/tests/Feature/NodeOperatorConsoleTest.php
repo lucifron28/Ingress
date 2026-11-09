@@ -134,6 +134,23 @@ class NodeOperatorConsoleTest extends TestCase
         $this->assertStringContainsString('no-store', $response->headers->get('Cache-Control'));
     }
 
+    public function test_sync_action_requires_operator_authentication_and_is_rate_limited(): void
+    {
+        $this->configureNodeOperatorConsole();
+        $this->post('/node/operator/events/1/sync')->assertRedirect('/node/operator/login');
+        $operator = $this->createOperator();
+
+        for ($attempt = 0; $attempt < 30; $attempt++) {
+            $this->actingAs($operator, 'node_operator')
+                ->post('/node/operator/events/1/sync')
+                ->assertNotFound();
+        }
+
+        $this->actingAs($operator, 'node_operator')
+            ->post('/node/operator/events/1/sync')
+            ->assertStatus(429);
+    }
+
     public function test_inactive_operator_is_not_authorized_by_an_existing_session(): void
     {
         $this->configureNodeOperatorConsole();
