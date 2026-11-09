@@ -47,7 +47,12 @@ while [ "$attempt" -lt 15 ]; do
     done
 
     if [ "$directories_ready" = true ] && php -r "exit(@file_get_contents(\"http://127.0.0.1:\".getenv(\"PORT\").\"/build/manifest.json\") === false ? 1 : 0);"; then
-        echo "Nginx recreated all temporary directories and served the build manifest on PORT ${PORT}."
+        if ! php -r '$headers = @get_headers("http://127.0.0.1:".getenv("PORT")."/web.config"); exit(is_array($headers) && str_contains($headers[0], "404") ? 0 : 1);'; then
+            echo "Nginx exposed the Windows IIS configuration on PORT ${PORT}." >&2
+            exit 1
+        fi
+
+        echo "Nginx recreated all temporary directories, served the build manifest, and hid the IIS configuration on PORT ${PORT}."
         exit 0
     fi
 

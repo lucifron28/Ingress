@@ -19,43 +19,52 @@ For an Event Node failure after authority activation, stop all gates. Preserve t
 
 ## 1. Prepare the staging deployment
 
-1. Use a staging cloud runtime and one Event Node, each with its own fresh PostgreSQL 18 database, unique `APP_KEY`, and HTTPS URL. Do not reuse the legacy single-database demo or copy the cloud key to the node. Safe legacy database migration is not implemented.
-2. Configure the cloud with `INGRESS_RUNTIME=cloud`, `APP_DEBUG=false`, `INGRESS_DEMO_MODE=false`, a cloud-only authority private key, an exact CORS allowlist, and secure SMTP. Configure the node with `INGRESS_RUNTIME=node`, its own `APP_KEY`, a unique node ID, its node sync key, and only the authority public key. Follow [Deployment and Operations](deployment.md) and [Second-half architecture](second-half-architecture.md).
-3. Install a certificate chain trusted by the Android device for both the cloud and node URLs. The node certificate must cover the hostname the scanner will use. Keep the node database and web port on a protected network; attendee devices must not reach PostgreSQL.
-4. Configure the host scheduler to run Laravel's scheduler every minute on the node. Confirm the cloud health route and node API are reachable over HTTPS from the test network.
-5. Before using real attendee information, obtain an institution-approved retention schedule and operator-owned deletion procedure. Automatic snapshot and roster retention is not implemented. Use synthetic records until that policy exists.
-6. Prepare two synthetic events with two or more gates, staff assigned to specific gates, and a small capacity. Set one event to prohibit re-entry and the other to allow it. Enable the approved ID-check policy on one event. Finalize all policies before snapshot preparation. Prepare synthetic student, guest, alumni, and walk-in cases.
+1. Use the current Render cloud at `https://ingress-pp2u.onrender.com` and one Windows Event Node. Each runtime needs its own PostgreSQL 18 database and unique `APP_KEY`; never point the cloud and node at the same database. Do not reuse the legacy single-database demo. Safe legacy database migration is not implemented.
+2. Configure the cloud with `INGRESS_RUNTIME=cloud`, `APP_DEBUG=false`, `INGRESS_DEMO_MODE=false`, a cloud-only authority private key, an exact CORS allowlist if needed, and Resend's HTTPS API. Run `send_render_mail_test.ps1` to check delivery to the authorized `lucifron28@gmail.com` inbox while using Resend's shared development sender. That static message contains no verification link. Public student signup still requires `@student.mseuf.edu.ph` and an authorized sending domain/mailbox; Gmail is not an accepted student domain.
+3. Provision synthetic staging users through `provision_render_staging_account.ps1`. A synthetic student uses `@example.test` and an ID beginning `STAGE-`; its account remains unverified. It can test staging login, registration, ticket display, and wallet caching. It cannot exercise the student email-activation or verified-student ticket-transfer flow. Do not mark a real student verified to work around a missing sender domain.
+4. Configure one Windows Event Node using the IIS/FastCGI and PostgreSQL instructions in [Deployment and Operations](deployment.md#configure-a-windows-event-node). Use a stable campus DNS name, reserved LAN address, and a certificate trusted by every Android test phone. Restrict IIS HTTPS to the staff subnet and keep PostgreSQL bound to loopback; attendee devices must not reach it.
+5. Configure **Task Scheduler** to run Laravel's scheduler at startup and every minute. Confirm `/up` and the node API respond over HTTPS from staff Wi-Fi. Keep the venue LAN working when WAN is unavailable.
+6. Before using real attendee information, obtain an institution-approved retention schedule and operator-owned deletion procedure. Automatic snapshot and roster retention is not implemented. Use synthetic records until that policy exists.
+7. Prepare two synthetic events with two or more gates, staff assigned to specific gates, and a small capacity. Set one event to prohibit re-entry and the other to allow it. Enable the approved ID-check policy on one event. Finalize all policies before snapshot preparation. Prepare synthetic student, guest, alumni, and walk-in cases.
 
 ## 2. Build and install the Android preview APK
 
 The `preview` EAS profile creates an internal APK. The `production` profile creates a store AAB and is not the profile for direct device installation. Both profiles select an explicit EAS environment, disable demo credentials and local HTTP, and require a deployed HTTPS cloud API URL ending in `/api/v1`. `EXPO_PUBLIC_API_URL` is public client configuration, not a secret. Do not put credentials or private keys in any `EXPO_PUBLIC_` variable.
 
-In PowerShell, replace the sample host with the staging cloud URL, then configure the EAS `preview` environment and build:
+In PowerShell, configure the EAS `preview` environment with the current staging URL and build:
 
 ```powershell
 cd mobile
-$cloudApiUrl = "https://ingress-staging.your-domain.edu/api/v1"
+npx eas-cli@latest login
+$cloudApiUrl = "https://ingress-pp2u.onrender.com/api/v1"
 npx eas-cli@latest env:set --name EXPO_PUBLIC_API_URL --value $cloudApiUrl --environment preview --visibility plaintext
 npx eas-cli@latest env:list --environment preview
 npx eas-cli@latest build --platform android --profile preview
 ```
 
-Use the build link from EAS to download and install the APK on each test phone. Confirm the build commit and package ID `com.lucifron28.ingress`. In Android app settings, the scanner should need camera access; it should not need microphone, broad storage, or display-over-other-apps access. The first scanner visit should request camera permission. Denying it must leave scanning unavailable without affecting the attendee wallet.
+Download the APK from the EAS build page. With Android Platform Tools installed and USB debugging enabled, install it from PowerShell:
+
+```powershell
+adb devices
+adb install -r .\Ingress-preview.apk
+```
+
+Repeat on each test phone. Confirm the EAS build commit and package ID `com.lucifron28.ingress`. In Android app settings, the scanner should need camera access; it should not need microphone, broad storage, or display-over-other-apps access. The first scanner visit should request camera permission. Denying it must leave scanning unavailable without affecting the attendee wallet.
 
 Before a future store build, set the actual cloud URL in the EAS `production` environment and use `npx eas-cli@latest build --platform android --profile production`. The profile produces an AAB for a Play testing track; it is not a sideloadable APK. Expo's [EAS environment variable guide](https://docs.expo.dev/eas/environment-variables/) explains environment setup, and the [APK build guide](https://docs.expo.dev/build-reference/apk/) explains the internal APK profile.
 
 ## 3. Test student verification, registration, and the offline wallet
 
-1. Use a test mailbox that can receive a message at an `@student.mseuf.edu.ph` address. Request the single-use verification link, complete signup, and sign in. Confirm a non-institutional address is rejected, the link cannot be reused, and an expired link cannot create an account.
+1. If an authorized `@student.mseuf.edu.ph` mailbox and a verified sending domain are available, request the single-use verification link, complete signup, and sign in. Confirm a non-institutional address is rejected, the link cannot be reused, and an expired link cannot create an account. Until both are available, mark institutional activation pending; use only the synthetic operator-provisioned student for the non-email staging flow. Do not use the shared Resend development sender for student activation.
 2. Register for the synthetic event and confirm capacity decreases once. Open the ticket and confirm the QR remains a static opaque credential. Do not photograph or share the QR.
 3. Refresh the wallet while online, force-stop and reopen the app, and confirm the same cached ticket is displayed. Sign out and confirm the old account's wallet is no longer visible.
-4. If testing a transfer, have a second verified test account accept it before snapshot preparation. Confirm the recipient has the active ticket and the sender no longer has it. Automated backend checks cover rejection of the sender's rotated QR.
+4. Ticket transfer requires verified student accounts. If the institutional mailbox is not available, leave this device scenario pending; do not use the synthetic unverified student to bypass it. Automated backend checks cover rejection of the sender's rotated QR.
 5. Briefly disconnect WAN access while keeping the device on venue Wi-Fi. Confirm the saved ticket remains display-only and online registration actions fail closed. Restore internet access for cloud setup; later repeat the WAN outage during LAN admission testing.
 
 ## 4. Finalize the event and activate one Event Node
 
 1. Close registration from the cloud organizer page. Prepare the snapshot only after attendee, gate, staff, re-entry, and identity policies are final. Check the snapshot version and attendee count.
-2. Register the intended node on the cloud with `php artisan ingress:register-node NODE_ID`. Transfer the one-time node sync key to the node through a separate secure operator channel.
+2. Register the intended node from a trusted Windows checkout with `powershell -ExecutionPolicy Bypass -File .\api\scripts\register_render_node.ps1`. Transfer its one-time node sync key to the node through a separate secure operator channel.
 3. Transfer the encrypted snapshot through an approved secure channel. On the node, run `php artisan ingress:receive-snapshot PATH`, then return the staging receipt to the cloud organizer page.
 4. On the node, run `php artisan ingress:import-snapshot CLOUD_EVENT_ID`, then return the import receipt. Confirm the cloud shows both receipts for the intended node and snapshot version.
 5. Only after both receipts are accepted, download the signed authority grant and activate it on that node with `php artisan ingress:activate-event PATH`. Record the node ID and grant activation time. Do not issue another grant or activate a second node for this event.
@@ -72,7 +81,7 @@ If either receipt is missing or mismatched, do not activate authority. Before gr
 
 ## 6. Exercise offline admission across gates
 
-1. Connect the Event Node and all test phones to the venue Wi-Fi. Confirm the node URL resolves to the trusted HTTPS certificate. Verify client isolation is off for the staff VLAN and attendee devices cannot reach the node database.
+1. Connect the Event Node and all test phones to the staff Wi-Fi. Confirm the stable node DNS name resolves to the reserved LAN address and its HTTPS certificate is trusted. Verify client isolation is off for the staff subnet and attendee devices cannot reach the node database.
 2. Disconnect the router's WAN/internet connection while preserving the local Wi-Fi and Event Node. Confirm the staff app can still open the node event and the student app can still show its cached QR.
 3. Scan a ticket and stop at the preview screen. Cancel or back out and confirm no movement was recorded.
 4. Scan again and explicitly confirm entry. Scan the same ticket at the second gate; it must report already inside and create no second entry. Confirm the gate and staff shown in the response are correct.
@@ -111,7 +120,9 @@ Mark each row only after it has been run on the named devices. Record date, test
 | Test | Result | Evidence / notes |
 | --- | --- | --- |
 | APK installed; camera-only scanner permission | Pending | |
-| Institutional email, signup, registration, wallet restore | Pending | |
+| Resend static test message reaches authorized account-owner inbox | Pending | |
+| Institutional email signup and activation | Pending until verified sender domain and authorized mailbox | |
+| Synthetic student sign-in, registration, ticket display, wallet restore | Pending | |
 | Ticket transfer before finalization | Pending | |
 | Snapshot receipts and single-node authority activation | Pending | |
 | Staff pairing, session restore, and gate scoping | Pending | |

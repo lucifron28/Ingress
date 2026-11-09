@@ -167,6 +167,70 @@ This checklist checks the cloud service only. It does not establish physical-dev
 - Resend Free currently allows 3,000 emails per month, 100 per day, and 3 sending domains, with 30-day data retention. Check [Resend pricing](https://resend.com/pricing) before use.
 - The Render/Neon/Resend combination is suitable for preparing and evaluating the deployment. Render Free is not a production availability or data-retention guarantee. Choose paid or institution-managed service capacity before real event operations.
 
+## Configure a Windows Event Node
+
+The Windows Event Node can run directly on Windows without Docker. Use IIS with PHP FastCGI for the web process; do not expose Laravel's development server to the staff network. PHP's Windows guidance recommends a non-thread-safe build with FastCGI. Install PHP 8.4 NTS x64 with `php.exe` and `php-cgi.exe`, Composer, PostgreSQL 18, the IIS CGI feature, and the IIS URL Rewrite module. The checked-in [`api/public/web.config`](../api/public/web.config) disables directory listing, blocks hidden deployment paths, caps requests at 32 MiB, and routes Laravel requests to `index.php`; IIS needs URL Rewrite for that rule. See the [PHP IIS installation guide](https://www.php.net/manual/en/install.windows.iis.php) and [IIS FastCGI configuration](https://learn.microsoft.com/en-us/iis/configuration/system.webserver/fastcgi/).
+
+Unzip PHP to `C:\PHP`, add that directory to the system `PATH`, and create `php.ini` from the production template. In `php.ini`, set `extension_dir="ext"` and enable `mbstring`, `openssl`, `pdo_pgsql`, `sodium`, and `xmlwriter`. Then check both PHP entry points:
+
+```powershell
+$phpHome = 'C:\PHP'
+Copy-Item "$phpHome\php.ini-production" "$phpHome\php.ini"
+notepad "$phpHome\php.ini"
+& "$phpHome\php.exe" -m | Select-String '^(mbstring|openssl|pdo_pgsql|sodium|xmlwriter)$'
+& "$phpHome\php-cgi.exe" -v
+```
+
+Give the node a stable campus DNS name and reserve its LAN address in DHCP. Obtain a certificate whose DNS name matches the Event Node URL and whose root chain is trusted by every Android test phone. Import the certificate into the Windows Local Computer certificate store and bind only that hostname on HTTPS port 443 in IIS. Do not add an HTTP binding. If the school uses a private CA, install its root certificate on each test phone before testing; a self-signed leaf certificate will be rejected by release builds.
+
+Create a dedicated PostgreSQL role and database for this node. The commands below use the PostgreSQL 18 default port; adjust the port if the local service uses another one. Run `psql` as the database administrator, then enter the password at PostgreSQL's hidden prompt instead of putting it in a command or shell history:
+
+```powershell
+$pgBin = 'C:\Program Files\PostgreSQL\18\bin'
+& "$pgBin\psql.exe" -W -h 127.0.0.1 -p 5432 -U postgres -d postgres
+```
+
+At the `psql` prompt, run these once for the node:
+
+```sql
+CREATE ROLE ingress_node_1 LOGIN;
+\password ingress_node_1
+CREATE DATABASE ingress_node_1 OWNER ingress_node_1;
+\q
+```
+
+Keep PostgreSQL listening on loopback only (`listen_addresses = 'localhost'`) and do not open its port in Windows Firewall. Staff phones connect to IIS over HTTPS; only the Laravel process connects to PostgreSQL.
+
+Install the locked backend dependencies and prepare a private `.env` file from the repository checkout:
+
+```powershell
+cd C:\Ingress\api
+composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction
+Copy-Item .env.example .env
+php artisan key:generate
+notepad .env
+```
+
+Use a separate working copy for the node and never reuse the cloud or another node's `APP_KEY`. Fill in the node settings below, then run migrations and cache the application configuration:
+
+```powershell
+php artisan migrate --force
+php artisan config:cache
+php artisan route:cache
+php artisan view:cache
+```
+
+In IIS, create an application pool named `IngressNode` with **No Managed Code** and the `ApplicationPoolIdentity` identity. Set the site physical path to `C:\Ingress\api\public`, configure a FastCGI handler for `*.php` that calls `C:\PHP\php-cgi.exe`, install the URL Rewrite module, and add an HTTPS binding for the node DNS name with its trusted certificate. Grant `IIS AppPool\IngressNode` read/execute access to the application and modify access only to `api\storage` and `api\bootstrap\cache`. Use a separate least-privilege Windows service account for Task Scheduler. Give it read/execute access to the application, read access to `.env`, and modify access only to those same two writable directories; do not run it as an administrator. Do not make the repository root the IIS site root. Set PHP's `post_max_size` to `32M` and `upload_max_filesize` to `30M` to stay within the 32 MiB IIS request cap. Keep the IIS app pool set to start automatically.
+
+In an elevated PowerShell window, first confirm that no broader inbound rule already allows TCP port 443 for this host. Then allow HTTPS from the staff-device subnet. Replace the example subnet before running this rule, and keep Windows Firewall's inbound default set to block:
+
+```powershell
+$staffSubnet = '192.168.50.0/24'
+New-NetFirewallRule -DisplayName 'Ingress Event Node HTTPS' -Direction Inbound -Protocol TCP -LocalPort 443 -RemoteAddress $staffSubnet -Action Allow
+```
+
+Use a staff Wi-Fi network that can reach the reserved node address; disable client isolation for staff devices if it blocks phone-to-node traffic. Keep attendee and guest Wi-Fi separate. Do not open database port 5432 to either network.
+
 ## Configure an Event Node
 
 Give each Event Node a unique stable ID and its own PostgreSQL database. Configure independent values for `APP_KEY`, database credentials, and the node transfer secret:
@@ -180,7 +244,7 @@ INGRESS_RUNTIME=node
 INGRESS_DEMO_MODE=false
 INGRESS_NODE_ID=node-1
 INGRESS_NODE_SYNC_KEY=SECRET_FROM_CLOUD_NODE_REGISTRATION
-INGRESS_CLOUD_SYNC_URL=https://cloud.example.edu/api/v1
+INGRESS_CLOUD_SYNC_URL=https://ingress-pp2u.onrender.com/api/v1
 INGRESS_AUTHORITY_PUBLIC_KEY=BASE64_CLOUD_AUTHORITY_PUBLIC_KEY
 
 DB_CONNECTION=pgsql
@@ -192,11 +256,18 @@ DB_PASSWORD=REPLACE_WITH_SECRET
 
 SESSION_SECURE_COOKIE=true
 SESSION_ENCRYPT=true
-INGRESS_CORS_ALLOWED_ORIGINS=https://staff-app.example.edu
-TRUSTED_PROXIES=127.0.0.1
+SESSION_DRIVER=database
+CACHE_STORE=database
+APP_MAINTENANCE_DRIVER=cache
+APP_MAINTENANCE_STORE=database
+TRUSTED_PROXIES=
 ```
 
-Do not set the authority private key on a node. Register the node from the cloud with `php artisan ingress:register-node node-1`; transfer the printed secret to the node through a separate secure channel. The node secret authenticates snapshot transfer and attendance synchronization. Revoking it with `php artisan ingress:revoke-node node-1` blocks future synchronization, but does not stop offline admission or revoke an authority grant already issued. If the secret is exposed, isolate the node from scanners, revoke the cloud credential, and preserve the node database and logs. Do not treat key revocation as node deactivation.
+Replace `node-1.example.edu` with the node's real campus DNS name and use a certificate valid for that name.
+
+Set `INGRESS_NODE_ID` to the same ID registered by `register_render_node.ps1`. Copy the printed one-time sync key into the node's private `.env` and copy only the cloud authority **public** key. Keep `APP_DEBUG=false`, `INGRESS_DEMO_MODE=false`, `SESSION_DRIVER=database`, and `CACHE_STORE=database`. For direct IIS HTTPS, leave `TRUSTED_PROXIES` empty; trust a proxy only if one is installed between IIS and the phone, and then list that exact peer. Never set it to `*`.
+
+Do not set the authority private key on a node. Register it from a trusted Windows checkout with `powershell -ExecutionPolicy Bypass -File .\api\scripts\register_render_node.ps1`; transfer the one-time printed secret to the node through a separate secure channel. The node secret authenticates snapshot transfer and attendance synchronization. Revoking it with `php artisan ingress:revoke-node node-1` blocks future synchronization, but does not stop offline admission or revoke an authority grant already issued. If the secret is exposed, isolate the node from scanners, revoke the cloud credential, and preserve the node database and logs. Do not treat key revocation as node deactivation.
 
 Provision the node database by installing the current application release and applying migrations. Standard events keep their earlier snapshot schema and admission batch schema for compatibility. Snapshot schema version 4 carries ID-check policy, and admission batch schema version 3 carries each staff ID-check acknowledgment. Upgrade the cloud and Event Node before preparing or importing an event that requires ID checks. The application still reads older snapshot and admission batch versions for existing events.
 
@@ -220,24 +291,40 @@ When TLS terminates at a reverse proxy, configure only the trusted proxy peers a
 
 The mobile app uses Expo SDK 58 and React Native 0.88.1. The EAS `preview` profile creates an internal Android APK; `production` creates an Android App Bundle for store testing. Both release profiles require `EXPO_PUBLIC_API_URL` to contain the deployed cloud HTTPS API base URL ending in `/api/v1`. They reject the placeholder URL, HTTP, demo mode, and HTTP node access. The variable is public client configuration, so do not put credentials or private keys in it.
 
-Set the cloud URL in the matching EAS environment before building. EAS remote builds do not receive a local `.env` file. Replace the sample host with the staging cloud host:
+The staging cloud API is `https://ingress-pp2u.onrender.com/api/v1`. In Expo's project dashboard, add `EXPO_PUBLIC_API_URL` to the **preview** environment as a plain-text value with that URL, or set it from PowerShell. EAS remote builds do not receive the local `.env` file. The checked-in `mobile/eas.json` selects the `preview` environment, APK output, disabled demo credentials, and disabled HTTP access:
 
-```bash
+```powershell
 cd mobile
-eas env:set --name EXPO_PUBLIC_API_URL --value https://ingress-staging.example.edu/api/v1 --environment preview --visibility plaintext
-eas env:list --environment preview
-eas build --platform android --profile preview
+npx eas-cli@latest env:set --name EXPO_PUBLIC_API_URL --value https://ingress-pp2u.onrender.com/api/v1 --environment preview --visibility plaintext
+npx eas-cli@latest env:list --environment preview
+npx eas-cli@latest build --platform android --profile preview
 ```
 
-Before a store testing build, set the actual cloud URL in the EAS `production` environment and run `eas build --platform android --profile production`. Keep the URL limited to the cloud API. Staff pairing supplies the Event Node URL separately. See the [physical-device test plan](physical-device-test-plan.md), the [EAS environment variable guide](https://docs.expo.dev/eas/environment-variables/), and the [Android APK build guide](https://docs.expo.dev/build-reference/apk/).
+After EAS finishes, download the `.apk` from the build page. With Android Platform Tools installed and USB debugging enabled, use `adb devices` to confirm the phone is connected, then `adb install -r .\Ingress-preview.apk`. Repeat for each test phone. Keep the API URL limited to the cloud; staff pairing supplies the Event Node URL separately. Before a store build, configure the `production` EAS environment separately and use the production profile, which creates an Android App Bundle. See the [physical-device test plan](physical-device-test-plan.md), the [EAS environment variable guide](https://docs.expo.dev/eas/environment-variables/), and the [Android APK build guide](https://docs.expo.dev/build-reference/apk/).
 
 The app's native configuration disables cleartext HTTP by default. Staff devices must connect to an Event Node URL with a certificate they trust.
 
-For a local HTTP development server or Event Node, set `EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE=true` before starting Expo or generating the native app configuration, and point `EXPO_PUBLIC_API_URL` at the local server when needed. The mobile node client accepts HTTP only for localhost and private LAN hosts when this flag is enabled. Android's native cleartext allowance applies to the whole development build, so never include the flag in a production build. The checked-in `mobile/.env.example` uses a placeholder cloud origin and is not a production environment file.
+For a local HTTP development server or Event Node, set `EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE=true` before starting Expo or generating the native app configuration, and point `EXPO_PUBLIC_API_URL` at the local server when needed. The mobile node client accepts HTTP only for localhost and private LAN hosts when this flag is enabled. Android's native cleartext allowance applies to the whole development build, so never include the flag in a production build. The checked-in `mobile/.env.example` points to the current Render staging API; it contains no secrets.
 
 ## Run the node synchronization scheduler
 
-When `INGRESS_RUNTIME=node` and `INGRESS_CLOUD_SYNC_URL` are set, the application schedules `ingress:sync-admissions` once per minute. Configure the host scheduler to invoke Laravel's scheduler:
+When `INGRESS_RUNTIME=node` and `INGRESS_CLOUD_SYNC_URL` are set, the application schedules `ingress:sync-admissions` once per minute. On Windows, create a task in **Task Scheduler → Create Task** named `Ingress Laravel Scheduler`:
+
+1. Set the trigger to **At startup**, then repeat the task every **1 minute** with duration **Indefinitely**.
+2. Set the action's Program to the full path to `php.exe` (for example, `C:\PHP\php.exe`), arguments to `artisan schedule:run --no-interaction`, and **Start in** to `C:\Ingress\api`.
+3. Run it under the dedicated, non-administrator service account described above. Select **Run whether user is logged on or not**.
+4. In Settings, set **If the task is already running** to **Do not start a new instance**. Enable task history.
+
+Check the registered task and its last result with:
+
+```powershell
+Get-ScheduledTask -TaskName 'Ingress Laravel Scheduler'
+Get-ScheduledTaskInfo -TaskName 'Ingress Laravel Scheduler'
+```
+
+The task does not make the Event Node depend on public internet. It only retries cloud synchronization when the network is available. Laravel's scheduler lock prevents duplicate sync runs. Microsoft's [Task Scheduler repetition guide](https://learn.microsoft.com/en-us/windows/win32/taskschd/repeating-a-task) describes the repeat trigger behavior.
+
+For Linux Event Nodes, configure the host scheduler to invoke Laravel's scheduler:
 
 ```cron
 * * * * * cd /srv/ingress/api && php artisan schedule:run >> /dev/null 2>&1

@@ -163,7 +163,7 @@ php artisan serve --host=0.0.0.0 --port=8000
 ```
 Organizer portal available at: `http://localhost:8000/login`
 
-For cloud student signup, set `INGRESS_RUNTIME=cloud`, use a public HTTPS `APP_URL`, and configure a real mail transport and sender (for SMTP set `MAIL_SCHEME=smtps`). Outside local and testing, signup rejects HTTP and log or array mailers. Students request a link in the app and complete their account in a browser. The email proves address control; the student number is self-reported. See [the architecture notes](docs/second-half-architecture.md#institutional-student-account-activation) for configuration and limits.
+For cloud student signup, set `INGRESS_RUNTIME=cloud`, use a public HTTPS `APP_URL`, and configure Resend's HTTPS API with a verified sender domain. The shared `onboarding@resend.dev` sender can test static delivery only to the Resend account owner's inbox; it cannot activate student accounts. Outside local and testing, signup rejects HTTP and log or array mailers. Students request a single-use link and complete their account in a browser. The email proves address control; the student number is self-reported. See [the deployment guide](docs/deployment.md) and [architecture notes](docs/second-half-architecture.md#institutional-student-account-activation).
 
 ### 3. Run Backend Integration Tests
 The fast backend suite runs on in-memory SQLite:
@@ -250,12 +250,12 @@ npx expo start
 
 ### 5. Standalone Android APK build (EAS)
 
-To produce an installable standalone APK for physical Android devices that runs independently without Expo Go or the Metro development server:
+To produce an installable standalone APK for physical Android devices that runs independently without Expo Go or the Metro development server, set the EAS `preview` environment to the current staging API URL first:
 
 ```bash
 cd mobile
 npx eas-cli@latest login
-npx eas-cli@latest env:set --name EXPO_PUBLIC_API_URL --value https://ingress-staging.example.edu/api/v1 --environment preview --visibility plaintext
+npx eas-cli@latest env:set --name EXPO_PUBLIC_API_URL --value https://ingress-pp2u.onrender.com/api/v1 --environment preview --visibility plaintext
 npx eas-cli@latest env:list --environment preview
 npx eas-cli@latest build --platform android --profile preview
 ```
@@ -263,7 +263,7 @@ npx eas-cli@latest build --platform android --profile preview
 **Important Operational Notes:**
 - **Build Creation**: EAS Build compiles the native Android package in the cloud, so an internet connection is required while generating and downloading the APK.
 - **No Expo Go or Metro Dependency**: The resulting `.apk` embeds the JavaScript bundle. Once installed, it launches directly on Android without requiring Expo Go or a running Metro bundler.
-- **Attendee API**: Replace the sample host and set `EXPO_PUBLIC_API_URL` in the EAS `preview` environment before building. The release profile rejects a missing, placeholder, or non-HTTPS API URL. The attendee wallet can display tickets cached before the venue loses internet.
+- **Attendee API**: The preview build targets `https://ingress-pp2u.onrender.com/api/v1`. The release profile rejects a missing, placeholder, or non-HTTPS API URL. The attendee wallet can display tickets cached before the venue loses internet.
 - **Event Node access**: Staff pair with the local Event Node over venue Wi-Fi. The node must use HTTPS with a certificate trusted by the phone for production.
 - **Local HTTP development**: Set `EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE=true` before a local development build that connects to an HTTP node. The app accepts this only for localhost or private LAN addresses. Android applies its native cleartext allowance to the whole development build. Production builds must keep this flag false and use HTTPS.
 
