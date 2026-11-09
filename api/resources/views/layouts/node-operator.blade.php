@@ -29,6 +29,10 @@
         .staff-row form p { margin: 0 0 10px; }
         .staff-row form button { width: 100%; margin-top: 10px; }
         .secret { display: block; overflow-wrap: anywhere; padding: 14px; border-radius: 8px; background: #f2f5f7; font-size: 1.1rem; }
+        .handoff-row { margin-top: 16px; padding: 16px; border: 1px solid #dce4e7; border-radius: 10px; background: #fff; }
+        .handoff-row code, .receipt { overflow-wrap: anywhere; word-break: break-word; }
+        .receipt { width: 100%; min-height: 96px; padding: 12px; border: 1px solid #aebdc2; border-radius: 8px; font: .85rem ui-monospace, SFMono-Regular, Consolas, monospace; }
+        .warning { border-left: 4px solid #9a5b00; background: #fff8e8; }
         .qr-frame { display: grid; place-items: center; margin: 18px 0; padding: 14px; background: #fff; }
         .qr-frame img { display: block; width: min(100%, 360px); height: auto; image-rendering: pixelated; }
         @media (max-width: 480px) { body { padding: 16px; } .topline { align-items: flex-start; flex-direction: column; } }

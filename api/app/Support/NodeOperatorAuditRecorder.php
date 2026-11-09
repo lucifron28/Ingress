@@ -39,6 +39,25 @@ class NodeOperatorAuditRecorder
         $this->record($operatorId, $action, $outcome, $affectedUserId, $affectedEventId);
     }
 
+    public function recordEventAction(
+        int $operatorId,
+        string $action,
+        ?int $affectedEventId,
+        string $outcome = 'succeeded',
+    ): void {
+        $actions = [
+            'snapshot.received',
+            'snapshot.imported',
+            'authority.activated',
+        ];
+        $outcomes = ['succeeded', 'rejected'];
+        if (! in_array($action, $actions, true) || ! in_array($outcome, $outcomes, true)) {
+            throw new LogicException('Unsupported node operator audit event.');
+        }
+
+        $this->record($operatorId, $action, $outcome, affectedEventId: $affectedEventId);
+    }
+
     private function record(
         int $operatorId,
         string $action,

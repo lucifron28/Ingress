@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\NodeOperatorConsoleController;
+use App\Http\Controllers\NodeOperatorHandoffController;
 use App\Http\Controllers\NodeOperatorStaffController;
 use App\Http\Controllers\StudentEmailVerificationController;
 use App\Http\Controllers\Web\AuthController;
@@ -50,6 +51,14 @@ Route::prefix('node/operator')->name('node.operator.')->middleware([
             ->middleware('throttle:node-operator-actions')->name('staff.credential.rotate');
         Route::post('/events/{event}/staff/{staff}/credential/revoke', [NodeOperatorStaffController::class, 'revokeCredential'])
             ->middleware('throttle:node-operator-actions')->name('staff.credential.revoke');
+
+        Route::get('/handoff', [NodeOperatorHandoffController::class, 'index'])->name('handoff.index');
+        Route::post('/handoff/snapshot', [NodeOperatorHandoffController::class, 'receiveSnapshot'])
+            ->middleware('throttle:node-operator-actions')->name('handoff.snapshot.receive');
+        Route::post('/handoff/events/{cloudEventId}/import', [NodeOperatorHandoffController::class, 'importSnapshot'])
+            ->middleware('throttle:node-operator-actions')->name('handoff.snapshot.import');
+        Route::post('/handoff/events/{cloudEventId}/authority', [NodeOperatorHandoffController::class, 'activateAuthority'])
+            ->middleware('throttle:node-operator-actions')->name('handoff.authority.activate');
     });
 });
 

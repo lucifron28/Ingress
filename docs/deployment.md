@@ -225,6 +225,16 @@ npm --version
 
 Ingress requires `pdo_pgsql`, `sodium`, and `xmlwriter`; the commands above print those module names without displaying application secrets. Do not install a third-party PHP PPA. Ubuntu's PHP packages and the upstream [PHP version support policy](https://www.php.net/supported-versions.php) are the runtime source for this profile.
 
+The browser handoff accepts encrypted snapshot uploads up to 16 MiB. Configure PHP-FPM separately from the CLI so it can accept the upload; the matching Nginx profile allows a 32 MiB request body:
+
+```bash
+sudo tee /etc/php/8.5/fpm/conf.d/99-ingress-upload.ini >/dev/null <<'EOF'
+upload_max_filesize = 30M
+post_max_size = 32M
+EOF
+sudo systemctl restart php8.5-fpm
+```
+
 Install PostgreSQL 18 from the PostgreSQL project's apt repository. Ubuntu's default PostgreSQL version may differ. Follow the project's [Ubuntu installation instructions](https://www.postgresql.org/download/linux/ubuntu/):
 
 ```bash
@@ -486,6 +496,16 @@ php artisan ingress:node-operator:create
 The command is available only when `INGRESS_RUNTIME=node` and the database is bound to this node ID. It prompts for the operator name and email, then hides and confirms the password. Do not put the password in a command argument or shell history. Open `https://node-1.example.edu/node/operator` after replacing the example hostname. This console exists only on the Event Node. By default, it accepts loopback connections. If the browser is on another computer, set `INGRESS_OPERATOR_ALLOWED_CIDRS` to that computer's exact trusted address or a narrow management subnet, then rebuild Laravel's config cache and restart the web service. A browser on the Event Node using a hostname that resolves to its LAN address may also need that local interface address as a `/32`, or a local hosts entry mapping the same certificate hostname to `127.0.0.1`. Keep the venue firewall restricted to trusted operator devices. Do not use a public or attendee subnet. The application checks the socket peer and never grants access from `X-Forwarded-For` or the request host. The console requires HTTPS, encrypted database sessions, strict secure cookies, and the PostgreSQL cache store.
 
 After the one-time account setup, event operators use **Staff and scanner management** in the browser. The page lists names and assigned gates from each current imported event roster. Provision a scanner credential only when the page reports that none exists; the generated value is displayed once and must be shared through an approved secure channel. Use **Generate pairing QR** to show the staff member a local, three-minute, one-use QR code. Its HTTPS address comes from this node's `APP_URL`; use the same stable hostname and trusted certificate configured for scanner phones. Generating a replacement invalidates an earlier unused pairing code. Rotation and revocation require typing the confirmation word and immediately invalidate saved scanner sessions. A stored session count does not indicate that a phone is connected. Pairing alone does not activate admission; the node still requires a valid signed authority grant for that event.
+
+For a new event, open **Event handoff** in the operator console and follow these steps:
+
+1. Resolve the preflight warnings. The node must match its runtime identity, use PostgreSQL, have an HTTPS `APP_URL`, the node sync key, and the cloud authority public key, and must not contain the cloud signing private key. The installer must separately confirm that `APP_URL` resolves to the node's stable DNS name and presents a trusted certificate.
+2. Upload the current encrypted snapshot package (maximum 16 MiB). The application processes it from PHP's temporary upload and does not copy it into application storage. Copy the staging receipt into the cloud organizer page through the approved secure channel.
+3. Type `IMPORT` on the node to import the staged snapshot. Copy the import receipt into the cloud organizer page.
+4. The cloud organizer must verify both receipts and explicitly transfer authority from the cloud event page. Only the cloud can sign and provide the authority grant.
+5. Upload that grant on the node. Confirm the displayed event, snapshot version, and hash, then type `ACTIVATE`. The node verifies the cloud signature and exact node/event/snapshot match before activation.
+
+Operator pages and receipts use `no-store` headers. Do not send receipts or grants through ordinary email or shared folders. Stop all gates if the identity, snapshot, receipt, or authority state is unclear. There is no automatic authority failover or recovery. Repeating the same import is safe and returns the existing receipt; after activation, refresh the page to confirm the active state rather than trying to activate a different grant.
 
 Set `INGRESS_NODE_ID` to the same ID registered by `register_render_node.ps1`. Copy the printed one-time sync key into the node's private `.env` and copy only the cloud authority **public** key. Keep `APP_DEBUG=false`, `INGRESS_DEMO_MODE=false`, `SESSION_DRIVER=database`, and `CACHE_STORE=database`. For direct IIS HTTPS, leave `TRUSTED_PROXIES` empty; trust a proxy only if one is installed between IIS and the phone, and then list that exact peer. Never set it to `*`.
 
