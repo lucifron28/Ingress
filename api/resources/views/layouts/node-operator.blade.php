@@ -24,6 +24,13 @@
         .status strong { display: block; margin-bottom: 5px; color: #1c4b43; }
         .topline { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
         .topline form button { width: auto; margin: 0; background: #eff3f4; color: #24333a; }
+        .staff-row { margin-top: 14px; padding: 16px; border: 1px solid #dce4e7; border-radius: 10px; background: #fff; }
+        .staff-row form { margin-top: 16px; padding-top: 12px; border-top: 1px solid #e5ebed; }
+        .staff-row form p { margin: 0 0 10px; }
+        .staff-row form button { width: 100%; margin-top: 10px; }
+        .secret { display: block; overflow-wrap: anywhere; padding: 14px; border-radius: 8px; background: #f2f5f7; font-size: 1.1rem; }
+        .qr-frame { display: grid; place-items: center; margin: 18px 0; padding: 14px; background: #fff; }
+        .qr-frame img { display: block; width: min(100%, 360px); height: auto; image-rendering: pixelated; }
         @media (max-width: 480px) { body { padding: 16px; } .topline { align-items: flex-start; flex-direction: column; } }
     </style>
 </head>

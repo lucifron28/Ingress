@@ -15,18 +15,21 @@ class NodeStaffPairing
         throw ValidationException::withMessages(['pairing' => 'Pairing is invalid, expired, or no longer available.']);
     }
 
-    public function issue(int $cloudUserId): array
+    public function issue(int $cloudUserId, ?int $eventId = null): array
     {
         if (config('ingress.mode') !== 'node' || $cloudUserId < 1) {
             $this->invalid();
         }
         $this->runtime->execute();
 
-        return DB::transaction(function () use ($cloudUserId) {
+        return DB::transaction(function () use ($cloudUserId, $eventId) {
             DB::table('runtime_identity')->where('id', 1)->lockForUpdate()->first();
             $link = DB::table('node_import_ids')->where('kind', 'user')->where('cloud_id', $cloudUserId)->first();
             $user = $link ? User::whereKey($link->local_id)->first() : null;
-            if (! $user || ! $this->access->assigned($user->id)
+            $isAssigned = $user && ($eventId === null
+                ? $this->access->assigned($user->id)
+                : $this->access->assignedToEvent($user->id, $eventId));
+            if (! $user || ! $isAssigned
                 || ! DB::table('node_staff_credentials')->where('user_id', $user->id)->exists()) {
                 $this->invalid();
             }
@@ -39,6 +42,23 @@ class NodeStaffPairing
             ]);
 
             return ['token' => $token, 'expires_at' => $expires->utc()->format('Y-m-d\TH:i:s\Z'), 'user' => $user];
+        });
+    }
+
+    public function cancelForUser(int $userId, ?int $eventId = null): bool
+    {
+        if (config('ingress.mode') !== 'node' || $userId < 1) {
+            $this->invalid();
+        }
+        $this->runtime->execute();
+
+        return DB::transaction(function () use ($userId, $eventId): bool {
+            DB::table('runtime_identity')->where('id', 1)->lockForUpdate()->first();
+            if ($eventId !== null && ! $this->access->assignedToEvent($userId, $eventId)) {
+                $this->invalid();
+            }
+
+            return DB::table('node_staff_pairings')->where('user_id', $userId)->delete() > 0;
         });
     }
 

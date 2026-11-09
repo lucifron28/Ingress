@@ -15,7 +15,9 @@
 
         <div class="status" role="status">
             <strong>Console access is active</strong>
-            <span>Event handoff, staff pairing, and synchronization actions will be available here after their operator workflows are added.</span>
+            <span>Manage scanner pairing and staff credentials for the current imported events.</span>
         </div>
+
+        <p><a href="{{ route('node.operator.staff.index', absolute: false) }}">Open staff and scanner management</a></p>
     </section>
 @endsection

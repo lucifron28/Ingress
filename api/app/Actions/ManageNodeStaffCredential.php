@@ -16,18 +16,32 @@ class ManageNodeStaffCredential
         throw ValidationException::withMessages(['staff' => 'Staff member is not available on this node.']);
     }
 
-    private function run(int $cloudUserId, ?string $hash): void
-    {
+    private function run(
+        int $cloudUserId,
+        ?string $hash,
+        ?int $eventId = null,
+        bool $onlyIfMissing = false,
+        bool $onlyIfPresent = false,
+    ): bool {
         if (config('ingress.mode') !== 'node' || $cloudUserId < 1) {
             $this->invalid();
         }
         $this->runtime->execute();
-        DB::transaction(function () use ($cloudUserId, $hash) {
+
+        return DB::transaction(function () use ($cloudUserId, $hash, $eventId, $onlyIfMissing, $onlyIfPresent): bool {
             DB::table('runtime_identity')->where('id', 1)->lockForUpdate()->first();
             $link = DB::table('node_import_ids')->where('kind', 'user')->where('cloud_id', $cloudUserId)->first();
             $user = $link ? User::whereKey($link->local_id)->lockForUpdate()->first() : null;
-            if (! $user || ($hash !== null && ! $this->access->assigned($user->id))) {
+            $isAssigned = $user && ($eventId === null
+                ? $this->access->assigned($user->id)
+                : $this->access->assignedToEvent($user->id, $eventId));
+            if (! $user || ($hash !== null && ! $isAssigned) || ($eventId !== null && ! $isAssigned)) {
                 $this->invalid();
+            }
+
+            $hasCredential = DB::table('node_staff_credentials')->where('user_id', $user->id)->exists();
+            if (($onlyIfMissing && $hasCredential) || ($onlyIfPresent && ! $hasCredential)) {
+                return false;
             }
             if ($hash === null) {
                 DB::table('node_staff_credentials')->where('user_id', $user->id)->delete();
@@ -37,19 +51,35 @@ class ManageNodeStaffCredential
             }
             DB::table('node_staff_pairings')->where('user_id', $user->id)->delete();
             $user->tokens()->delete();
+
+            return true;
         });
     }
 
-    public function provision(int $cloudUserId): string
+    public function provision(int $cloudUserId, ?int $eventId = null): string
     {
         $secret = bin2hex(random_bytes(16));
-        $this->run($cloudUserId, Hash::make($secret));
+        $this->run($cloudUserId, Hash::make($secret), $eventId);
 
         return $secret;
     }
 
-    public function revoke(int $cloudUserId): void
+    public function provisionIfMissing(int $cloudUserId, ?int $eventId = null): ?string
     {
-        $this->run($cloudUserId, null);
+        $secret = bin2hex(random_bytes(16));
+
+        return $this->run($cloudUserId, Hash::make($secret), $eventId, onlyIfMissing: true) ? $secret : null;
+    }
+
+    public function rotateIfPresent(int $cloudUserId, ?int $eventId = null): ?string
+    {
+        $secret = bin2hex(random_bytes(16));
+
+        return $this->run($cloudUserId, Hash::make($secret), $eventId, onlyIfPresent: true) ? $secret : null;
+    }
+
+    public function revoke(int $cloudUserId, ?int $eventId = null): void
+    {
+        $this->run($cloudUserId, null, $eventId);
     }
 }

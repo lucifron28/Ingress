@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\NodeOperatorConsoleController;
+use App\Http\Controllers\NodeOperatorStaffController;
 use App\Http\Controllers\StudentEmailVerificationController;
 use App\Http\Controllers\Web\AuthController;
 use App\Http\Controllers\Web\GuestTicketController;
@@ -37,6 +38,18 @@ Route::prefix('node/operator')->name('node.operator.')->middleware([
     Route::middleware('node.operator.auth')->group(function (): void {
         Route::get('/', [NodeOperatorConsoleController::class, 'dashboard'])->name('dashboard');
         Route::post('/logout', [NodeOperatorConsoleController::class, 'logout'])->name('logout');
+
+        Route::get('/staff', [NodeOperatorStaffController::class, 'index'])->name('staff.index');
+        Route::post('/events/{event}/staff/{staff}/pairing', [NodeOperatorStaffController::class, 'issuePairingQr'])
+            ->middleware('throttle:node-operator-actions')->name('staff.pairing.issue');
+        Route::post('/events/{event}/staff/{staff}/pairing/cancel', [NodeOperatorStaffController::class, 'cancelPairing'])
+            ->middleware('throttle:node-operator-actions')->name('staff.pairing.cancel');
+        Route::post('/events/{event}/staff/{staff}/credential/provision', [NodeOperatorStaffController::class, 'provisionCredential'])
+            ->middleware('throttle:node-operator-actions')->name('staff.credential.provision');
+        Route::post('/events/{event}/staff/{staff}/credential/rotate', [NodeOperatorStaffController::class, 'rotateCredential'])
+            ->middleware('throttle:node-operator-actions')->name('staff.credential.rotate');
+        Route::post('/events/{event}/staff/{staff}/credential/revoke', [NodeOperatorStaffController::class, 'revokeCredential'])
+            ->middleware('throttle:node-operator-actions')->name('staff.credential.revoke');
     });
 });
 
