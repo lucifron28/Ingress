@@ -104,6 +104,19 @@ jobs:
           INGRESS_LOAD_WORKERS: 4
         run: php scripts/verify_load_recovery.php
 
+      - name: Verify Render migration lock contention
+        working-directory: api
+        env:
+          DB_CONNECTION: pgsql
+          DB_HOST: 127.0.0.1
+          DB_PORT: 5432
+          DB_DATABASE: postgres
+          DB_USERNAME: postgres
+          DB_PASSWORD: password
+          DB_SSLMODE: disable
+        run: |
+          php scripts/verify_render_migration_lock.php
+
   mobile-tests:
     name: Mobile Tests & Typecheck
     runs-on: ubuntu-24.04
@@ -135,3 +148,28 @@ jobs:
       - name: Verify Mobile TypeScript Compilation
         working-directory: mobile
         run: npx tsc --noEmit
+
+  render-docker:
+    name: Render Docker Image
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v7
+
+      - name: Build Render image
+        working-directory: api
+        run: docker build --tag ingress-cloud:ci .
+
+      - name: Verify PHP extensions and server configuration
+        run: |
+          docker run --rm --entrypoint php ingress-cloud:ci -r '$required = ["mbstring", "pdo_pgsql", "sodium", "xmlwriter"]; $missing = array_diff($required, get_loaded_extensions()); if ($missing) { fwrite(STDERR, "Missing PHP extensions: ".implode(", ", $missing).PHP_EOL); exit(1); } echo "Required PHP extensions are loaded.".PHP_EOL;'
+          docker run --rm -e PORT=10000 --entrypoint /bin/sh ingress-cloud:ci -ec '
+            envsubst "\$PORT" < /var/www/html/docker/nginx.conf.template > /tmp/nginx.conf
+            nginx -e stderr -t -c /tmp/nginx.conf
+            php-fpm -t -y /var/www/html/docker/php-fpm.conf
+            set +e
+            timeout -s TERM 3 supervisord -n -c /var/www/html/docker/supervisord.conf
+            status=$?
+            set -e
+            test "$status" -eq 0 -o "$status" -eq 124 -o "$status" -eq 143
+          '

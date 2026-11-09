@@ -7,6 +7,7 @@ use App\Http\Middleware\EnsureRuntimeDatabase;
 use App\Http\Middleware\EnsureStaff;
 use App\Http\Middleware\RequireRuntime;
 use App\Http\Middleware\TrustConfiguredProxies;
+use App\Http\Middleware\TrustRenderCloudHosts;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -23,6 +24,7 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->replace(TrustProxies::class, TrustConfiguredProxies::class);
+        $middleware->append(TrustRenderCloudHosts::class);
         $middleware->append(ApplySecurityHeaders::class);
         $middleware->web(prepend: [EnsureRuntimeDatabase::class]);
         $middleware->api(prepend: [EnsureRuntimeDatabase::class]);
