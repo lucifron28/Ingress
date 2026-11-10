@@ -20,69 +20,108 @@
     </dl>
 </section>
 
-<!-- Active Events Table -->
-<div class="card" style="padding: 0; overflow: hidden;">
-    <div style="padding: 1rem 1.25rem; border-bottom: 1px solid var(--neutral-border); display: flex; justify-content: space-between; align-items: center;">
-        <h2 style="font-size: 1rem; font-weight: 600; color: var(--neutral-dark);">Managed Campus Events</h2>
-        <span style="font-size: 0.75rem; color: var(--neutral-muted);">Showing {{ $events->count() }} events</span>
-    </div>
+<section class="dashboard-events" aria-labelledby="managed-events-title">
+    <header class="dashboard-events__header">
+        <div>
+            <h2 id="managed-events-title" class="dashboard-events__title">Managed Campus Events</h2>
+            <p class="dashboard-events__count">
+                {{ $events->count() }} {{ $events->count() === 1 ? 'event' : 'events' }}
+            </p>
+        </div>
+        <a class="dashboard-events__view-all" href="{{ route('organizer.events.index') }}">
+            <span>View All</span>
+            <x-icon name="arrow-up-right" size="18" />
+        </a>
+    </header>
 
     @if ($events->isEmpty())
-        <div style="padding: 3rem; text-align: center; color: var(--neutral-muted);">
-            <p style="margin-bottom: 1rem;">No events created yet.</p>
-            <a href="{{ route('organizer.events.create') }}" class="btn-primary">Create Your First Event</a>
-        </div>
+        <x-empty-state
+            title="No events created yet"
+            description="Create your first campus event to start managing registrations and admission."
+        >
+            <x-slot:action>
+                <x-ui.button :href="route('organizer.events.create')">
+                    <x-icon name="plus" size="18" />
+                    <span>Create Event</span>
+                </x-ui.button>
+            </x-slot:action>
+        </x-empty-state>
     @else
-        <div class="table-container" style="border: none;">
-            <table>
+        <div class="dashboard-events__table-wrap" role="region" aria-label="Managed campus events table" tabindex="0">
+            <table class="dashboard-events__table">
+                <caption class="visually-hidden">Campus events, schedules, capacities, operations, statuses, and actions</caption>
+                <colgroup>
+                    <col class="dashboard-events__column-event">
+                    <col class="dashboard-events__column-schedule">
+                    <col class="dashboard-events__column-capacity">
+                    <col class="dashboard-events__column-operations">
+                    <col class="dashboard-events__column-status">
+                    <col class="dashboard-events__column-actions">
+                </colgroup>
                 <thead>
                     <tr>
-                        <th>Event Title</th>
-                        <th>Venue</th>
-                        <th>Schedule</th>
-                        <th>Capacity</th>
-                        <th>Gates</th>
-                        <th>Staff</th>
-                        <th>Status</th>
-                        <th style="text-align: right;">Actions</th>
+                        <th scope="col">Event</th>
+                        <th scope="col">Schedule</th>
+                        <th scope="col">Capacity</th>
+                        <th scope="col">Operations</th>
+                        <th scope="col">Status</th>
+                        <th scope="col" class="dashboard-events__actions-heading">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
                     @foreach ($events as $event)
                         <tr>
-                            <td>
-                                <a href="{{ route('organizer.events.show', $event) }}" style="font-weight: 600; color: var(--mseuf-maroon); text-decoration: none;">
+                            <th scope="row" class="dashboard-events__event-cell">
+                                <a class="dashboard-event-title" href="{{ route('organizer.events.show', $event) }}">
                                     {{ $event->title }}
                                 </a>
+                                <span class="dashboard-event-venue">{{ $event->venue->name }}</span>
+                            </th>
+                            <td><x-event-schedule :event="$event" /></td>
+                            <td class="dashboard-events__capacity">
+                                {{ number_format($event->capacity) }}
                             </td>
-                            <td>{{ $event->venue->name }}</td>
-                            <td>
-                                <div style="font-size: 0.8rem; font-weight: 500;">{{ $event->starts_at->format('M d, Y h:i A') }}</div>
-                                <div style="font-size: 0.75rem; color: var(--neutral-muted);">to {{ $event->ends_at->format('h:i A') }}</div>
-                            </td>
-                            <td class="mono">{{ $event->capacity }}</td>
-                            <td class="mono">{{ $event->accessPoints->count() }}</td>
-                            <td class="mono">{{ $event->staffAssignments->count() }}</td>
-                            <td>
-                                @if ($event->isPublished())
-                                    <span class="badge badge-success">Published</span>
-                                @elseif ($event->isDraft())
-                                    <span class="badge badge-warning">Draft</span>
-                                @elseif ($event->isCancelled())
-                                    <span class="badge badge-error">Cancelled</span>
-                                @else
-                                    <span class="badge badge-neutral">{{ ucfirst($event->status) }}</span>
-                                @endif
-                            </td>
-                            <td style="text-align: right; white-space: nowrap;">
-                                <a href="{{ route('organizer.events.show', $event) }}" class="btn-secondary" style="padding: 0.35rem 0.65rem; font-size: 0.75rem;">Manage</a>
-                                <a href="{{ route('organizer.attendance', $event) }}" class="btn-secondary" style="padding: 0.35rem 0.65rem; font-size: 0.75rem; border-color: var(--mseuf-maroon); color: var(--mseuf-maroon);">Attendance</a>
-                            </td>
+                            <td><x-event-operations :event="$event" /></td>
+                            <td><x-event-status-badge :event="$event" /></td>
+                            <td><x-event-actions :event="$event" /></td>
                         </tr>
                     @endforeach
                 </tbody>
             </table>
         </div>
+
+        <div class="dashboard-events__mobile-list">
+            @foreach ($events as $event)
+                <article class="event-card">
+                    <div class="event-card__heading">
+                        <div class="event-card__identity">
+                            <h3 class="event-card__title">
+                                <a href="{{ route('organizer.events.show', $event) }}">{{ $event->title }}</a>
+                            </h3>
+                            <p class="event-card__venue">{{ $event->venue->name }}</p>
+                        </div>
+                        <x-event-status-badge :event="$event" />
+                    </div>
+
+                    <dl class="event-card__details">
+                        <div class="event-card__detail event-card__detail--schedule">
+                            <dt>Schedule</dt>
+                            <dd><x-event-schedule :event="$event" /></dd>
+                        </div>
+                        <div class="event-card__detail">
+                            <dt>Capacity</dt>
+                            <dd class="dashboard-events__capacity">{{ number_format($event->capacity) }}</dd>
+                        </div>
+                        <div class="event-card__detail">
+                            <dt>Operations</dt>
+                            <dd><x-event-operations :event="$event" /></dd>
+                        </div>
+                    </dl>
+
+                    <x-event-actions :event="$event" mobile />
+                </article>
+            @endforeach
+        </div>
     @endif
-</div>
+</section>
 @endsection
