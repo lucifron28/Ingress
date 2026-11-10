@@ -14,6 +14,8 @@
         <div class="pass-qr">{!! $qr !!}</div>
         <p class="eyebrow">Ticket reference</p>
         <p class="mono" style="font-weight: 700;">{{ $registration->ticket->public_id }}</p>
+        <p class="tag">Ticket status: Active</p>
         <p class="meta screen-only">Present this QR at the event gate. Keep the pass private; anyone holding the QR can present it for admission.</p>
+        <p class="screen-only"><a class="button" href="{{ route('public.tickets.pdf', $registration) }}">Download PDF ticket</a></p>
     </section>
 @endsection

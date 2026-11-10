@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Web;
 use App\Http\Controllers\Controller;
 use App\Models\Event;
 use App\Models\EventManagerInvitation;
+use App\Models\Registration;
 use App\Models\TicketCategory;
 use App\Models\User;
 use App\Services\Auth\FirebaseIdentityServiceUnavailable;
@@ -121,7 +122,14 @@ class StudentAuthController extends Controller
         $user = Auth::guard('web')->user();
         abort_unless($user instanceof User && $user->isStudent() && $user->email_verified_at !== null && $user->firebase_uid !== null, 403);
 
-        return $this->privatePage(response()->view('student.dashboard', ['user' => $user]));
+        $registrations = Registration::query()
+            ->with(['event.venue', 'ticketCategory', 'ticket'])
+            ->where('user_id', $user->id)
+            ->orderByDesc('created_at')
+            ->limit(50)
+            ->get();
+
+        return $this->privatePage(response()->view('student.dashboard', compact('user', 'registrations')));
     }
 
     public function logout(Request $request): RedirectResponse

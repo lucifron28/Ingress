@@ -101,6 +101,7 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
         RateLimiter::for('public-ticket-pass', fn (Request $request) => Limit::perMinute(30)->by('public-ticket-pass:'.$request->ip()));
+        RateLimiter::for('public-ticket-download', fn (Request $request) => Limit::perMinute(20)->by('public-ticket-download:'.$request->ip()));
 
         // Email + IP keeps the limiter account-specific without penalizing the whole campus NAT.
         RateLimiter::for('login', function (Request $request) {
