@@ -174,7 +174,8 @@ class OrganizerEventController extends Controller
             'responsibilityAudits' => fn ($query) => $query->latest('created_at')->limit(100),
         ]);
         $guestRegistrations = config('ingress.mode') === 'cloud' && Auth::user()->can('update', $event)
-            ? $event->registrations()->whereIn('attendee_type', ['guest', 'alumni'])->with('ticket')->orderBy('id')->get() : collect();
+            ? $event->registrations()->whereIn('attendee_type', ['guest', 'alumni'])
+                ->with(['ticket' => fn ($tickets) => $tickets->withExists('admissions')])->orderBy('id')->get() : collect();
         $ticketTransfers = Auth::user()->can('update', $event)
             ? TicketTransfer::where('event_id', $event->id)->orderByDesc('requested_at')->paginate(100) : collect();
         $walkInRecoveries = config('ingress.mode') === 'cloud' && Auth::user()->can('update', $event)

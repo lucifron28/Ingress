@@ -10,7 +10,10 @@ class IssueGuestTicket
 {
     public function __construct(private RegisterAttendeeForEvent $registration) {}
 
-    public function execute(int $eventId, string $name, string $email, string $type): Registration
+    /**
+     * @return array{registration: Registration, redemption_code: string}
+     */
+    public function execute(int $eventId, string $name, string $email, string $type): array
     {
         $name = trim($name);
         $email = Str::lower(trim($email));
@@ -21,13 +24,18 @@ class IssueGuestTicket
         }
 
         try {
-            return $this->registration->execute(
+            $result = $this->registration->execute(
                 eventId: $eventId,
                 categoryId: null,
                 guestName: $name,
                 guestEmail: $email,
                 guestType: $type,
-            )['registration'];
+            );
+
+            return [
+                'registration' => $result['registration'],
+                'redemption_code' => (string) $result['redemption_code'],
+            ];
         } catch (ValidationException $exception) {
             throw ValidationException::withMessages([
                 'guest' => collect($exception->errors())->flatten()->all(),

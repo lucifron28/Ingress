@@ -8,6 +8,7 @@ use App\Http\Controllers\Web\AuthController;
 use App\Http\Controllers\Web\EventManagerController;
 use App\Http\Controllers\Web\EventManagerInvitationController;
 use App\Http\Controllers\Web\GuestTicketController;
+use App\Http\Controllers\Web\GuestTicketRedemptionController;
 use App\Http\Controllers\Web\OrganizerAttendanceController;
 use App\Http\Controllers\Web\OrganizerEventController;
 use App\Http\Controllers\Web\PublicEventController;
@@ -38,6 +39,9 @@ Route::middleware('runtime:cloud')->group(function (): void {
         ->whereNumber('registration')->middleware('throttle:public-ticket-pass')->name('public.tickets.show');
     Route::get('/tickets/{registration}/pdf', [PublicTicketController::class, 'download'])
         ->whereNumber('registration')->middleware('throttle:public-ticket-download')->name('public.tickets.pdf');
+    Route::get('/tickets/redeem', [GuestTicketRedemptionController::class, 'show'])->name('public.tickets.redeem');
+    Route::post('/tickets/redeem', [GuestTicketRedemptionController::class, 'store'])
+        ->middleware('throttle:guest-ticket-redemption')->name('public.tickets.redeem.store');
     Route::post('/organizer/events/{event}/ticket-categories', [TicketCategoryController::class, 'store'])
         ->middleware(['auth', 'organizer'])->name('organizer.events.ticket-categories.store');
     Route::put('/organizer/events/{event}/ticket-categories/{ticketCategory}', [TicketCategoryController::class, 'update'])
@@ -130,6 +134,8 @@ Route::middleware(['auth', 'organizer', 'runtime:legacy,cloud'])->prefix('organi
     Route::post('/events/{event}/cancel', [OrganizerEventController::class, 'cancel'])->name('events.cancel');
     Route::post('/events/{event}/guests', [GuestTicketController::class, 'store'])->middleware('runtime:cloud')->name('events.guests.store');
     Route::get('/events/{event}/guests/{registration}/pass', [GuestTicketController::class, 'show'])->middleware('runtime:cloud')->name('events.guest-pass');
+    Route::post('/events/{event}/guests/{registration}/redemption-code', [GuestTicketController::class, 'recover'])
+        ->middleware(['runtime:cloud', 'throttle:guest-ticket-redemption'])->name('events.guests.recover');
 
     Route::post('/events/{event}/access-points', [OrganizerEventController::class, 'storeAccessPoint'])->name('events.access-points.store');
     Route::post('/events/{event}/staff', [OrganizerEventController::class, 'assignStaff'])->name('events.staff.assign');

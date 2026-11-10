@@ -34,6 +34,7 @@ use App\Http\Controllers\StudentEmailVerificationController;
 use App\Http\Middleware\EnsureRuntimeDatabase;
 use App\Models\TicketTransfer;
 use App\Models\User;
+use App\Services\Tickets\GuestTicketTransfer;
 use App\Support\CloudOperatorDatabase;
 use App\Support\PostgresAdvisoryMigrationLock;
 use Illuminate\Contracts\Console\Kernel;
@@ -98,6 +99,10 @@ if (trim((string) $signal) !== 'GO') {
     exit(1);
 }
 
+if ($mode === 'guest_ticket_redeem') {
+    $payload['redemption_code'] = trim((string) fgets(STDIN));
+}
+
 // --- Execute the contested operation -----------------------------------------
 try {
     if ($mode === 'seat') {
@@ -128,7 +133,7 @@ try {
     } elseif ($mode === 'guest_registration') {
         config(['ingress.mode' => 'cloud']);
         $registration = app(IssueGuestTicket::class)->execute($payload['event_id'], 'Race Guest', $payload['email'], 'guest');
-        $emit(['ok' => true, 'registration_id' => $registration->id]);
+        $emit(['ok' => true, 'registration_id' => $registration['registration']->id]);
     } elseif ($mode === 'node_walk_in') {
         config(['ingress.mode' => 'node', 'ingress.node_id' => $payload['node_id'], 'ingress.authority_public_key' => $payload['public_key']]);
         $staff = User::findOrFail($payload['staff_user_id']);
@@ -226,6 +231,14 @@ try {
         $request->setUserResolver(fn () => User::findOrFail($payload['recipient_id']));
         $response = app(TicketTransferController::class)->accept($request, TicketTransfer::findOrFail($payload['transfer_id']));
         $emit(['ok' => $response->getStatusCode() === 200, 'http_code' => $response->getStatusCode()]);
+    } elseif ($mode === 'guest_ticket_redeem') {
+        config(['ingress.mode' => 'cloud']);
+        $result = app(GuestTicketTransfer::class)->redeem($payload['redemption_code']);
+        $emit([
+            'ok' => true,
+            'ticket_id' => $result['ticket']->id,
+            'credential_version' => $result['ticket']->credential_version,
+        ]);
     } elseif ($mode === 'node_staff_login') {
         $app->detectEnvironment(fn () => 'testing');
         config(['ingress.mode' => 'node', 'ingress.node_id' => $payload['node_id']]);
@@ -233,6 +246,7 @@ try {
         $response = app(NodeStaffAuthController::class)->login($request, app(NodeStaffAccess::class));
         $emit(['ok' => $response->getStatusCode() === 200, 'http_code' => $response->getStatusCode()]);
     } elseif ($mode === 'student_complete') {
+        $app->detectEnvironment(fn () => 'testing');
         config(['ingress.mode' => 'cloud']);
         $request = Request::create('/student/complete', 'POST', [
             'token' => $payload['token'], 'name' => 'Race Student', 'student_id' => $payload['student_id'],
@@ -266,6 +280,6 @@ try {
     $emit([
         'ok' => false,
         'reason' => 'exception',
-        'detail' => $e::class.': '.$e->getMessage(),
+        'detail' => $mode === 'guest_ticket_redeem' ? $e::class : $e::class.': '.$e->getMessage(),
     ]);
 }

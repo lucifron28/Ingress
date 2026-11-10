@@ -12,6 +12,9 @@
  *   Case B — Same-ticket race: two gate scanners submit the same ticket at the
  *            same moment. Exactly one admission must exist.
  *
+ *   Case C — Guest-ticket race: two requests redeem the same private code at
+ *            the same moment. Exactly one credential rotation must commit.
+ *
  * Both cases release two child PHP processes through a two-way barrier so the
  * database transactions genuinely overlap.
  *
@@ -31,6 +34,7 @@ use App\Actions\NodeStaffPairing;
 use App\Actions\PrepareEventSnapshot;
 use App\Actions\ReceiveSnapshot;
 use App\Actions\RecoverNodeWalkIn;
+use App\Actions\RegisterAttendeeForEvent;
 use App\Actions\RegisterForEvent;
 use App\Actions\SnapshotEnvelope;
 use App\Actions\SyncWalkInRecovery;
@@ -63,7 +67,20 @@ try {
 }
 
 set_exception_handler(static function (Throwable $error): void {
-    fwrite(STDERR, 'POSTGRESQL CONCURRENCY VERIFICATION FAILED: '.get_class($error).PHP_EOL);
+    $previous = $error;
+    while ($previous->getPrevious() !== null) {
+        $previous = $previous->getPrevious();
+    }
+
+    $constraint = '';
+    if ($previous instanceof PDOException) {
+        $message = (string) ($previous->errorInfo[2] ?? '');
+        if (preg_match('/unique constraint "([^"]+)"/i', $message, $matches) === 1) {
+            $constraint = ' (constraint '.$matches[1].')';
+        }
+    }
+
+    fwrite(STDERR, 'POSTGRESQL CONCURRENCY VERIFICATION FAILED: '.get_class($error).$constraint.PHP_EOL);
     exit(1);
 });
 
@@ -1073,6 +1090,79 @@ $assert(($acceptanceSnapshotResult['ok'] ?? false) && $acceptedSnapshotPayload !
 $assert($acceptRaceTicket->fresh()->registration->user_id === $acceptRaceRecipient->id, 'the recipient owns the ticket after acceptance');
 $assert((int) ($snapshotRegistration['attendee']['id'] ?? 0) === $acceptRaceRecipient->id, 'the snapshot contains the accepted owner');
 $assert(($snapshotRegistration['ticket']['qr_hash'] ?? null) === $acceptRaceTicket->fresh()->qr_hash, 'the snapshot contains the rotated credential hash');
+echo "\n";
+
+// =============================================================================
+// CASE Guest Ticket Redemption — one use wins under PostgreSQL row locking
+// =============================================================================
+echo "CASE guest ticket redemption: concurrent reuse of one code rotates once\n";
+config(['ingress.mode' => 'cloud']);
+$guestRedemptionEvent = Event::create([
+    'organizer_id' => $organizer->id, 'venue_id' => $venue->id,
+    'title' => 'Guest redemption race', 'slug' => "guest-redemption-race-{$suffix}",
+    'capacity' => 10, 'registration_opens_at' => now()->subDay(),
+    'registration_closes_at' => now()->addDay(),
+    'starts_at' => now(), 'ends_at' => now()->addDay(), 'status' => Event::STATUS_PUBLISHED,
+    'ticket_transfers_allowed' => true,
+]);
+$guestRedemptionCategory = $guestRedemptionEvent->ticketCategories()
+    ->where('is_default', true)
+    ->firstOrFail();
+$guestRedemptionResult = app(RegisterAttendeeForEvent::class)->execute(
+    eventId: $guestRedemptionEvent->id,
+    categoryId: $guestRedemptionCategory->id,
+    guestName: 'Race Guest',
+    guestEmail: "guest.redemption.{$suffix}@example.test",
+);
+$guestRedemptionTicket = $guestRedemptionResult['ticket'];
+$guestRedemptionCode = $guestRedemptionResult['redemption_code'];
+$guestOldQrHash = $guestRedemptionTicket->qr_hash;
+$guestOldQr = $guestRedemptionTicket->getQrPayload();
+$guestOldSecret = explode(':', $guestOldQr)[3];
+
+DB::beginTransaction();
+DB::table('events')->where('id', $guestRedemptionEvent->id)->lockForUpdate()->first();
+[$guestRedemptionProcessA, $guestRedemptionPipesA] = $spawnWorker('guest_ticket_redeem', [
+], $testDatabase, $childScript);
+[$guestRedemptionProcessB, $guestRedemptionPipesB] = $spawnWorker('guest_ticket_redeem', [
+], $testDatabase, $childScript);
+$guestRedemptionReadyA = trim((string) fgets($guestRedemptionPipesA[1])) === 'READY';
+$guestRedemptionReadyB = trim((string) fgets($guestRedemptionPipesB[1])) === 'READY';
+foreach ([$guestRedemptionPipesA, $guestRedemptionPipesB] as $guestRedemptionPipes) {
+    fwrite($guestRedemptionPipes[0], 'GO'.PHP_EOL.$guestRedemptionCode.PHP_EOL);
+    fflush($guestRedemptionPipes[0]);
+}
+$guestRedemptionDeadline = microtime(true) + 20.0;
+$guestRedemptionBlocked = 0;
+while (microtime(true) < $guestRedemptionDeadline) {
+    $guestRedemptionBlocked = $blockedBackends(DB::connection()->getPdo(), $testDatabase);
+    if ($guestRedemptionBlocked >= 2) {
+        break;
+    }
+    usleep(50_000);
+}
+DB::commit();
+$guestRedemptionResults = [
+    $collectWorker($guestRedemptionProcessA, $guestRedemptionPipesA),
+    $collectWorker($guestRedemptionProcessB, $guestRedemptionPipesB),
+];
+echo '  workers: '.json_encode($guestRedemptionResults).PHP_EOL;
+$guestRedemptionOutput = json_encode($guestRedemptionResults, JSON_THROW_ON_ERROR);
+$guestRedemptionTicketAfterRace = $guestRedemptionTicket->fresh();
+$guestRotationCount = DB::table('guest_ticket_credential_rotations')
+    ->where('ticket_id', $guestRedemptionTicket->id)->where('kind', 'redeemed')->count();
+$successfulGuestRedemptions = count(array_filter($guestRedemptionResults, fn (array $result): bool => ($result['ok'] ?? false) === true));
+$rejectedGuestRedemptions = count(array_filter($guestRedemptionResults, fn (array $result): bool => ($result['reason'] ?? null) === 'validation_error'));
+$assert($guestRedemptionReadyA && $guestRedemptionReadyB, 'both redemption workers reached the PostgreSQL barrier');
+$assert($guestRedemptionBlocked >= 2, 'both redemption attempts waited on the same event lock');
+$assert(! str_contains($guestRedemptionOutput, $guestRedemptionCode), 'worker output never includes the redemption code');
+$assert($successfulGuestRedemptions === 1 && $rejectedGuestRedemptions === 1, 'one redemption succeeds and one replay is rejected');
+$assert((int) $guestRedemptionTicketAfterRace->credential_version === 2, 'the ticket credential version increments only once');
+$assert($guestRedemptionTicketAfterRace->qr_hash !== $guestOldQrHash
+    && ! $guestRedemptionTicketAfterRace->verifySecret($guestOldSecret), 'the old QR is invalid after the winning redemption');
+$assert($guestRotationCount === 1
+    && DB::table('guest_ticket_credential_rotations')->where('ticket_id', $guestRedemptionTicket->id)->count() === 2,
+    'one redemption audit row follows the initial issuance row');
 echo "\n";
 
 // =============================================================================

@@ -22,6 +22,7 @@ class Ticket extends Model
         'public_id',
         'qr_hash',
         'encrypted_secret',
+        'redemption_hash',
         'status',
         'credential_version',
         'issued_at',
@@ -30,6 +31,7 @@ class Ticket extends Model
 
     protected $hidden = [
         'encrypted_secret',
+        'redemption_hash',
     ];
 
     protected function casts(): array

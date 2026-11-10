@@ -11,7 +11,7 @@ class RegisterForEvent
     /**
      * Register an authenticated student using the event's default ticket category.
      *
-     * @return array{registration: Registration, ticket: Ticket, qr_payload: string}
+     * @return array{registration: Registration, ticket: Ticket, qr_payload: string, redemption_code: ?string}
      */
     public function execute(User $user, int $eventId): array
     {

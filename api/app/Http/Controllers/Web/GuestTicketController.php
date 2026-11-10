@@ -6,6 +6,8 @@ use App\Actions\IssueGuestTicket;
 use App\Http\Controllers\Controller;
 use App\Models\Event;
 use App\Models\Registration;
+use App\Services\Tickets\GuestTicketTransfer;
+use App\Services\Tickets\TicketSessionAccess;
 use BaconQrCode\Renderer\Image\SvgImageBackEnd;
 use BaconQrCode\Renderer\ImageRenderer;
 use BaconQrCode\Renderer\RendererStyle\RendererStyle;
@@ -17,8 +19,12 @@ use Symfony\Component\HttpFoundation\Response;
 
 class GuestTicketController extends Controller
 {
-    public function store(Request $request, Event $event, IssueGuestTicket $action): RedirectResponse
-    {
+    public function store(
+        Request $request,
+        Event $event,
+        IssueGuestTicket $action,
+        ?TicketSessionAccess $ticketAccess = null,
+    ): RedirectResponse {
         Gate::authorize('update', $event);
         abort_if(! $request->secure() && ! app()->environment(['local', 'testing']), 403, 'HTTPS is required.');
         $data = $request->validate([
@@ -26,13 +32,21 @@ class GuestTicketController extends Controller
             'guest_email' => ['required', 'email', 'max:255'],
             'attendee_type' => ['required', 'in:guest,alumni'],
         ]);
-        $registration = $action->execute($event->id, $data['guest_name'], $data['guest_email'], $data['attendee_type']);
+        $result = $action->execute($event->id, $data['guest_name'], $data['guest_email'], $data['attendee_type']);
+        $registration = $result['registration'];
+        $ticketAccess ??= app(TicketSessionAccess::class);
+        $ticketAccess->grantRedemptionCode($request, $registration, $result['redemption_code']);
 
         return redirect()->route('organizer.events.guest-pass', [$event, $registration]);
     }
 
-    public function show(Request $request, Event $event, Registration $registration): Response
-    {
+    public function show(
+        Request $request,
+        Event $event,
+        Registration $registration,
+        ?TicketSessionAccess $ticketAccess = null,
+    ): Response {
+        $ticketAccess ??= app(TicketSessionAccess::class);
         Gate::authorize('update', $event);
         abort_if(! $request->secure() && ! app()->environment(['local', 'testing']), 403, 'HTTPS is required.');
         $registration->load('ticket');
@@ -44,12 +58,37 @@ class GuestTicketController extends Controller
         abort_unless(is_string($payload), 404);
         $writer = new Writer(new ImageRenderer(new RendererStyle(400), new SvgImageBackEnd));
         $qr = preg_replace('/<\?xml[^>]*\?>/', '', $writer->writeString($payload));
+        $redemptionCode = $registration->ticket->redemption_hash !== null
+            ? $ticketAccess->consumeRedemptionCode($request, $registration)
+            : null;
 
-        return response()->view('organizer.guest-pass', compact('event', 'registration', 'qr'))
+        return response()->view('organizer.guest-pass', compact('event', 'registration', 'qr', 'redemptionCode'))
             ->header('Cache-Control', 'no-store, private')
             ->header('Referrer-Policy', 'no-referrer')
             ->header('X-Frame-Options', 'DENY')
             ->header('X-Content-Type-Options', 'nosniff')
             ->header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'");
+    }
+
+    public function recover(
+        Request $request,
+        Event $event,
+        Registration $registration,
+        GuestTicketTransfer $guestTicketTransfer,
+        TicketSessionAccess $ticketAccess,
+    ): RedirectResponse {
+        Gate::authorize('update', $event);
+        abort_if(! $request->secure() && ! app()->environment(['local', 'testing']), 403, 'HTTPS is required.');
+        $request->validate(['identity_verified' => ['required', 'accepted']]);
+
+        $result = $guestTicketTransfer->recover($event->id, $registration->id, $request->user());
+        $ticketAccess->grantGuest($request, $result['registration'], $result['ticket']);
+        $ticketAccess->grantRedemptionCode($request, $result['registration'], $result['redemption_code']);
+
+        return redirect()->route('organizer.events.guest-pass', [$event, $result['registration']])
+            ->withHeaders([
+                'Cache-Control' => 'no-store, private',
+                'Referrer-Policy' => 'no-referrer',
+            ]);
     }
 }

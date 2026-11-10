@@ -127,6 +127,9 @@ class PublicEventController extends Controller
         );
 
         $ticketAccess->grantGuest($request, $result['registration'], $result['ticket']);
+        if (is_string($result['redemption_code'])) {
+            $ticketAccess->grantRedemptionCode($request, $result['registration'], $result['redemption_code']);
+        }
         $request->session()->forget('public_registration_intent');
 
         return redirect()->route('public.tickets.show', $result['registration']);

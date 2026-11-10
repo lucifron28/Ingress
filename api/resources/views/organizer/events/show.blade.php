@@ -175,8 +175,8 @@
     @if (config('ingress.mode') === 'cloud' && auth()->user()->can('update', $event))
         <section class="card" style="grid-column: 1 / -1;">
             <h2>Guest and alumni passes</h2>
-            @if ($errors->hasAny(['guest', 'guest_name', 'guest_email', 'attendee_type']))
-                <p role="alert" style="color: #991b1b;">{{ $errors->first('guest') ?: ($errors->first('guest_name') ?: ($errors->first('guest_email') ?: $errors->first('attendee_type'))) }}</p>
+            @if ($errors->hasAny(['guest', 'guest_name', 'guest_email', 'attendee_type', 'identity_verified']))
+                <p role="alert" style="color: #991b1b;">{{ $errors->first('guest') ?: ($errors->first('identity_verified') ?: ($errors->first('guest_name') ?: ($errors->first('guest_email') ?: $errors->first('attendee_type')))) }}</p>
             @endif
             @if ($event->isRegistrationOpen())
                 <form method="POST" action="{{ route('organizer.events.guests.store', $event) }}">
@@ -196,6 +196,16 @@
                         <a href="{{ route('organizer.events.guest-pass', [$event, $guest]) }}">Open pass</a>
                     @endif
                 </p>
+                @if ($event->canTransferTickets() && $guest->status === 'confirmed' && $guest->ticket?->isActive() && ! $guest->ticket->admissions_exists)
+                    <form method="POST" action="{{ route('organizer.events.guests.recover', [$event, $guest]) }}">
+                        @csrf
+                        <label>
+                            <input type="checkbox" name="identity_verified" value="1" required>
+                            I verified this attendee's identity outside Ingress and will share the replacement code privately.
+                        </label>
+                        <button type="submit" class="btn-secondary">Rotate QR and reissue transfer code</button>
+                    </form>
+                @endif
             @empty
                 <p>No guest or alumni passes issued.</p>
             @endforelse
