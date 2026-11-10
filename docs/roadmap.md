@@ -1,6 +1,6 @@
 # Implementation roadmap
 
-This roadmap records completed work and the redesign plan against main at `6376c887cf672a60ef4afc6a64061b748ebbea58` (PR #66, event-scoped authorization, merged 2026-11-10). A checked item means the implementation merged and its listed automated verification passed. Physical-device and venue verification is still pending with the project owner.
+This roadmap records completed work and the redesign plan against main at `6a7dcb8331a865e91a453e9cb7b22d5c3ff72c4e` (PR #67, public event discovery and free registration, merged 2026-11-10). A checked item means the implementation merged and its listed automated verification passed. Physical-device and venue verification is still pending with the project owner.
 
 ## Baseline
 
@@ -22,19 +22,19 @@ This roadmap records completed work and the redesign plan against main at `6376c
 
 ## Cloud, guest, and scanner redesign
 
-This phase extends the earlier Event Node roadmap. The source audit for public registration starts from main at `6376c887cf672a60ef4afc6a64061b748ebbea58`, fetched on 2026-11-10. Keep Cloud account authentication, Event Node operator authentication, and Event Node scanner credentials separate.
+This phase extends the earlier Event Node roadmap. The source audit for PDF ticket delivery starts from main at `6a7dcb8331a865e91a453e9cb7b22d5c3ff72c4e`, fetched on 2026-11-11. Keep Cloud account authentication, Event Node operator authentication, and Event Node scanner credentials separate.
 
-### Implementation at the phase 3 branch base
+### Implementation at the phase 4 branch base
 
-Phase 3 starts from `main` at `6376c887cf672a60ef4afc6a64061b748ebbea58`, after PR #66 merged.
+Phase 4 starts from `main` at `6a7dcb8331a865e91a453e9cb7b22d5c3ff72c4e`, after PR #67 merged.
 
-| Area | Behavior at the phase 2 branch base |
+| Area | Behavior at the phase 3 branch base |
 | --- | --- |
 | Cloud identity | Platform administrators and legacy organizers use password login. Students can use Firebase web sign-in; Laravel verifies the ID token, verified email, password provider, and exact student domain. The ingress:create-admin Artisan command provisions a Cloud admin against the Cloud PostgreSQL runtime. |
 | Event permissions | events.organizer_id identifies an event owner. Active event-manager assignments grant event-scoped management. event_staff remains separate for scanner assignments with an optional gate. |
-| Registration | RegisterForEvent creates authenticated registrations under an event-row lock. IssueGuestTicket creates organizer-issued guest or alumni registrations; public guest checkout is not implemented at this branch base. |
-| Tickets and transfers | Tickets keep the opaque ingress:v1:<ticket_public_id>:<random_secret> admission credential. Existing transfers require user accounts and recipient acceptance. |
-| Payments and PDFs | The app has no payment-order or ticket-category schema and no paid checkout. Organizers can print a protected HTML guest-pass page; there is no PDF download flow. |
+| Registration | Public catalog and event pages expose ticket categories and eligibility. Free public categories allow accountless guest checkout; student-restricted categories require a verified institutional account. Registration paths use event locking, duplicate checks, and capacity enforcement. |
+| Tickets and transfers | Tickets keep the opaque ingress:v1:<ticket_public_id>:<random_secret> admission credential. Existing transfers require user accounts and recipient acceptance; guest checkout has no rotating redemption code yet. |
+| Payments and PDFs | Paid checkout is not implemented. Tickets can be shown as a protected HTML pass, but on-demand PDF download is not implemented at this branch base. |
 | Mobile | Expo Router has separate (attendee) and (staff) route groups. The attendee group contains the wallet, event pages, profile, and account-based transfers. The staff group contains the Event Node scanner and walk-in workflows. |
 | Event Node | The node has its own PostgreSQL runtime identity, operator accounts, scanner pairing, local admission, signed authority handoff, and retry-safe synchronization. Preserve these paths as the local admission contract. |
 
@@ -49,8 +49,8 @@ Each code phase starts from the latest verified main, adds focused automated cov
 | 0. Audit and architecture foundation | Record the current baseline, shared invariants, and delivery order. This roadmap update is phase 0. |
 | 1. Institutional identity | [x] PR #65 merged as `106c00157de51e8f44497b3145a5e985a66ae02f`. Firebase web sign-in verifies ID tokens and email ownership for `@student.mseuf.edu.ph`; the Firebase UID binds to one local student account. PR and post-merge CI passed all six jobs. The local Laravel suite passed 315 tests (314 passed, 1 skipped, 2,420 assertions). Email control does not prove current enrollment. |
 | 2. Event-scoped authorization | [x] PR #66 merged as `6376c887cf672a60ef4afc6a64061b748ebbea58`. Event ownership remains intact; event managers are assigned and audited per event; invitations are single-use and expire; scanner event/gate authority remains separate. All six PR checks and all six post-merge main jobs passed. The local backend suite passed 330 tests (329 passed, 1 skipped, 2,564 assertions). |
-| 3. Public discovery and free registration | In progress on `feature/public-registration`. Add a public Blade catalog, event details, ticket categories, eligibility, and free accountless checkout. Verified Firebase student identity is required for student-only events and categories. All registration paths share the event lock, capacity, and duplicate checks. Paid categories remain unavailable until phase 6. Keep category metadata out of Event Node snapshots. |
-| 4. PDF ticket delivery | Generate printable PDFs from current database state on demand. Protect account tickets against IDOR and deliver accountless checkout tickets through a short-lived, non-cacheable handoff. Keep the QR in the existing opaque admission format and exclude transfer secrets. |
+| 3. Public discovery and free registration | [x] PR #67 merged as `6a7dcb8331a865e91a453e9cb7b22d5c3ff72c4e`. All six PR checks (`42861199765`) and all six post-merge main checks (`42861625678`) passed. The local backend suite passed 342 tests (341 passed, 1 skipped, 2,676 assertions). |
+| 4. PDF ticket delivery | In progress on `feature/pdf-ticket-delivery`. Generate printable PDFs from current database state on demand. Protect account tickets against IDOR and deliver accountless checkout tickets through a short-lived, non-cacheable handoff. Keep the QR in the existing opaque admission format and exclude transfer secrets. |
 | 5. Guest ticket transfer | Add a separate, one-time redemption token with at least 128 bits of entropy, hash it at rest, and rotate it with the admission QR in one locked transaction. Rate-limit attempts and block transfer after eligibility failure, admission, cancellation, or snapshot/handoff. Student-restricted tickets keep verified-recipient requirements. |
 | 6. Simulated paid checkout | Add demo-only payment state, idempotent confirmation, and expiring capacity reservations. Model pending, successful, failed, cancelled, and expired attempts; release expired reservations safely. Require explicit demo authorization, never a client-controlled payment status or APP_ENV toggle. Run seat-race tests against PostgreSQL. No real payment provider or payment credentials are part of this phase. |
 | 7. Event management and reporting | Extend the existing organizer portal into platform-admin and assigned event-manager workflows for event settings, venues, schedules, categories, staff/gates, registration, snapshots and receipts, authority handoff, attendance reports, CSV, and audit history. |
