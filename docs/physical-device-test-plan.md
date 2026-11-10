@@ -22,10 +22,25 @@ For an Event Node failure after authority activation, stop all gates. Preserve t
 1. Use the current Render cloud at `https://ingress-pp2u.onrender.com` and one Windows Event Node. Each runtime needs its own PostgreSQL 18 database and unique `APP_KEY`; never point the cloud and node at the same database. Do not reuse the legacy single-database demo. Safe legacy database migration is not implemented.
 2. Configure the cloud with `INGRESS_RUNTIME=cloud`, `APP_DEBUG=false`, `INGRESS_DEMO_MODE=false`, a cloud-only authority private key, an exact CORS allowlist if needed, and Resend's HTTPS API. Run `send_render_mail_test.ps1` to check delivery to the authorized `lucifron28@gmail.com` inbox while using Resend's shared development sender. That static message contains no verification link. Public student signup still requires `@student.mseuf.edu.ph` and an authorized sending domain/mailbox; Gmail is not an accepted student domain.
 3. Provision synthetic staging users through `provision_render_staging_account.ps1`. A synthetic student uses `@example.test` and an ID beginning `STAGE-`; its account remains unverified. It can test staging login, registration, ticket display, and wallet caching. It cannot exercise the student email-activation or verified-student ticket-transfer flow. Do not mark a real student verified to work around a missing sender domain.
-4. Configure one Windows Event Node using the IIS/FastCGI and PostgreSQL instructions in [Deployment and Operations](deployment.md#configure-a-windows-event-node). Use a stable campus DNS name, reserved LAN address, and a publicly trusted certificate. Android release builds do not trust user-installed CA roots by default. A public certificate issued with DNS-01 validation can use split-horizon DNS to resolve the node hostname to its LAN address on campus. Restrict IIS HTTPS to the staff subnet and keep PostgreSQL bound to loopback; attendee devices must not reach it. If the venue cannot provide a publicly trusted certificate, stop device testing until a narrowly scoped native trust configuration has been reviewed.
-5. Configure **Task Scheduler** to run Laravel's scheduler at startup and every minute. Confirm `/up` and the node API respond over HTTPS from staff Wi-Fi. After closing and reopening the mobile app, confirm the saved node token does not activate scanner access on its own. Tap **Continue as** to make a fresh `/me` request over the venue LAN; if the node is unavailable, scanner access stays inactive. Keep the venue LAN working when WAN is unavailable.
+4. Configure one Windows Event Node using a single profile from [Deployment and Operations](deployment.md#configure-a-windows-event-node): Docker Desktop with WSL2, native WSL2 with Nginx, or native Windows IIS. Use a stable campus DNS name, reserved LAN address, and a publicly trusted certificate. Android release builds do not trust user-installed CA roots by default. A public certificate issued with DNS-01 validation can use split-horizon DNS to resolve the node hostname to its LAN address on campus. Restrict the HTTPS listener to the staff subnet and keep PostgreSQL unreachable from attendee devices. If the venue cannot provide a publicly trusted certificate, stop device testing until a narrowly scoped native trust configuration has been reviewed.
+5. For Docker, confirm the separate `ingress-scheduler` container is running; do not create a duplicate Windows scheduled task. For native WSL, confirm Linux cron is enabled and the Windows startup task starts the required services. For IIS, configure **Task Scheduler** to run Laravel's scheduler at startup and every minute. Confirm `/up` and the node API respond over HTTPS from staff Wi-Fi. After closing and reopening the mobile app, confirm the saved node token does not activate scanner access on its own. Tap **Continue as** to make a fresh `/me` request over the venue LAN; if the node is unavailable, scanner access stays inactive. Keep the venue LAN working when WAN is unavailable.
 6. Before using real attendee information, obtain an institution-approved retention schedule and operator-owned deletion procedure. Automatic snapshot and roster retention is not implemented. Use synthetic records until that policy exists.
 7. Prepare two synthetic events with two or more gates, staff assigned to specific gates, and a small capacity. Set one event to prohibit re-entry and the other to allow it. Enable the approved ID-check policy on one event. Finalize all policies before snapshot preparation. Prepare synthetic student, guest, alumni, and walk-in cases.
+
+### Docker Desktop Event Node preflight
+
+The following items are separate from CI and remain pending until someone runs them on the venue Windows host. Record the Docker Desktop version, Windows build, WSL distro, reviewed Git commit, and network details with the evidence:
+
+- [ ] Docker Desktop's WSL2 engine and Ubuntu integration are enabled; `docker version` succeeds from Ubuntu. No second Docker Engine is installed inside WSL.
+- [ ] The repository and file-backed secrets are on the WSL Linux filesystem. The secret directory is outside the repository and restricted to the operator's WSL account.
+- [ ] `docker compose ... config --quiet` passes; the `ingress-migrate` service completes; `ingress-db` and `ingress-node` are healthy; and `ingress-scheduler` is running. Logs contain no credentials or private URLs.
+- [ ] The PostgreSQL data volume survives a planned database-container recreation before event data is loaded. The node database has no host-published `5432` port.
+- [ ] The Windows host's port 443 binding is limited to its reserved LAN IPv4 address and staff subnet. Port 8444 is reachable from the Windows host but not from a second LAN device.
+- [ ] Windows resolves the operator hostname to loopback; staff phones resolve the same name to the reserved LAN address. The TLS name and chain are trusted by Windows and each Android phone.
+- [ ] The first operator can sign in through `https://<node-hostname>:8444/node/operator`; scanner phones reach the API on HTTPS port 443.
+- [ ] A planned Windows reboot starts Docker Desktop and the node database, web service, and separate scheduler without deleting the named volume. `/up` succeeds before scanners resume.
+- [ ] With WAN disconnected and staff Wi-Fi intact, the Event Node remains available for admission. After WAN returns, the scheduler retries synchronization without duplicate records.
+- [ ] A protected database backup is written outside the container and checkout, then copied to encrypted off-host storage. Restore is practiced only in an isolated test copy or after the original node is retired.
 
 ## 2. Build and install the Android preview APK
 
@@ -120,6 +135,10 @@ Mark each row only after it has been run on the named devices. Record date, test
 
 | Test | Result | Evidence / notes |
 | --- | --- | --- |
+| Docker Desktop WSL2 startup, migration, and service health | Pending | |
+| Docker scanner listener on staff LAN; operator port loopback-only | Pending | |
+| PostgreSQL volume persistence, encrypted backup, and isolated restore | Pending | |
+| Docker Event Node and scheduler resume after Windows reboot | Pending | |
 | APK installed; camera-only scanner permission | Pending | |
 | Resend static test message reaches authorized account-owner inbox | Pending | |
 | Institutional email signup and activation | Pending until verified sender domain and authorized mailbox | |
@@ -141,8 +160,21 @@ Physical testing is complete only after every applicable row passes, stop condit
 Keep the Event Node and venue LAN running until pending admissions, walk-ins, and recovery records have synchronized. The sync command can process bounded batches, so a zero exit code alone does not prove that the cloud has caught up.
 
 1. Tell staff to stop new scans and finish or cancel any open preview. Keep the event's Event Node as the sole authority.
-2. Restore WAN access. From `C:\Ingress\api`, run `php artisan ingress:sync-admissions CLOUD_EVENT_ID`. Repeat after transient failures. Compare the cloud attendance and recovery history with the gate log and the synthetic walk-in and recovery records from the test. If the command exits nonzero, the records differ, or the cloud is unavailable, leave the node and database running and continue retrying when connectivity returns.
-3. After the records match, confirm the scheduled sync task is not running and its last result is `0`. Keep the task enabled so its startup trigger resumes sync after the next boot. In elevated PowerShell, stop the IIS website and app pool:
+2. Restore WAN access. For Docker, from the WSL `api` directory run `docker compose -f compose.node.yaml --env-file node-compose.env run --rm ingress-cli ingress:sync-admissions CLOUD_EVENT_ID`; for native WSL or IIS, from `C:\Ingress\api` run `php artisan ingress:sync-admissions CLOUD_EVENT_ID`. Repeat after transient failures. Compare the cloud attendance and recovery history with the gate log and the synthetic walk-in and recovery records from the test. If the command exits nonzero, the records differ, or the cloud is unavailable, leave the node and database running and continue retrying when connectivity returns.
+3. After the records match, use the commands for the selected profile. For Docker, confirm the scheduler is no longer sending pending work, then stop the node web service and scheduler. The database volume remains attached; do not remove it:
+
+   ```bash
+   docker compose -f compose.node.yaml --env-file node-compose.env ps
+   docker compose -f compose.node.yaml --env-file node-compose.env stop ingress-node ingress-scheduler
+   ```
+
+   For native WSL, leave its cron service enabled and gracefully stop the Linux services in Ubuntu:
+
+   ```bash
+   sudo systemctl stop nginx php8.5-fpm postgresql
+   ```
+
+   For IIS, confirm the scheduled sync task is not running and its last result is `0`; keep the task enabled so its startup trigger resumes sync after the next boot. In elevated PowerShell, stop the IIS website and app pool when using IIS:
 
    ```powershell
    Get-ScheduledTask -TaskName 'Ingress Laravel Scheduler'
@@ -151,8 +183,21 @@ Keep the Event Node and venue LAN running until pending admissions, walk-ins, an
    Stop-WebAppPool -Name 'IngressNode'
    ```
 
-4. Leave the PostgreSQL database, imported snapshot, authority grant, and logs intact. Shut down Windows through the Start menu after IIS has stopped; do not force power off or delete, reset, or clone the active node database.
-5. To resume testing, start PostgreSQL and IIS, then start the app pool and website:
+4. Leave the PostgreSQL database, imported snapshot, authority grant, and logs intact. Shut down Windows through the Start menu after the selected web service has stopped; do not force power off or delete, reset, or clone the active node database.
+5. To resume testing with Docker, start Docker Desktop, open the same WSL distro and checkout, then run:
+
+   ```bash
+   docker compose -f compose.node.yaml --env-file node-compose.env up -d
+   docker compose -f compose.node.yaml --env-file node-compose.env ps
+   ```
+
+   For native WSL, start PostgreSQL, PHP-FPM, Nginx, and cron from Ubuntu:
+
+   ```bash
+   sudo systemctl start postgresql php8.5-fpm nginx cron
+   ```
+
+   For IIS, start PostgreSQL and IIS, then start the app pool and website:
 
    ```powershell
    Start-Service -Name 'postgresql-x64-18'

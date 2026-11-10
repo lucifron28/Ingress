@@ -169,9 +169,192 @@ This checklist checks the cloud service only. It does not establish physical-dev
 
 ## Configure a Windows Event Node
 
-Ingress supports two Windows-hosted Event Node profiles. Use WSL2 with Ubuntu 26.04 and Nginx when the venue PC runs Windows 11 22H2 or later and mirrored WSL networking is permitted. Use native Windows IIS otherwise. Select one profile per host; do not run two copies of an activated Event Node. Both profiles use the same Laravel release, PostgreSQL schema, HTTPS API, scanner pairing flow, admission logic, and bounded synchronization scheduler. The WSL profile uses PHP 8.5 from Ubuntu because the locked Symfony packages require PHP 8.4.1 or later; IIS continues to use PHP 8.4 NTS. CI exercises both supported runtimes.
+Ingress supports three Windows-hosted Event Node profiles: Docker Desktop with its WSL2 backend, native WSL2 Ubuntu with Nginx, and native Windows IIS. Use the Docker profile for a reproducible container deployment when Docker Desktop is permitted. The other two profiles remain available when containers are not an option. Select one profile per host; do not run two copies of an activated Event Node. All profiles use the same Laravel release, PostgreSQL schema, HTTPS API, scanner pairing flow, admission logic, and bounded synchronization behavior.
 
-### Preferred profile: WSL2 Ubuntu 26.04 with Nginx
+### Preferred profile: Docker Desktop with WSL2 integration
+
+This profile runs the checked-in `api/compose.node.yaml` stack from a WSL2 Linux filesystem. It includes a private PostgreSQL 18 service and persistent named volume, a one-shot migration service, the HTTPS Event Node, and a separate synchronization scheduler. It does not require a host PostgreSQL installation or a second Docker Engine inside Ubuntu. The database port is not published to Windows or the LAN. Follow Docker's [WSL 2 backend guide](https://docs.docker.com/desktop/features/wsl/) for the current Docker Desktop settings.
+
+Install Docker Desktop for Windows, enable **Settings → General → Use the WSL 2 based engine**, then enable **Settings → Resources → WSL Integration → Ubuntu-26.04** (use the installed Ubuntu name if different). Do not install `docker.io`, `docker-ce`, or another Docker Engine inside Ubuntu. In PowerShell, confirm the distro is WSL 2:
+
+```powershell
+wsl --list --verbose
+```
+
+Open Ubuntu and confirm Docker Desktop provides both the client and server:
+
+```bash
+docker version
+docker compose version
+```
+
+Keep the checkout and secret files on the WSL Linux filesystem, not under `/mnt/c`. For a new checkout:
+
+```bash
+mkdir -p ~/projects
+cd ~/projects
+git clone https://github.com/lucifron28/Ingress.git ingress
+cd ~/projects/ingress/api
+```
+
+Use a reviewed commit for an event and record it with `git rev-parse HEAD`. Do not update the application during admission. Copy the non-secret Compose settings and edit the node identity, stable HTTPS hostname, reserved Windows LAN IPv4 address, registered cloud node ID, cloud authority **public** key, and a non-overlapping Docker egress subnet:
+
+```bash
+cp node-compose.env.example node-compose.env
+```
+
+Set the values in `node-compose.env`:
+
+| Variable | Value |
+| --- | --- |
+| `APP_URL` | `https://<node-hostname>`; match the TLS certificate and venue DNS name |
+| `INGRESS_NODE_ID` | The exact node ID registered in the cloud |
+| `INGRESS_CLOUD_SYNC_URL` | `https://ingress-pp2u.onrender.com/api/v1` |
+| `INGRESS_AUTHORITY_PUBLIC_KEY` | The cloud's Base64 Ed25519 public key; never the private key |
+| `INGRESS_NODE_BIND_ADDRESS` | The Windows Ethernet or Wi-Fi IPv4 address reserved for this node |
+| `INGRESS_NODE_HTTPS_PORT` | `443` unless the venue has an approved alternate port |
+| `INGRESS_OPERATOR_PORT` | `8444`; leave the Compose loopback binding intact |
+| `INGRESS_EGRESS_SUBNET` / `INGRESS_EGRESS_GATEWAY` | A Docker subnet and gateway that do not overlap the LAN, VPN, or Docker Desktop networks |
+| `NODE_SECRETS_DIR` | An absolute WSL Linux path outside the checkout, such as `/home/<linux-user>/.config/ingress/venue-node-1` |
+| `DB_DATABASE` / `DB_USERNAME` | `ingress_node` by default; use these same values in backup and restore commands |
+
+Use the same DNS hostname in `APP_URL` and the TLS certificate. The Compose file already enforces `INGRESS_RUNTIME=node`, `APP_DEBUG=false`, `INGRESS_DEMO_MODE=false`, database-backed sessions and cache, and an empty `TRUSTED_PROXIES` value. Do not add `DB_URL` or the cloud authority private key to this node.
+
+Register the node from a trusted Windows checkout with `powershell -ExecutionPolicy Bypass -File .\api\scripts\register_render_node.ps1`. The command prints the one-time `INGRESS_NODE_SYNC_KEY`; transfer it only through a private operator channel. In Ubuntu, create the external secret directory and generate a unique Laravel key and database password. The directory stays private to the WSL account; the read-only secret files are readable by the container identities that need them (Laravel UID 10001 and PostgreSQL UID 70):
+
+```bash
+secret_dir="$HOME/.config/ingress/venue-node-1"
+install -d -m 0700 "$secret_dir"
+umask 077
+openssl rand -base64 32 | tr -d '\n' > "$secret_dir/app_key.raw"
+{ printf 'base64:'; cat "$secret_dir/app_key.raw"; } > "$secret_dir/app_key"
+rm "$secret_dir/app_key.raw"
+openssl rand -base64 36 | tr -d '\n' > "$secret_dir/db_password"
+chmod 0444 "$secret_dir/app_key" "$secret_dir/db_password"
+read -r -s -p 'Paste the one-time node sync key: ' node_sync_key
+printf '\n'
+printf '%s' "$node_sync_key" > "$secret_dir/node_sync_key"
+unset node_sync_key
+chmod 0444 "$secret_dir/node_sync_key"
+```
+
+Copy the complete TLS certificate chain and its matching private key into that directory as `node_tls_certificate` and `node_tls_private_key`, then make those files readable by the container user:
+
+```bash
+install -m 0444 /secure/path/fullchain.pem "$secret_dir/node_tls_certificate"
+install -m 0444 /secure/path/privkey.pem "$secret_dir/node_tls_private_key"
+```
+
+Use a publicly trusted certificate whose DNS name matches `APP_URL`; Android release builds do not trust arbitrary user-installed certificate authorities. A DNS-01 certificate can be used with split-horizon DNS for a campus-only hostname. Keep the secret directory at mode `0700` on WSL's Linux filesystem; do not move these files into the repository, a shared Windows folder, or a world-readable host directory. Replace the example `NODE_SECRETS_DIR` with this exact absolute directory in `node-compose.env`. The local Compose secret files are read-only mounts, not an encrypted secret manager; see Docker's [Compose secrets guide](https://docs.docker.com/compose/how-tos/use-secrets/). Protect the Windows account and WSL virtual disk, and keep encrypted off-host backups.
+
+In elevated PowerShell, allow Docker Desktop's published scanner listener only from the staff-device subnet. Replace the example subnet and select the **Private** profile used by the venue network. Docker Desktop forwards published-port traffic through `com.docker.backend.exe`; the [Docker Desktop networking guide](https://docs.docker.com/desktop/features/networking/) describes its Windows firewall behavior:
+
+```powershell
+$staffSubnet = '192.168.50.0/24'
+$dockerBackend = (Get-Process -Name 'com.docker.backend' -ErrorAction Stop | Select-Object -First 1 -ExpandProperty Path)
+New-NetFirewallRule -DisplayName 'Ingress Event Node HTTPS' -Program $dockerBackend -Direction Inbound -Action Allow -Protocol TCP -LocalPort 443 -RemoteAddress $staffSubnet -Profile Private
+```
+
+Keep Windows and venue firewall policy limited to TCP 443 from the staff subnet. Review existing inbound allow rules for Docker Desktop so a broader rule does not expose other published ports. Compose binds the scanner listener to the chosen Windows LAN address. The operator port `8444` is bound to Windows loopback only; PostgreSQL port `5432` is not published. Do not create LAN or public firewall rules for either port.
+
+Create a venue DNS A record for the node hostname that resolves to the reserved Windows LAN address for staff phones. For the Windows operator browser, add `127.0.0.1 <node-hostname>` to `C:\Windows\System32\drivers\etc\hosts` using an elevated editor, then run `ipconfig /flushdns`. This keeps the operator URL on Windows loopback while preserving the same TLS hostname. Staff phones must resolve the hostname to the Windows LAN address through venue DNS; they use port 443 and cannot reach the operator console.
+
+From `~/projects/ingress/api` in Ubuntu, check the Compose configuration, build the image, and start the stack. The migration service waits for PostgreSQL health, applies migrations under the database advisory lock, and binds this database to the configured node identity. The app and scheduler start only after migration succeeds; a failed migration leaves both stopped:
+
+```bash
+docker compose -f compose.node.yaml --env-file node-compose.env config --quiet
+docker compose -f compose.node.yaml --env-file node-compose.env build
+docker compose -f compose.node.yaml --env-file node-compose.env up -d
+docker compose -f compose.node.yaml --env-file node-compose.env ps
+docker compose -f compose.node.yaml --env-file node-compose.env logs --tail=100 ingress-migrate ingress-node ingress-scheduler
+```
+
+Check that the migration service exits successfully, the Event Node is healthy, and the scheduler is running (the scheduler has no separate healthcheck). The migration log should report `Event Node database migrations and runtime identity are ready.` Check the published endpoints without disabling certificate validation:
+
+```bash
+docker compose -f compose.node.yaml --env-file node-compose.env port ingress-node 8443
+docker compose -f compose.node.yaml --env-file node-compose.env port ingress-node 8444
+```
+
+The first command must show the configured LAN IPv4 address on port 443; the second must show `127.0.0.1:8444`. From Windows, open `https://<node-hostname>/up` and confirm HTTP 200, then open `https://<node-hostname>:8444/node/operator/login`. From a staff phone on venue Wi-Fi, confirm the same hostname resolves to the reserved LAN address and `/up` succeeds over trusted HTTPS. Confirm the operator URL is unavailable from a second LAN device. Nginx terminates TLS directly and removes forwarded headers before PHP; do not put an unreviewed reverse proxy in front of the node.
+
+Create the first browser operator from the WSL terminal. The command prompts for the account details and reads the password without echoing it:
+
+```bash
+docker compose -f compose.node.yaml --env-file node-compose.env run --rm ingress-cli
+```
+
+The `ingress-cli` maintenance service is one-shot and runs the same runtime identity check before creating the account. Open `https://<node-hostname>:8444/node/operator` from the Windows host after completing the hosts-file entry. The browser operator console is local to Windows; staff scanners use `https://<node-hostname>/api/v1` over the venue LAN.
+
+The `ingress-scheduler` service runs separately from the web process and retries cloud synchronization when internet access is available. Admission still uses the Event Node and venue LAN if WAN service is unavailable. Check its status and recent output with:
+
+```bash
+docker compose -f compose.node.yaml --env-file node-compose.env ps ingress-scheduler
+docker compose -f compose.node.yaml --env-file node-compose.env logs --tail=100 ingress-scheduler
+```
+
+The PostgreSQL data lives in the Compose named volume `ingress_node_database`; Laravel session and cache data use PostgreSQL, and application scratch storage is temporary. Named volumes survive container recreation and ordinary `docker compose down` operations; Docker's [volume guide](https://docs.docker.com/reference/compose-file/volumes/) describes this lifecycle. Back up the database to a protected WSL directory before an event and encrypt the backup with an institution-approved tool before copying it off the host. With the defaults in `node-compose.env`, create a custom-format dump like this (substitute the configured database and role if changed):
+
+```bash
+backup_dir="$HOME/ingress-backups/venue-node-1"
+install -d -m 0700 "$backup_dir"
+backup_file="$backup_dir/$(date -u +%Y%m%dT%H%M%SZ).dump"
+docker compose -f compose.node.yaml --env-file node-compose.env exec -T ingress-db pg_dump -U ingress_node -d ingress_node --format=custom --no-owner > "$backup_file"
+chmod 0600 "$backup_file"
+printf 'Backup written to %s\n' "$backup_file"
+```
+
+For a restore, stop all gates and the scanner app first. Isolate or retire the original host before restoring an activated node so that only one copy can admit. Preserve a separate copy of the current database and restore only the matching node's backup. Set `backup_file` to the protected dump path printed when the backup was made (or to a protected plaintext file created by decrypting the off-host copy). With the defaults above, stop the app and scheduler, restore the dump into the same node database, remove the old one-shot migration container, and start the stack again so migrations and runtime identity checks run:
+
+```bash
+backup_file="$HOME/ingress-backups/venue-node-1/REPLACE_WITH_TIMESTAMP.dump"
+backup_dir="$HOME/ingress-backups/venue-node-1"
+install -d -m 0700 "$backup_dir"
+docker compose -f compose.node.yaml --env-file node-compose.env stop ingress-node ingress-scheduler
+current_file="$backup_dir/pre-restore-$(date -u +%Y%m%dT%H%M%SZ).dump"
+docker compose -f compose.node.yaml --env-file node-compose.env exec -T ingress-db pg_dump -U ingress_node -d ingress_node --format=custom --no-owner > "$current_file"
+chmod 0600 "$current_file"
+docker compose -f compose.node.yaml --env-file node-compose.env exec -T ingress-db pg_restore --exit-on-error --clean --if-exists --no-owner -U ingress_node -d ingress_node < "$backup_file"
+docker compose -f compose.node.yaml --env-file node-compose.env rm -f ingress-migrate
+docker compose -f compose.node.yaml --env-file node-compose.env up -d
+```
+
+Never run `docker compose down --volumes` on a node whose database must be kept. A named volume survives ordinary container recreation, but it is not a backup; Docker Desktop reset, WSL virtual-disk loss, or host failure can still destroy it. Do not start a cloned or restored copy while the original might still hold authority or admit.
+
+To apply a reviewed application update outside an event, stop admission, check out the approved commit, rebuild, and let the migration service complete before serving again:
+
+```bash
+docker compose -f compose.node.yaml --env-file node-compose.env stop ingress-node ingress-scheduler
+git checkout REPLACE_WITH_REVIEWED_COMMIT
+docker compose -f compose.node.yaml --env-file node-compose.env build
+docker compose -f compose.node.yaml --env-file node-compose.env rm -f ingress-migrate
+docker compose -f compose.node.yaml --env-file node-compose.env up -d
+```
+
+The database migration lock serializes migrations, and startup fails closed on a migration or identity error. Keep the Docker Compose file, `node-compose.env`, external secret directory, database volume, and reviewed commit together as one node installation record. Renewed TLS files require the `ingress-node` container to be recreated so Nginx loads the new certificate. Stop new scans before doing so:
+
+```bash
+docker compose -f compose.node.yaml --env-file node-compose.env up -d --force-recreate ingress-node
+```
+
+#### Stop and resume the Docker Event Node
+
+At closeout, stop scans at every gate, finish or cancel open previews, restore WAN, and wait until the operator dashboard shows zero pending admissions, walk-ins, and recoveries. Reconcile the totals with the cloud and save a protected database backup before stopping the host. Then stop the web and scheduler containers gracefully while keeping the database volume:
+
+```bash
+docker compose -f compose.node.yaml --env-file node-compose.env stop ingress-node ingress-scheduler
+```
+
+After a Windows restart, start Docker Desktop and the same Ubuntu distro, return to the reviewed checkout's `api` directory, and resume the stack:
+
+```bash
+docker compose -f compose.node.yaml --env-file node-compose.env up -d
+docker compose -f compose.node.yaml --env-file node-compose.env ps
+```
+
+Confirm the database and migration states, `/up`, and the scheduler before reconnecting scanners. Do not run `down --volumes` or start another copy of an activated node.
+
+### Compatibility profile: native WSL2 Ubuntu 26.04 with Nginx
 
 This profile requires Windows 11 22H2 or later, WSL 2, Ubuntu 26.04 LTS, a Windows host with a DHCP-reserved venue address, and an event hostname covered by a publicly trusted TLS certificate. Mirrored networking is required for staff phones to reach Nginx in WSL. Microsoft documents mirrored mode and its Windows 11 version requirement in the [WSL networking guide](https://learn.microsoft.com/en-us/windows/wsl/networking). This changes networking for WSL distributions on the Windows account, so use a dedicated venue host or review other WSL workloads first.
 
@@ -452,7 +635,7 @@ Use a staff Wi-Fi network that can reach the reserved node address; disable clie
 
 ## Configure an Event Node
 
-Give each Event Node a unique stable ID and its own PostgreSQL database. Configure independent values for `APP_KEY`, database credentials, and the node transfer secret:
+Give each Event Node a unique stable ID and its own PostgreSQL database. The `.env` example below is for the native WSL and IIS profiles. Docker Desktop uses `node-compose.env` and the external file-backed secret directory described in the [Docker profile](#preferred-profile-docker-desktop-with-wsl2-integration); do not copy these secret values into an `.env` file for that profile. Configure independent values for `APP_KEY`, database credentials, and the node transfer secret:
 
 ```dotenv
 APP_ENV=production
@@ -487,13 +670,19 @@ TRUSTED_PROXIES=
 
 Replace `node-1.example.edu` with the node's real campus DNS name and use a certificate valid for that name.
 
-After migrations finish, create the initial browser operator from the node's trusted local shell:
+After migrations finish, create the initial browser operator from the node's trusted local shell. For Docker Desktop, use the Compose maintenance service from the WSL `api` directory:
+
+```bash
+docker compose -f compose.node.yaml --env-file node-compose.env run --rm ingress-cli
+```
+
+For native WSL or IIS, use Artisan from `api`:
 
 ```bash
 php artisan ingress:node-operator:create
 ```
 
-The command is available only when `INGRESS_RUNTIME=node` and the database is bound to this node ID. It prompts for the operator name and email, then hides and confirms the password. Do not put the password in a command argument or shell history. Open `https://node-1.example.edu/node/operator` after replacing the example hostname. This console exists only on the Event Node. By default, it accepts loopback connections. If the browser is on another computer, set `INGRESS_OPERATOR_ALLOWED_CIDRS` to that computer's exact trusted address or a narrow management subnet, then rebuild Laravel's config cache and restart the web service. A browser on the Event Node using a hostname that resolves to its LAN address may also need that local interface address as a `/32`, or a local hosts entry mapping the same certificate hostname to `127.0.0.1`. Keep the venue firewall restricted to trusted operator devices. Do not use a public or attendee subnet. The application checks the socket peer and never grants access from `X-Forwarded-For` or the request host. The console requires HTTPS, encrypted database sessions, strict secure cookies, and the PostgreSQL cache store.
+The command is available only when `INGRESS_RUNTIME=node` and the database is bound to this node ID. It prompts for the operator name and email, then hides and confirms a password between 12 and 72 bytes. Do not put the password in a command argument or shell history. Open `https://node-1.example.edu/node/operator` after replacing the example hostname. For Docker, use `https://<node-hostname>:8444/node/operator` from the Windows host with the hosts-file mapping described above; keep the Compose gateway allowlist and loopback binding unchanged. For native WSL or IIS, the console accepts loopback connections by default. If a browser is on another computer, set `INGRESS_OPERATOR_ALLOWED_CIDRS` to that computer's exact trusted address or a narrow management subnet, then rebuild Laravel's config cache and restart the web service. Keep the venue firewall restricted to trusted operator devices. Do not use a public or attendee subnet. The application checks the socket peer and never grants access from `X-Forwarded-For` or the request host. The console requires HTTPS, encrypted database sessions, strict secure cookies, and the PostgreSQL cache store.
 
 After the one-time account setup, event operators use **Staff and scanner management** in the browser. The page lists names and assigned gates from each current imported event roster. Provision a scanner credential only when the page reports that none exists; the generated value is displayed once and must be shared through an approved secure channel. Use **Generate pairing QR** to show the staff member a local, three-minute, one-use QR code. Its HTTPS address comes from this node's `APP_URL`; use the same stable hostname and trusted certificate configured for scanner phones. Generating a replacement invalidates an earlier unused pairing code. Rotation and revocation require typing the confirmation word and immediately invalidate saved scanner sessions. A stored session count does not indicate that a phone is connected. Pairing alone does not activate admission; the node still requires a valid signed authority grant for that event.
 
@@ -511,15 +700,15 @@ Operator pages and receipts use `no-store` headers. Do not send receipts or gran
 
 The operator dashboard reports the configured node ID, `APP_URL` host, PHP operating-system/SAPI profile, database driver, active event snapshot version, authority verification, local admission/walk-in/recovery totals, pending sync counts, and the most recent sync pass result stored in the PostgreSQL cache. Pending counts come from local admissions, walk-in issues, and walk-in recoveries that have not received a cloud acknowledgment. “Most recent acknowledged record” is the latest individual receipt timestamp; it does not mean the full node is synchronized. A pass marked completed without a reported error is not proof of cloud connectivity when there was nothing pending to send. Counts describe the local database at page-load time and should still be reconciled with the organizer. The page does not verify the DNS record or TLS certificate; the installer must test the trusted certificate and matching hostname from each scanner device.
 
-**Run one bounded sync pass** submits at most one pending walk-in issue, one eligible recovery, and one admission batch (up to the existing 100-record batch limit) for that event. Each cloud request has a 2-second connection timeout and a 4-second request timeout; the pass stops after 25 seconds. The scheduler and browser action share the same database cache lock, so an operator action does not overlap a scheduled pass. A busy or failed request leaves unacknowledged records on the node for a later retry. Cloud unavailability does not stop admissions on the venue LAN. The dashboard does not probe the cloud, validate its TLS certificate, test scanner phones, or report scheduler health; the installer must confirm the host scheduler and test HTTPS from each scanner on the venue LAN.
+**Run one bounded sync pass** submits at most one pending walk-in issue, one eligible recovery, and one admission batch (up to the existing 100-record batch limit) for that event. Each cloud request has a 2-second connection timeout and a 4-second request timeout; the pass stops after 25 seconds. The scheduler and browser action share the same database cache lock, so an operator action does not overlap a scheduled pass. A busy or failed request leaves unacknowledged records on the node for a later retry. Cloud unavailability does not stop admissions on the venue LAN. The dashboard does not probe the cloud, validate its TLS certificate, test scanner phones, or report scheduler health; confirm the Docker scheduler container or native host scheduler according to the selected profile, and test HTTPS from each scanner on the venue LAN.
 
-At event closeout, stop scans at every gate and finish or cancel open scan previews on each phone. Restore internet and run bounded passes, refreshing the dashboard until all three pending counts are zero. Reconcile admission, walk-in, and recovery totals with the organizer, and stop if authority or counts disagree. Have the installer confirm the scheduler's final run. Preserve the node database, application key, node sync secret, signed authority grant, and relevant logs in the venue's protected backup location. Only after reconciliation and backup, follow the selected WSL or IIS host shutdown procedure below. This console does not run OS commands, shut down the host, transfer authority, or enable automatic failover.
+At event closeout, stop scans at every gate and finish or cancel open scan previews on each phone. Restore internet and run bounded passes, refreshing the dashboard until all three pending counts are zero. Reconcile admission, walk-in, and recovery totals with the organizer, and stop if authority or counts disagree. Have the installer confirm the scheduler's final run. Preserve the node database, application key, node sync secret, signed authority grant, and relevant logs in the venue's protected backup location. Only after reconciliation and backup, follow the selected Docker, WSL, or IIS host shutdown procedure below. This console does not run OS commands, shut down the host, transfer authority, or enable automatic failover.
 
-Set `INGRESS_NODE_ID` to the same ID registered by `register_render_node.ps1`. Copy the printed one-time sync key into the node's private `.env` and copy only the cloud authority **public** key. Keep `APP_DEBUG=false`, `INGRESS_DEMO_MODE=false`, `SESSION_DRIVER=database`, and `CACHE_STORE=database`. For direct IIS HTTPS, leave `TRUSTED_PROXIES` empty; trust a proxy only if one is installed between IIS and the phone, and then list that exact peer. Never set it to `*`.
+Set `INGRESS_NODE_ID` to the same ID registered by `register_render_node.ps1`. For native WSL or IIS, copy the printed one-time sync key into the node's private `.env`; for Docker, store it in the external `node_sync_key` file. Copy only the cloud authority **public** key. Keep `APP_DEBUG=false`, `INGRESS_DEMO_MODE=false`, `SESSION_DRIVER=database`, and `CACHE_STORE=database`. Docker, native WSL, and direct IIS use an empty `TRUSTED_PROXIES`; only configure an exact proxy peer if a reviewed proxy actually fronts an IIS deployment. Never set it to `*`.
 
 Do not set the authority private key on a node. Register it from a trusted Windows checkout with `powershell -ExecutionPolicy Bypass -File .\api\scripts\register_render_node.ps1`; transfer the one-time printed secret to the node through a separate secure channel. The node secret authenticates snapshot transfer and attendance synchronization. Revoking it with `php artisan ingress:revoke-node node-1` blocks future synchronization, but does not stop offline admission or revoke an authority grant already issued. If the secret is exposed, isolate the node from scanners, revoke the cloud credential, and preserve the node database and logs. Do not treat key revocation as node deactivation.
 
-Provision the node database by installing the current application release and applying migrations. Standard events keep their earlier snapshot schema and admission batch schema for compatibility. Snapshot schema version 4 carries ID-check policy, and admission batch schema version 3 carries each staff ID-check acknowledgment. Upgrade the cloud and Event Node before preparing or importing an event that requires ID checks. The application still reads older snapshot and admission batch versions for existing events.
+Provision the node database by installing the current application release and applying migrations. Docker Desktop manages its PostgreSQL 18 database and migrations through Compose; native WSL and IIS use the installed PostgreSQL service and Artisan migration command. Standard events keep their earlier snapshot schema and admission batch schema for compatibility. Snapshot schema version 4 carries ID-check policy, and admission batch schema version 3 carries each staff ID-check acknowledgment. Upgrade the cloud and Event Node before preparing or importing an event that requires ID checks. The application still reads older snapshot and admission batch versions for existing events.
 
 ## Install an Event Node or self-hosted instance
 
