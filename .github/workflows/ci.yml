@@ -244,3 +244,13 @@ jobs:
             echo 'Nginx accepted a request with an unknown TLS host.' >&2
             exit 1
           fi
+
+  event-node-docker:
+    name: Event Node Docker Integration
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v7
+
+      - name: Build and verify the isolated Event Node Docker Compose profile
+        run: bash api/tests/docker/node-compose.sh
