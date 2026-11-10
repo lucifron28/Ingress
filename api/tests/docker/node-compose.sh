@@ -3,14 +3,13 @@ set -Eeuo pipefail
 
 api_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 test_dir="$(mktemp -d "$api_root/.node-docker-test.XXXXXX")"
+temporary_root="$(cd "${TMPDIR:-/tmp}" && pwd)"
+secrets_dir="$(mktemp -d "$temporary_root/ingress-node-docker-test-secrets.XXXXXX")"
 project="ingress-node-ci-$(date +%s)-$$"
-secrets_dir="$test_dir/secrets"
 env_file="$test_dir/node.env"
 base64_sync_key=''
 app_key=''
 database_password=''
-
-mkdir -p "$secrets_dir"
 
 compose() {
     docker compose --project-name "$project" --env-file "$env_file" --file "$api_root/compose.node.yaml" "$@"
@@ -36,6 +35,11 @@ cleanup() {
         *) printf 'Refusing to remove unexpected test directory.\n' >&2; exit 1 ;;
     esac
 
+    case "$secrets_dir" in
+        "$temporary_root"/ingress-node-docker-test-secrets.*) rm -rf -- "$secrets_dir" ;;
+        *) printf 'Refusing to remove unexpected test secrets directory.\n' >&2; exit 1 ;;
+    esac
+
     exit "$status"
 }
 trap cleanup EXIT
@@ -55,13 +59,15 @@ openssl req -x509 -newkey rsa:2048 -nodes \
     -keyout "$secrets_dir/node_tls_private_key" \
     -out "$secrets_dir/node_tls_certificate" \
     -subj '/CN=node.test' -addext 'subjectAltName=DNS:node.test' -days 1 >/dev/null 2>&1
-chmod 0600 "$secrets_dir"/*
+# These are synthetic, short-lived test secrets. A Linux bind-mounted Compose
+# secret keeps the source file's owner and mode, so make the fixture readable by
+# the image's non-root UID 10001 while keeping it read-only.
+chmod 0444 "$secrets_dir"/*
 
 https_port=18443
 operator_port=18444
 egress_subnet=172.31.250.0/28
 egress_gateway=172.31.250.1
-secrets_dir_relative="./$(basename "$test_dir")/secrets"
 cat > "$env_file" <<EOF
 APP_URL=https://node.test
 INGRESS_NODE_ID=venue-node-test
@@ -72,7 +78,7 @@ INGRESS_NODE_HTTPS_PORT=$https_port
 INGRESS_OPERATOR_PORT=$operator_port
 INGRESS_EGRESS_SUBNET=$egress_subnet
 INGRESS_EGRESS_GATEWAY=$egress_gateway
-NODE_SECRETS_DIR=$secrets_dir_relative
+NODE_SECRETS_DIR=$secrets_dir
 DB_DATABASE=ingress_node
 DB_USERNAME=ingress_node
 EOF
