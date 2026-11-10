@@ -5,6 +5,8 @@ use App\Http\Controllers\NodeOperatorHandoffController;
 use App\Http\Controllers\NodeOperatorStaffController;
 use App\Http\Controllers\StudentEmailVerificationController;
 use App\Http\Controllers\Web\AuthController;
+use App\Http\Controllers\Web\EventManagerController;
+use App\Http\Controllers\Web\EventManagerInvitationController;
 use App\Http\Controllers\Web\GuestTicketController;
 use App\Http\Controllers\Web\OrganizerAttendanceController;
 use App\Http\Controllers\Web\OrganizerEventController;
@@ -30,6 +32,13 @@ Route::middleware(['auth', 'runtime:cloud'])->group(function (): void {
 
 Route::get('/student/complete', [StudentEmailVerificationController::class, 'show'])->middleware('runtime:cloud');
 Route::post('/student/complete', [StudentEmailVerificationController::class, 'complete'])->middleware(['runtime:cloud', 'throttle:student-complete']);
+
+Route::get('/event-manager-invitation', [EventManagerInvitationController::class, 'show'])
+    ->middleware('runtime:cloud')->name('event-manager-invitation.show');
+Route::post('/event-manager-invitations/preview', [EventManagerInvitationController::class, 'preview'])
+    ->middleware(['runtime:cloud', 'throttle:manager-invitation'])->name('event-manager-invitations.preview');
+Route::post('/event-manager-invitations/accept', [EventManagerInvitationController::class, 'accept'])
+    ->middleware(['runtime:cloud', 'throttle:manager-invitation'])->name('event-manager-invitations.accept');
 
 Route::get('/login', [AuthController::class, 'showLoginForm'])->middleware('runtime:legacy,cloud')->name('login');
 Route::post('/login', [AuthController::class, 'login'])
@@ -81,6 +90,10 @@ Route::middleware(['auth', 'organizer', 'runtime:legacy,cloud'])->prefix('organi
     Route::get('/events/create', [OrganizerEventController::class, 'create'])->name('events.create');
     Route::post('/events', [OrganizerEventController::class, 'store'])->name('events.store');
     Route::get('/events/{event}', [OrganizerEventController::class, 'show'])->name('events.show');
+    Route::post('/events/{event}/managers', [EventManagerController::class, 'store'])
+        ->middleware(['runtime:cloud', 'throttle:manager-invitation'])->name('events.managers.store');
+    Route::delete('/events/{event}/managers/{manager}', [EventManagerController::class, 'revoke'])
+        ->middleware('runtime:cloud')->name('events.managers.revoke');
     Route::get('/events/{event}/edit', [OrganizerEventController::class, 'edit'])->name('events.edit');
     Route::put('/events/{event}', [OrganizerEventController::class, 'update'])->name('events.update');
     Route::post('/events/{event}/publish', [OrganizerEventController::class, 'publish'])->name('events.publish');
@@ -97,6 +110,7 @@ Route::middleware(['auth', 'organizer', 'runtime:legacy,cloud'])->prefix('organi
 
     Route::post('/events/{event}/access-points', [OrganizerEventController::class, 'storeAccessPoint'])->name('events.access-points.store');
     Route::post('/events/{event}/staff', [OrganizerEventController::class, 'assignStaff'])->name('events.staff.assign');
+    Route::delete('/events/{event}/staff/{staff}', [OrganizerEventController::class, 'revokeStaff'])->name('events.staff.revoke');
 
     // Attendance view route (detailed in Phase 8)
     Route::get('/events/{event}/attendance', [OrganizerAttendanceController::class, 'show'])->name('attendance');

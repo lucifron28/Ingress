@@ -322,25 +322,21 @@ In physical campus events with multiple entrance turnstiles (e.g. Gate A and Gat
 
 ## 7. Identity vs Authorization
 
-The system has two distinct concepts that are easy to conflate, and the schema keeps them separate on purpose.
+The system keeps identity separate from event responsibility. The same person can be an attendee, manage one assigned event, and scan another event when explicitly assigned.
 
 **Identity — who a person is at the university.** A student, an employee, an alumnus, or a guest. This is a long-lived fact about a person and is what an institution would eventually source from an authoritative directory (for example `myMSEUF` SSO).
 
 **Authorization / responsibility — what a person may do in Ingress, and for which event.** An attendee, event staff, organizer, or admin. These are *event-scoped responsibilities*: the same person can be a student (identity) and event staff (responsibility) for one event while being an ordinary attendee for every other.
 
-The current implementation reflects this deliberately:
+The Cloud authorization model uses three separate relationships:
 
-- `users.role` is a **coarse portal flag** used for routing and portal-level access (which app area you land in, whether the organizer console is reachable). Its constants (`admin`, `organizer`, `staff`, `student`) are a short-term convenience, not the responsibility model.
-- The **responsibility model lives in `event_staff`**: a per-event assignment row with an optional specific gate. `AdmitTicket` authorizes a scan from `isAdmin() || event.organizer_id === user.id || an event_staff row exists` and never from `users.role` alone. A student who is assigned as staff for one event can therefore scan that event without gaining any other staff capability.
+- `events.organizer_id` remains the event owner. Existing owner IDs are preserved, and owner rights are limited to that event.
+- `event_manager_assignments` grants management of one specific event. A platform administrator creates or revokes these rows. An `event_manager` role value without an active assignment grants no event access and does not grant event creation or global administration.
+- `event_staff` grants scanner access for one specific event and optionally one gate. Event managers and students can be assigned as scanners without changing their account role. A manager is not implicitly allowed to scan; a separate scanner assignment is required.
 
-### Remaining role-routing limitation
+`event_responsibility_audits` records manager assignment, invitation, acceptance, revocation, scanner assignment, gate change, and scanner revocation. Audit rows keep event, actor, subject, and gate text snapshots so the history remains readable after an account or event is removed. Removing a manager assignment immediately removes its event-management access. Scanner admission remains based on the existing assignment checks and is unchanged on the Event Node.
 
-Two places still read `users.role` where they should read a responsibility:
-
-1. `mobile/app/index.tsx` routes a signed-in user to the staff scanner when `role === 'staff'`. A student who is also event staff lands in attendee mode and must switch manually.
-2. `OrganizerEventController` offers only users whose `role` is `staff` in the staff picker, so a student cannot be assigned as event staff through the UI.
-
-Neither is a security gap — the *authorization* decision is already assignment-based — but both are functional limitations. Resolving them means splitting identity from responsibility properly (separate tables or a many-to-many), which is a second-half change: this milestone intentionally does not redesign authentication or build a general RBAC system.
+An administrator can assign an existing account directly or invite a new email address. New-account invitations use a random single-use token stored only as a SHA-256 hash, expire after 48 hours, and place the raw token in the email URL fragment. The invitation page removes the fragment before sending the token in a private POST body. Invitation and student verification mail is never sent through a logging transport, and invitation responses are non-cacheable with a no-referrer policy.
 
 ---
 
@@ -355,7 +351,7 @@ Session restoration distinguishes two failure modes:
 | `401` | The token is invalid for this server — stored token and cached identity are cleared. |
 | Transport failure (`status: 0`) | The server is unreachable — the cached identity is kept so the app can show who is signed in, while every server action still fails closed. |
 
-**Organizer web** uses ordinary Laravel session authentication. Only users who pass `isOrganizer()` may enter the organizer console; a student who authenticates successfully is logged straight back out with an explanatory error.
+**Organizer web** uses ordinary Laravel session authentication. Platform administrators and legacy event organizers retain their existing access. A user with an active manager assignment or owned event can also sign in, but event policies check each event independently; the `event_manager` role alone is insufficient, and managers cannot create events. Students use Firebase for sign-in and can reach management pages only when their event-specific assignment permits it.
 
 **Student web identity** is separate from organizer credentials and Event Node identities. The Cloud student page uses Firebase email/password authentication, Firebase-managed verification and password-reset emails, and browser-session persistence. Firebase passwords are sent directly to Firebase and are never stored by Laravel. Firebase's action links return to `/student/auth`; the Firebase authorized-domain list must include the deployed Cloud host.
 

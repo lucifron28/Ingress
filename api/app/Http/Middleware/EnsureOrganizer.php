@@ -15,15 +15,15 @@ class EnsureOrganizer
     {
         $user = $request->user();
 
-        if (! $user || ! $user->isOrganizer()) {
+        if (! $user || ! $user->hasEventManagementAccess()) {
             if ($request->expectsJson()) {
                 return response()->json([
-                    'message' => 'Unauthorized. Organizer privileges required.',
+                    'message' => 'Unauthorized. Event management access required.',
                 ], 403);
             }
 
             return redirect()->route('login')->withErrors([
-                'email' => 'Organizer credentials required to access this area.',
+                'email' => 'Sign in with an account that can manage events.',
             ]);
         }
 

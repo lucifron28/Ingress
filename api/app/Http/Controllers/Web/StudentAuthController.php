@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
+use App\Models\EventManagerInvitation;
 use App\Models\User;
 use App\Services\Auth\FirebaseIdentityServiceUnavailable;
 use App\Services\Auth\FirebaseIdentityVerifier;
@@ -89,9 +90,22 @@ class StudentAuthController extends Controller
         Auth::guard('web')->login($user);
         $request->session()->regenerate();
 
+        $redirect = route('student.dashboard', absolute: false);
+        $invitationId = $request->session()->get('event_manager_invitation_id');
+        if ((is_int($invitationId) || (is_string($invitationId) && ctype_digit($invitationId)))
+            && EventManagerInvitation::query()
+                ->whereKey($invitationId)
+                ->whereRaw('LOWER(email) = ?', [mb_strtolower($user->email)])
+                ->whereNull('accepted_at')
+                ->whereNull('revoked_at')
+                ->where('expires_at', '>', now())
+                ->exists()) {
+            $redirect = route('event-manager-invitation.show', absolute: false);
+        }
+
         return $this->privateJson([
             'message' => 'Student sign-in successful.',
-            'redirect' => route('student.dashboard', absolute: false),
+            'redirect' => $redirect,
         ]);
     }
 

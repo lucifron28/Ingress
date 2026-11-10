@@ -34,6 +34,9 @@
             <p class="email">{{ $user->email }}</p>
             <p>Your email is verified. Public event discovery and registration will appear here as the Ingress attendee portal is completed.</p>
             <p>Email verification confirms mailbox ownership. It does not confirm current enrollment.</p>
+            @if ($user->hasEventManagementAccess())
+                <p><a href="{{ route('organizer.dashboard') }}">Manage assigned events</a></p>
+            @endif
             <a href="{{ route('login') }}">Organizer sign in</a>
         </section>
     </main>

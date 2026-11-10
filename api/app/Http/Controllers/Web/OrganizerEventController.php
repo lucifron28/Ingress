@@ -10,11 +10,13 @@ use App\Actions\TransferEventAuthority;
 use App\Http\Controllers\Controller;
 use App\Models\AccessPoint;
 use App\Models\Event;
+use App\Models\EventResponsibilityAudit;
 use App\Models\EventStaff;
 use App\Models\Registration;
 use App\Models\TicketTransfer;
 use App\Models\User;
 use App\Models\Venue;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -37,7 +39,10 @@ class OrganizerEventController extends Controller
         $query = Event::with(['venue', 'accessPoints', 'staffAssignments']);
 
         if (! $user->isAdmin()) {
-            $query->where('organizer_id', $user->id);
+            $query->where(function ($query) use ($user) {
+                $query->where('organizer_id', $user->id)
+                    ->orWhereHas('managerAssignments', fn ($assignments) => $assignments->where('user_id', $user->id));
+            });
         }
 
         $events = $query->orderBy('starts_at', 'asc')->get();
@@ -61,7 +66,10 @@ class OrganizerEventController extends Controller
         $query = Event::with('venue');
 
         if (! $user->isAdmin()) {
-            $query->where('organizer_id', $user->id);
+            $query->where(function ($query) use ($user) {
+                $query->where('organizer_id', $user->id)
+                    ->orWhereHas('managerAssignments', fn ($assignments) => $assignments->where('user_id', $user->id));
+            });
         }
 
         $events = $query->orderBy('created_at', 'desc')->paginate(10);
@@ -74,6 +82,8 @@ class OrganizerEventController extends Controller
      */
     public function create(): View
     {
+        Gate::authorize('create', Event::class);
+
         $venues = Venue::orderBy('name')->get();
 
         return view('organizer.events.create', compact('venues'));
@@ -84,6 +94,8 @@ class OrganizerEventController extends Controller
      */
     public function store(Request $request): RedirectResponse
     {
+        Gate::authorize('create', Event::class);
+
         $validated = $request->validate([
             'venue_id' => ['required', 'exists:venues,id'],
             'title' => ['required', 'string', 'max:255'],
@@ -147,8 +159,14 @@ class OrganizerEventController extends Controller
     {
         Gate::authorize('view', $event);
 
-        $event->load(['venue', 'accessPoints', 'staffAssignments.user', 'staffAssignments.accessPoint']);
-        $staffUsers = User::where('role', User::ROLE_STAFF)->orderBy('name')->get();
+        $event->load([
+            'venue',
+            'accessPoints',
+            'staffAssignments.user',
+            'staffAssignments.accessPoint',
+            'managerAssignments.user',
+            'responsibilityAudits' => fn ($query) => $query->latest('created_at')->limit(100),
+        ]);
         $guestRegistrations = config('ingress.mode') === 'cloud' && Auth::user()->can('update', $event)
             ? $event->registrations()->whereIn('attendee_type', ['guest', 'alumni'])->with('ticket')->orderBy('id')->get() : collect();
         $ticketTransfers = Auth::user()->can('update', $event)
@@ -197,7 +215,7 @@ class OrganizerEventController extends Controller
                 ->whereNull('event_snapshots.invalidated_at')->value('event_snapshot_import_receipts.node_id');
         }
 
-        return view('organizer.events.show', compact('event', 'staffUsers', 'receiptNodeId', 'importReceiptNodeId', 'authority', 'guestRegistrations', 'walkInRecoveries', 'ticketTransfers'));
+        return view('organizer.events.show', compact('event', 'receiptNodeId', 'importReceiptNodeId', 'authority', 'guestRegistrations', 'walkInRecoveries', 'ticketTransfers'));
     }
 
     /**
@@ -486,25 +504,119 @@ class OrganizerEventController extends Controller
         Gate::authorize('manageStaff', $event);
 
         $validated = $request->validate([
-            'user_id' => [
-                'required',
-                Rule::exists('users', 'id')->where(fn ($q) => $q->where('role', User::ROLE_STAFF)),
-            ],
+            'user_id' => ['nullable', 'integer', 'exists:users,id', 'required_without:staff_email'],
+            'staff_email' => ['nullable', 'string', 'email:rfc', 'max:255', 'required_without:user_id'],
             'access_point_id' => [
                 'nullable',
                 Rule::exists('access_points', 'id')->where(fn ($q) => $q->where('event_id', $event->id)),
             ],
         ]);
 
-        DB::transaction(function () use ($event, $validated) {
-            $lockedEvent = Event::whereKey($event->getKey())->lockForUpdate()->firstOrFail();
+        if (isset($validated['user_id'])) {
+            $staffUser = User::query()->find($validated['user_id']);
+        } else {
+            $matchingAccounts = User::query()
+                ->whereRaw('LOWER(email) = ?', [mb_strtolower(trim($validated['staff_email']))])
+                ->limit(2)
+                ->get();
+            if ($matchingAccounts->count() > 1) {
+                return back()->withErrors(['staff_email' => 'This email matches more than one account. Contact the platform administrator.']);
+            }
+
+            $staffUser = $matchingAccounts->first();
+        }
+
+        if (! $staffUser || $staffUser->isAdmin()) {
+            return back()->withErrors(['staff_email' => 'Choose an existing non-administrator account.']);
+        }
+
+        try {
+            $updated = DB::transaction(function () use ($event, $staffUser, $validated, $request): bool {
+                $lockedEvent = Event::whereKey($event->getKey())->lockForUpdate()->firstOrFail();
+                $lockedEvent->assertSnapshotNotPrepared();
+                $lockedUser = User::query()->whereKey($staffUser->getKey())->lockForUpdate()->firstOrFail();
+                $assignment = EventStaff::query()
+                    ->where('event_id', $lockedEvent->id)
+                    ->where('user_id', $lockedUser->id)
+                    ->lockForUpdate()
+                    ->first();
+                $accessPointId = $validated['access_point_id'] ?? null;
+
+                if ($assignment && (int) $assignment->access_point_id === (int) $accessPointId) {
+                    return false;
+                }
+
+                $wasAssigned = $assignment !== null;
+                $oldAccessPoint = $assignment?->accessPoint;
+                if ($assignment) {
+                    $assignment->access_point_id = $accessPointId;
+                    $assignment->save();
+                } else {
+                    $assignment = EventStaff::create([
+                        'event_id' => $lockedEvent->id,
+                        'user_id' => $lockedUser->id,
+                        'access_point_id' => $accessPointId,
+                    ]);
+                }
+
+                $assignment->unsetRelation('accessPoint');
+                $accessPoint = $assignment->accessPoint ?? $oldAccessPoint;
+                EventResponsibilityAudit::create([
+                    'event_id' => $lockedEvent->id,
+                    'event_title' => $lockedEvent->title,
+                    'subject_user_id' => $lockedUser->id,
+                    'subject_email' => $lockedUser->email,
+                    'actor_user_id' => $request->user()->id,
+                    'actor_email' => $request->user()->email,
+                    'action' => $wasAssigned ? EventResponsibilityAudit::ACTION_SCANNER_GATE_CHANGED : EventResponsibilityAudit::ACTION_SCANNER_ASSIGNED,
+                    'access_point_id' => $accessPoint?->id,
+                    'access_point_code' => $accessPoint?->code,
+                    'created_at' => now(),
+                ]);
+
+                return true;
+            });
+        } catch (UniqueConstraintViolationException) {
+            $updated = false;
+        }
+
+        return back()->with(
+            $updated ? 'success' : 'info',
+            $updated ? 'Scanner assignment saved successfully.' : 'That account already has this scanner assignment.',
+        );
+    }
+
+    public function revokeStaff(Request $request, Event $event, User $staff): RedirectResponse
+    {
+        Gate::authorize('manageStaff', $event);
+
+        DB::transaction(function () use ($event, $staff, $request): void {
+            $lockedEvent = Event::query()->whereKey($event->getKey())->lockForUpdate()->firstOrFail();
             $lockedEvent->assertSnapshotNotPrepared();
-            EventStaff::updateOrCreate(
-                ['event_id' => $lockedEvent->id, 'user_id' => $validated['user_id']],
-                ['access_point_id' => $validated['access_point_id'] ?? null]
-            );
+            $lockedStaff = User::query()->whereKey($staff->getKey())->lockForUpdate()->firstOrFail();
+            $assignment = EventStaff::query()
+                ->where('event_id', $lockedEvent->id)
+                ->where('user_id', $lockedStaff->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            $accessPoint = $assignment->accessPoint;
+
+            $assignment->delete();
+
+            EventResponsibilityAudit::create([
+                'event_id' => $lockedEvent->id,
+                'event_title' => $lockedEvent->title,
+                'subject_user_id' => $lockedStaff->id,
+                'subject_email' => $lockedStaff->email,
+                'actor_user_id' => $request->user()->id,
+                'actor_email' => $request->user()->email,
+                'action' => EventResponsibilityAudit::ACTION_SCANNER_REVOKED,
+                'access_point_id' => $accessPoint?->id,
+                'access_point_code' => $accessPoint?->code,
+                'created_at' => now(),
+            ]);
         });
 
-        return back()->with('success', 'Staff member assigned successfully.');
+        return back()->with('success', 'Scanner access has been revoked.');
     }
 }

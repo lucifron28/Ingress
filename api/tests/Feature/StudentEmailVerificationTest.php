@@ -176,4 +176,16 @@ class StudentEmailVerificationTest extends TestCase
         $this->postJson('http://example.test/api/v1/auth/student-verification', ['email' => 'student@student.mseuf.edu.ph'])->assertStatus(503);
         Mail::assertNothingSent();
     }
+
+    public function test_link_emails_are_not_sent_or_persisted_with_a_logging_mailer(): void
+    {
+        config(['mail.default' => 'log']);
+
+        $this->postJson('/api/v1/auth/student-verification', ['email' => 'student@student.mseuf.edu.ph'])
+            ->assertStatus(202)
+            ->assertJsonPath('message', 'If the address is eligible, check your inbox for a verification link.');
+
+        Mail::assertNothingSent();
+        $this->assertDatabaseCount('student_email_verifications', 0);
+    }
 }

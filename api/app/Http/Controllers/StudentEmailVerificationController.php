@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Mail\StudentVerificationMail;
 use App\Models\User;
+use App\Support\SensitiveMailTransport;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -49,6 +50,10 @@ class StudentEmailVerificationController extends Controller
     public function requestLink(Request $request): JsonResponse
     {
         $this->requireSecureDeployment($request);
+        if (! SensitiveMailTransport::canSendWithoutLogging()) {
+            return response()->json(['message' => 'If the address is eligible, check your inbox for a verification link.'], 202);
+        }
+
         $input = $request->validate(['email' => ['required', 'string', 'email:rfc', 'max:255']]);
         $email = Str::lower(trim($input['email']));
         if (! preg_match('/\A[^@\s]+@student\.mseuf\.edu\.ph\z/', $email)) {
