@@ -79,6 +79,7 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
         RateLimiter::for('student-complete', fn (Request $request) => Limit::perMinute(10)->by('student-complete:'.$request->ip()));
+        RateLimiter::for('student-firebase-session', fn (Request $request) => Limit::perMinute(10)->by('student-firebase-session:'.$request->ip()));
 
         RateLimiter::for('ticket-transfer', fn (Request $request) => [
             Limit::perMinute(10)->by('ticket-transfer-user:'.($request->user()?->id ?? $request->ip())),

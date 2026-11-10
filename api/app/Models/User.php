@@ -7,13 +7,13 @@ use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 
 #[Fillable(['name', 'email', 'password', 'role', 'student_id'])]
-#[Hidden(['password', 'remember_token'])]
+#[Hidden(['password', 'remember_token', 'firebase_uid'])]
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
@@ -29,12 +29,16 @@ class User extends Authenticatable
      * for every other. Authorization decisions for scanning are therefore
      * assignment-based (see `AdmitTicket`), never `role`-based.
      *
-     * Identity (student / employee / alumni / guest) is intentionally not modelled
-     * here yet; see `docs/architecture.md` §7.
+     * `firebase_uid` links an institutional student to a server-verified Firebase
+     * identity. A verified email proves mailbox ownership, not current enrollment;
+     * `student_id` remains optional until an enrollment authority is integrated.
      */
     public const ROLE_ADMIN = 'admin';
+
     public const ROLE_ORGANIZER = 'organizer';
+
     public const ROLE_STAFF = 'staff';
+
     public const ROLE_STUDENT = 'student';
 
     public function isAdmin(): bool
@@ -64,6 +68,7 @@ class User extends Authenticatable
     {
         return $this->hasOne(StudentIdentity::class, 'activated_user_id');
     }
+
     /**
      * Get the attributes that should be cast.
      *

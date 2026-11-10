@@ -8,6 +8,7 @@ use App\Http\Controllers\Web\AuthController;
 use App\Http\Controllers\Web\GuestTicketController;
 use App\Http\Controllers\Web\OrganizerAttendanceController;
 use App\Http\Controllers\Web\OrganizerEventController;
+use App\Http\Controllers\Web\StudentAuthController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -16,6 +17,15 @@ Route::get('/', function () {
     }
 
     return redirect()->to(route('login', absolute: false));
+});
+
+Route::get('/student/auth', [StudentAuthController::class, 'show'])->middleware('runtime:cloud')->name('student.auth');
+Route::post('/student/session', [StudentAuthController::class, 'exchange'])
+    ->middleware(['runtime:cloud', 'throttle:student-firebase-session'])
+    ->name('student.session.exchange');
+Route::middleware(['auth', 'runtime:cloud'])->group(function (): void {
+    Route::get('/student/dashboard', [StudentAuthController::class, 'dashboard'])->name('student.dashboard');
+    Route::post('/student/logout', [StudentAuthController::class, 'logout'])->name('student.logout');
 });
 
 Route::get('/student/complete', [StudentEmailVerificationController::class, 'show'])->middleware('runtime:cloud');

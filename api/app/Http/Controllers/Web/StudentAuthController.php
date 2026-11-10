@@ -1,0 +1,230 @@
+<?php
+
+namespace App\Http\Controllers\Web;
+
+use App\Http\Controllers\Controller;
+use App\Models\User;
+use App\Services\Auth\FirebaseIdentityServiceUnavailable;
+use App\Services\Auth\FirebaseIdentityVerifier;
+use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
+
+class StudentAuthController extends Controller
+{
+    public function __construct(private FirebaseIdentityVerifier $firebaseIdentityVerifier) {}
+
+    public function show(Request $request): Response
+    {
+        $this->requireSecureRequest($request);
+
+        $firebaseConfig = [
+            'apiKey' => config('services.firebase.api_key'),
+            'authDomain' => config('services.firebase.auth_domain'),
+            'projectId' => config('services.firebase.project_id'),
+            'appId' => config('services.firebase.app_id'),
+        ];
+        $firebaseConfigured = collect($firebaseConfig)->every(
+            fn (mixed $value): bool => is_string($value) && trim($value) !== '',
+        );
+
+        return $this->privatePage(response()->view('student.auth', [
+            'firebaseConfig' => $firebaseConfig,
+            'firebaseConfigured' => $firebaseConfigured,
+            'studentEmailDomain' => config('services.firebase.student_email_domain'),
+        ]));
+    }
+
+    public function exchange(Request $request): JsonResponse
+    {
+        $this->requireSecureRequest($request);
+
+        $validator = Validator::make($request->all(), [
+            'id_token' => ['required', 'string', 'max:8192'],
+        ]);
+        if ($validator->fails()) {
+            return $this->jsonError('A valid Firebase sign-in token is required.', 422);
+        }
+        $input = $validator->validated();
+
+        $sessionUser = Auth::guard('web')->user();
+        if ($sessionUser && ! $sessionUser->isStudent()) {
+            return $this->jsonError('Sign out of the current account before using student sign-in.', 409);
+        }
+
+        if (! $this->firebaseIdentityVerifier->isConfigured()) {
+            return $this->jsonError('Student sign-in is temporarily unavailable. Please try again later.', 503);
+        }
+
+        try {
+            $identity = $this->firebaseIdentityVerifier->verifyIdToken($input['id_token']);
+        } catch (FirebaseIdentityServiceUnavailable) {
+            return $this->jsonError('Student sign-in is temporarily unavailable. Please try again later.', 503);
+        }
+
+        if (! $identity || ! $this->isEligibleStudentEmail($identity['email'])) {
+            return $this->jsonError('Sign-in was not accepted. Verify your student email and try again.', 401);
+        }
+
+        if ($sessionUser && (mb_strtolower($sessionUser->email) !== $identity['email']
+            || ($sessionUser->firebase_uid !== null && ! hash_equals($sessionUser->firebase_uid, $identity['uid'])))) {
+            return $this->jsonError('Sign out of the current account before using student sign-in.', 409);
+        }
+
+        try {
+            $user = $this->resolveStudent($identity);
+        } catch (UniqueConstraintViolationException) {
+            $user = null;
+        }
+
+        if (! $user) {
+            return $this->jsonError('This account cannot use student sign-in. Contact support if you need help.', 403);
+        }
+
+        Auth::guard('web')->login($user);
+        $request->session()->regenerate();
+
+        return $this->privateJson([
+            'message' => 'Student sign-in successful.',
+            'redirect' => route('student.dashboard', absolute: false),
+        ]);
+    }
+
+    public function dashboard(Request $request): Response
+    {
+        $this->requireSecureRequest($request);
+
+        $user = Auth::guard('web')->user();
+        abort_unless($user instanceof User && $user->isStudent() && $user->email_verified_at !== null && $user->firebase_uid !== null, 403);
+
+        return $this->privatePage(response()->view('student.dashboard', ['user' => $user]));
+    }
+
+    public function logout(Request $request): RedirectResponse
+    {
+        $this->requireSecureRequest($request);
+
+        $user = Auth::guard('web')->user();
+        abort_unless($user instanceof User && $user->isStudent(), 403);
+
+        Auth::guard('web')->logout();
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
+
+        return redirect()->route('student.auth')->withHeaders([
+            'Cache-Control' => 'no-store, private',
+            'Referrer-Policy' => 'no-referrer',
+        ]);
+    }
+
+    /**
+     * @param  array{uid: string, email: string, name: ?string}  $identity
+     */
+    private function resolveStudent(array $identity): ?User
+    {
+        return DB::transaction(function () use ($identity): ?User {
+            $user = User::query()
+                ->where('firebase_uid', $identity['uid'])
+                ->lockForUpdate()
+                ->first();
+            $emailMatches = User::query()
+                ->whereRaw('LOWER(email) = ?', [$identity['email']])
+                ->lockForUpdate()
+                ->limit(2)
+                ->get();
+
+            if ($emailMatches->count() > 1) {
+                return null;
+            }
+
+            $emailOwner = $emailMatches->first();
+            if ($user && $emailOwner && $emailOwner->isNot($user)) {
+                return null;
+            }
+
+            if (! $user && $emailOwner) {
+                if (! $emailOwner->isStudent() || $emailOwner->firebase_uid !== null) {
+                    return null;
+                }
+
+                $user = $emailOwner;
+            }
+
+            if ($user && ! $user->isStudent()) {
+                return null;
+            }
+
+            if (! $user) {
+                $user = new User;
+                $user->name = $identity['name'] ?? 'Student';
+                $user->email = $identity['email'];
+                $user->password = bin2hex(random_bytes(32));
+                $user->role = User::ROLE_STUDENT;
+            }
+
+            $user->email = $identity['email'];
+            $user->firebase_uid = $identity['uid'];
+            $user->email_verified_at ??= now();
+            $user->save();
+
+            return $user;
+        });
+    }
+
+    private function isEligibleStudentEmail(string $email): bool
+    {
+        $domain = preg_quote((string) config('services.firebase.student_email_domain'), '/');
+
+        return preg_match('/\A[^@\s]+@'.$domain.'\z/iD', $email) === 1;
+    }
+
+    private function requireSecureRequest(Request $request): void
+    {
+        if (app()->environment(['local', 'testing'])) {
+            return;
+        }
+
+        $url = parse_url((string) config('app.url'));
+        abort_unless($request->secure()
+            && is_array($url)
+            && ($url['scheme'] ?? null) === 'https'
+            && ! empty($url['host'])
+            && ! isset($url['query'])
+            && ! isset($url['fragment']), 503);
+    }
+
+    private function privatePage(Response $response): Response
+    {
+        $localViteSources = app()->environment('local')
+            ? ' http://localhost:5173 http://127.0.0.1:5173'
+            : '';
+        $localViteSockets = app()->environment('local')
+            ? ' ws://localhost:5173 ws://127.0.0.1:5173'
+            : '';
+
+        return $response->withHeaders([
+            'Cache-Control' => 'no-store, private',
+            'Referrer-Policy' => 'no-referrer',
+            'Content-Security-Policy' => "default-src 'none'; script-src 'self'{$localViteSources}; style-src 'unsafe-inline'; connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firebaseinstallations.googleapis.com{$localViteSockets}; img-src 'self' data:; font-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+        ]);
+    }
+
+    /** @param  array<string, mixed>  $data */
+    private function privateJson(array $data, int $status = 200): JsonResponse
+    {
+        return response()->json($data, $status)->withHeaders([
+            'Cache-Control' => 'no-store, private',
+            'Referrer-Policy' => 'no-referrer',
+        ]);
+    }
+
+    private function jsonError(string $message, int $status): JsonResponse
+    {
+        return $this->privateJson(['message' => $message], $status);
+    }
+}
