@@ -1,0 +1,149 @@
+worker_processes 1;
+pid /tmp/nginx.pid;
+error_log /dev/stderr info;
+
+events {
+    worker_connections 512;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    server_tokens off;
+    sendfile on;
+    keepalive_timeout 15;
+    client_max_body_size 17m;
+    client_body_temp_path /tmp/nginx/client_body;
+    fastcgi_temp_path /tmp/nginx/fastcgi;
+    proxy_temp_path /tmp/nginx/proxy;
+    uwsgi_temp_path /tmp/nginx/uwsgi;
+    scgi_temp_path /tmp/nginx/scgi;
+
+    log_format ingress_safe '$request_method $status $body_bytes_sent $request_time';
+    access_log /dev/stdout ingress_safe;
+
+    server {
+        listen 8443 ssl default_server;
+        server_name _;
+        ssl_reject_handshake on;
+    }
+
+    server {
+        listen 8443 ssl;
+        server_name ${APP_HOST};
+        ssl_certificate /run/secrets/node_tls_certificate;
+        ssl_certificate_key /run/secrets/node_tls_private_key;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        root /app/public;
+        index index.php;
+
+        location ^~ /node/operator {
+            return 404;
+        }
+
+        location = /web.config {
+            return 404;
+        }
+
+        location / {
+            try_files $uri $uri/ /index.php?$query_string;
+        }
+
+        location ~ ^/index\.php(/|$) {
+            fastcgi_split_path_info ^(.+\.php)(/.+)$;
+            try_files $fastcgi_script_name =404;
+            include /etc/nginx/fastcgi_params;
+            fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+            fastcgi_param DOCUMENT_ROOT $document_root;
+            fastcgi_param HTTPS on;
+            fastcgi_param REMOTE_ADDR $remote_addr;
+            fastcgi_param HTTP_X_FORWARDED_FOR "";
+            fastcgi_param HTTP_X_FORWARDED_HOST "";
+            fastcgi_param HTTP_X_FORWARDED_PROTO "";
+            fastcgi_param HTTP_X_FORWARDED_PORT "";
+            fastcgi_param HTTP_FORWARDED "";
+            fastcgi_pass 127.0.0.1:9000;
+            fastcgi_read_timeout 60s;
+        }
+
+        location ~ \.php$ {
+            return 404;
+        }
+
+        location ~ /\.(?!well-known).* {
+            deny all;
+        }
+    }
+
+    server {
+        listen 8444 ssl default_server;
+        server_name _;
+        ssl_reject_handshake on;
+    }
+
+    server {
+        listen 8444 ssl;
+        server_name ${APP_HOST};
+        ssl_certificate /run/secrets/node_tls_certificate;
+        ssl_certificate_key /run/secrets/node_tls_private_key;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        allow ${INGRESS_OPERATOR_GATEWAY};
+        deny all;
+        root /app/public;
+        index index.php;
+
+        location = /node/operator {
+            try_files $uri /index.php?$query_string;
+        }
+
+        location ^~ /node/operator/ {
+            try_files $uri /index.php?$query_string;
+        }
+
+        location / {
+            return 404;
+        }
+
+        location ~ ^/index\.php(/|$) {
+            fastcgi_split_path_info ^(.+\.php)(/.+)$;
+            try_files $fastcgi_script_name =404;
+            include /etc/nginx/fastcgi_params;
+            fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
+            fastcgi_param DOCUMENT_ROOT $document_root;
+            fastcgi_param HTTPS on;
+            fastcgi_param REMOTE_ADDR $remote_addr;
+            fastcgi_param HTTP_X_FORWARDED_FOR "";
+            fastcgi_param HTTP_X_FORWARDED_HOST "";
+            fastcgi_param HTTP_X_FORWARDED_PROTO "";
+            fastcgi_param HTTP_X_FORWARDED_PORT "";
+            fastcgi_param HTTP_FORWARDED "";
+            fastcgi_pass 127.0.0.1:9000;
+            fastcgi_read_timeout 60s;
+        }
+
+        location ~ \.php$ {
+            return 404;
+        }
+
+        location ~ /\.(?!well-known).* {
+            deny all;
+        }
+    }
+
+    server {
+        listen 127.0.0.1:8080;
+        server_name localhost;
+
+        location = /up {
+            access_log off;
+            include /etc/nginx/fastcgi_params;
+            fastcgi_param SCRIPT_FILENAME /app/public/index.php;
+            fastcgi_param DOCUMENT_ROOT /app/public;
+            fastcgi_pass 127.0.0.1:9000;
+        }
+
+        location / {
+            return 404;
+        }
+    }
+}

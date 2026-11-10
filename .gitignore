@@ -2,6 +2,9 @@
 
 # Dependencies
 /api/vendor/
+/api/.secrets/
+/api/node-compose.env
+/api/.node-docker-test.*/
 /mobile/node_modules/
 node_modules/
 
