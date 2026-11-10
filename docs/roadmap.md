@@ -1,6 +1,6 @@
 # Implementation roadmap
 
-This audit starts from `main` at `8afd495` (staging operator workflows merged, 2026-11-09). A checked item means the implementation merged and its listed automated verification passed. Physical-device and venue verification is still pending with the project owner.
+This roadmap records completed work and the redesign plan against main at be3e01b0bf83a420e6d8c9e8e161192d3d96cb95 (Event Node deployment documentation merged, 2026-11-10). A checked item means the implementation merged and its listed automated verification passed. Physical-device and venue verification is still pending with the project owner.
 
 ## Baseline
 
@@ -19,6 +19,62 @@ This audit starts from `main` at `8afd495` (staging operator workflows merged, 2
 - [x] Harden Android release configuration. PR #43 merged as `07385a9` on 2026-11-05; release profiles now require a real HTTPS cloud API URL, disable demo and HTTP flags, and remove unused microphone, broad storage, and overlay permissions. Six build-configuration tests, 60 mobile session checks, TypeScript, npm audit, Expo Doctor (20/20), and release-mode Android prebuild passed locally. The generated release manifest retained camera and internet permissions and removed microphone, broad storage, and overlay permissions. All three required PR checks and all three post-merge CI jobs passed.
 - [x] Add cloud staging account/venue provisioning, a static Resend connectivity check, and guarded Event Node registration for Render Free. PR #47 merged as `8afd495` on 2026-11-09. Local tests passed: 243 backend tests (1 skipped), PostgreSQL concurrency, 1,000-attendee load/recovery, and migration-lock contention. All four PR jobs and all four post-merge main CI jobs passed. Live provider, Render, and device tests remain unrun.
 - [x] Prepare Windows IIS/FastCGI Event Node setup and complete the current Render Android staging instructions. PR #48 merged as `f0cb3a3` on 2026-11-09. Local checks passed: 245 backend tests (1 skipped), PostgreSQL concurrency and 1,000-attendee recovery, 60 mobile session checks, 7 EAS configuration tests, TypeScript, audits, and the Docker startup test with missing Nginx temporary directories. PR checks and post-merge main CI run `42621183840` passed all four jobs. Physical-device, venue, and live provider tests remain unrun.
+
+## Cloud, guest, and scanner redesign
+
+This phase extends the earlier Event Node roadmap. The source audit is based on main at be3e01b0bf83a420e6d8c9e8e161192d3d96cb95, fetched on 2026-11-10. Keep Cloud account authentication, Event Node operator authentication, and Event Node scanner credentials separate.
+
+### Current implementation
+
+| Area | Current behavior on main |
+| --- | --- |
+| Cloud identity | Password login supports platform admins and organizers. Students complete an emailed activation link; the code does not use Firebase. The ingress:create-admin Artisan command provisions a Cloud admin against the Cloud PostgreSQL runtime. |
+| Event permissions | events.organizer_id identifies an event owner. EventPolicy grants event management to that owner or a platform admin. event_staff stores scanner assignments with an optional gate. |
+| Registration | RegisterForEvent creates authenticated registrations under an event-row lock. IssueGuestTicket creates organizer-issued guest or alumni registrations; there is no public guest checkout page. |
+| Tickets and transfers | Tickets keep the opaque ingress:v1:<ticket_public_id>:<random_secret> admission credential. Existing transfers require user accounts and recipient acceptance. |
+| Payments and PDFs | The app has no payment-order or ticket-category schema and no paid checkout. Organizers can print a protected HTML guest-pass page; there is no PDF download flow. |
+| Mobile | Expo Router has separate (attendee) and (staff) route groups. The attendee group contains the wallet, event pages, profile, and account-based transfers. The staff group contains the Event Node scanner and walk-in workflows. |
+| Event Node | The node has its own PostgreSQL runtime identity, operator accounts, scanner pairing, local admission, signed authority handoff, and retry-safe synchronization. Preserve these paths as the local admission contract. |
+
+A record in node_operators belongs to the Event Node console. It does not grant Cloud event-administration access. The ingress:create-admin command prompts for the Cloud administrator’s name, email, and password; it does not expose an existing password or establish whether an account exists in a deployed database.
+
+### Sequential implementation plan
+
+Each code phase starts from the latest verified main, adds focused automated coverage, opens a pull request, and waits for required checks and approvals before merging. The next phase starts only after post-merge main CI passes.
+
+| Phase | Scope and dependency |
+| --- | --- |
+| 0. Audit and architecture foundation | Record the current baseline, shared invariants, and delivery order. This roadmap update is phase 0. |
+| 1. Institutional identity | Add Firebase web email/password signup, verification, and recovery for @student.mseuf.edu.ph addresses. Laravel must validate Firebase ID tokens and email_verified, bind the Firebase UID to a stable local user, and enforce student-only eligibility server-side. Email control does not prove current enrollment. Support provisioned or invited faculty/employee accounts without directory integration. Keep existing Cloud admin authentication and Event Node local accounts separate. |
+| 2. Event-scoped authorization | Restrict platform administration to platform admins. Assign event managers to specific events, audit assignment and revocation, and retain event_staff for scanner event/gate authorization. Preserve existing organizer_id data while the authorization migration is introduced. Event managers receive no global authority from a role. |
+| 3. Public discovery and free registration | Add a public Blade event catalog with event details, schedules, ticket categories, publication status, and eligibility rules. Allow accountless guest registration for public tickets; require a verified student account only for student-restricted benefits. Use shared transactional capacity and duplicate-registration rules. |
+| 4. Simulated paid checkout | Add ticket categories, demo-only payment state, idempotent confirmation, and expiring capacity reservations. Model pending, successful, failed, cancelled, and expired attempts; release expired reservations safely. Require explicit demo authorization, never a client-controlled payment status or APP_ENV toggle. Run seat-race tests against PostgreSQL. No real payment provider or payment credentials are part of this phase. |
+| 5. PDF ticket delivery | Generate printable PDFs from current database state on demand. Protect account tickets against IDOR and deliver accountless checkout tickets through a short-lived, non-cacheable handoff. Keep the QR in the existing opaque admission format and exclude transfer secrets. |
+| 6. Guest ticket transfer | Add a separate, one-time redemption token with at least 128 bits of entropy, hash it at rest, and rotate it with the admission QR in one locked transaction. This follows ticket categories and checkout so free and paid public tickets use the same ownership rules. Rate-limit attempts and block transfer after eligibility failure, admission, cancellation, or snapshot/handoff. Student-restricted tickets keep verified-recipient requirements. |
+| 7. Event management and reporting | Extend the existing organizer portal into platform-admin and assigned event-manager workflows for event settings, venues, schedules, categories, staff/gates, registration, snapshots and receipts, authority handoff, attendance reports, CSV, and audit history. |
+| 8. Scanner-only mobile cutover | Remove attendee screens and wallet/transfer services only after the equivalent web ticket, account, and transfer flows are implemented. Keep Event Node login, pairing, gate selection, preview/confirmation, walk-ins, and secure storage. Build a standalone Android release with bundled JavaScript and keep any local-CA demo configuration isolated from production. Admission must use only the reachable authoritative Event Node on the LAN. |
+| 9. Integration and hardening | Run the 26 acceptance workflows across Cloud, PostgreSQL, scanner APIs, snapshots, and synchronization. Review authorization, IDOR, CSRF, replay, concurrency, logging, and production configuration. Report device, live Firebase/email, Render, and WAN-outage checks only when observed. |
+
+### Protected invariants
+
+- Event Node admission remains authoritative on the venue LAN and does not depend on Render, Neon, or Firebase.
+- Snapshot payloads and QR validation remain compatible with existing Event Node import, signed grants, admission, and synchronization.
+- Event managers receive no global authority from a user role alone. Scanner access remains limited to event and gate assignments.
+- Public guest checkout collects only needed contact details. Redemption secrets never enter admission QRs, PDFs, public URLs, logs, analytics, or referrers.
+- Simulated payment authorization is explicit and cannot issue a paid ticket from a client-controlled status value.
+- Render’s ephemeral filesystem stores no durable application state. Existing HTTPS, database TLS verification, production mail, proxy, and runtime-identity checks stay fail-closed.
+
+### Audit baseline and verification
+
+The read-only audit used Graphify’s deterministic code extractor for api and mobile; the repository has no .codegraph index. No source code was changed on main.
+
+- php artisan test --compact: 302 tests, 301 passed, 1 skipped, 2,306 assertions.
+- PostgreSQL 18 concurrency verification: all reported cases passed, including capacity, admission, identity binding, ticket transfer, snapshot, pairing, and synchronization races.
+- PostgreSQL load/recovery: 9 assertions passed with 1,000 attendees and 4 scanner workers; cloud and node converged to 1,000 admissions with no pending batches.
+- PostgreSQL Render migration-lock contention: passed.
+- Mobile session tests: 73 checks passed. Mobile build-configuration tests: 7 passed. npx tsc --noEmit: passed.
+- composer audit --locked: no advisories. npm audit: 0 vulnerabilities.
+- The local Event Node Docker integration script was not verified on this Windows host: WSL’s Docker client had no socket, and Git Bash failed to resolve its temporary Compose env file. The script did not reach service startup. Linux GitHub Actions remains the verification path for this container test.
 
 ## Dependency order
 
