@@ -1,37 +1,24 @@
 @extends('layouts.app')
 
 @section('content')
-<div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
-    <div>
-        <h1 style="font-size: 1.75rem; font-weight: 700; color: var(--neutral-dark);">Organizer Dashboard</h1>
-        <p style="color: var(--neutral-muted); font-size: 0.875rem;">MSEUF Event Ticketing &amp; Admission Administration</p>
-    </div>
-    <div>
-        <a href="{{ route('organizer.events.create') }}" class="btn-primary">
-            <span>+</span> Create New Event
-        </a>
-    </div>
-</div>
+<x-page-header title="Organizer Dashboard" subtitle="Manage your campus events">
+    <x-slot:actions>
+        <x-ui.button :href="route('organizer.events.create')">
+            <x-icon name="plus" size="18" />
+            <span>Create New Event</span>
+        </x-ui.button>
+    </x-slot:actions>
+</x-page-header>
 
-<!-- KPI Cards -->
-<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
-    <div class="card">
-        <div style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: var(--neutral-muted); margin-bottom: 0.25rem;">Total Events</div>
-        <div style="font-size: 2rem; font-weight: 700; color: var(--neutral-dark);">{{ $stats['total_events'] }}</div>
-    </div>
-    <div class="card">
-        <div style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: var(--state-success); margin-bottom: 0.25rem;">Published Events</div>
-        <div style="font-size: 2rem; font-weight: 700; color: var(--state-success);">{{ $stats['published_events'] }}</div>
-    </div>
-    <div class="card">
-        <div style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: var(--state-warning); margin-bottom: 0.25rem;">Draft Events</div>
-        <div style="font-size: 2rem; font-weight: 700; color: var(--state-warning);">{{ $stats['draft_events'] }}</div>
-    </div>
-    <div class="card">
-        <div style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: var(--mseuf-maroon); margin-bottom: 0.25rem;">Total Capacity</div>
-        <div style="font-size: 2rem; font-weight: 700; color: var(--mseuf-maroon);">{{ number_format($stats['total_capacity']) }}</div>
-    </div>
-</div>
+<section class="dashboard-stats-section" aria-labelledby="dashboard-stats-title">
+    <h2 id="dashboard-stats-title" class="visually-hidden">Event statistics</h2>
+    <dl class="dashboard-stats-grid">
+        <x-stat-card icon="calendar-days" label="Total Events" :value="$stats['total_events']" />
+        <x-stat-card icon="check-circle-2" label="Published Events" :value="$stats['published_events']" />
+        <x-stat-card icon="file-pen-line" label="Draft Events" :value="$stats['draft_events']" />
+        <x-stat-card icon="users" label="Total Capacity" :value="number_format($stats['total_capacity'])" />
+    </dl>
+</section>
 
 <!-- Active Events Table -->
 <div class="card" style="padding: 0; overflow: hidden;">
@@ -39,7 +26,7 @@
         <h2 style="font-size: 1rem; font-weight: 600; color: var(--neutral-dark);">Managed Campus Events</h2>
         <span style="font-size: 0.75rem; color: var(--neutral-muted);">Showing {{ $events->count() }} events</span>
     </div>
-    
+
     @if ($events->isEmpty())
         <div style="padding: 3rem; text-align: center; color: var(--neutral-muted);">
             <p style="margin-bottom: 1rem;">No events created yet.</p>
