@@ -27,6 +27,10 @@ class Event extends Model
 
     public const IDENTITY_CHECK = 'id_check';
 
+    public const ELIGIBILITY_PUBLIC = 'public';
+
+    public const ELIGIBILITY_STUDENT = 'student';
+
     protected $fillable = [
         'organizer_id',
         'venue_id',
@@ -34,6 +38,7 @@ class Event extends Model
         'slug',
         'description',
         'capacity',
+        'registration_eligibility',
         'registration_opens_at',
         'registration_closes_at',
         'registration_closed_at',
@@ -60,6 +65,26 @@ class Event extends Model
             're_entry_allowed' => 'boolean',
             'ticket_transfers_allowed' => 'boolean',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        static::created(function (Event $event): void {
+            if ($event->ticketCategories()->exists()) {
+                return;
+            }
+
+            $event->ticketCategories()->create([
+                'name' => 'General Admission',
+                'price_minor' => 0,
+                'currency' => 'PHP',
+                'eligibility' => $event->registration_eligibility === self::ELIGIBILITY_STUDENT
+                    ? TicketCategory::ELIGIBILITY_STUDENT
+                    : TicketCategory::ELIGIBILITY_PUBLIC,
+                'is_active' => true,
+                'is_default' => true,
+            ]);
+        });
     }
 
     public function organizer(): BelongsTo
@@ -102,6 +127,11 @@ class Event extends Model
     public function registrations(): HasMany
     {
         return $this->hasMany(Registration::class);
+    }
+
+    public function ticketCategories(): HasMany
+    {
+        return $this->hasMany(TicketCategory::class);
     }
 
     public function ticketTransfers(): HasMany

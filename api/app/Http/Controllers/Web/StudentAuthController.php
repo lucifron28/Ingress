@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\Web;
 
 use App\Http\Controllers\Controller;
+use App\Models\Event;
 use App\Models\EventManagerInvitation;
+use App\Models\TicketCategory;
 use App\Models\User;
 use App\Services\Auth\FirebaseIdentityServiceUnavailable;
 use App\Services\Auth\FirebaseIdentityVerifier;
@@ -90,7 +92,8 @@ class StudentAuthController extends Controller
         Auth::guard('web')->login($user);
         $request->session()->regenerate();
 
-        $redirect = route('student.dashboard', absolute: false);
+        $registrationRedirect = $this->pendingRegistrationRedirect($request, $user);
+        $redirect = $registrationRedirect ?? route('student.dashboard', absolute: false);
         $invitationId = $request->session()->get('event_manager_invitation_id');
         if ((is_int($invitationId) || (is_string($invitationId) && ctype_digit($invitationId)))
             && EventManagerInvitation::query()
@@ -101,6 +104,8 @@ class StudentAuthController extends Controller
                 ->where('expires_at', '>', now())
                 ->exists()) {
             $redirect = route('event-manager-invitation.show', absolute: false);
+        } elseif ($registrationRedirect !== null) {
+            $request->session()->forget('public_registration_intent');
         }
 
         return $this->privateJson([
@@ -195,6 +200,45 @@ class StudentAuthController extends Controller
         $domain = preg_quote((string) config('services.firebase.student_email_domain'), '/');
 
         return preg_match('/\A[^@\s]+@'.$domain.'\z/iD', $email) === 1;
+    }
+
+    private function pendingRegistrationRedirect(Request $request, User $user): ?string
+    {
+        $intent = $request->session()->get('public_registration_intent');
+        if (! is_array($intent)) {
+            return null;
+        }
+
+        $eventId = $intent['event_id'] ?? null;
+        $categoryId = $intent['category_id'] ?? null;
+        if (! (is_int($eventId) || (is_string($eventId) && ctype_digit($eventId)))
+            || ! (is_int($categoryId) || (is_string($categoryId) && ctype_digit($categoryId)))) {
+            $request->session()->forget('public_registration_intent');
+
+            return null;
+        }
+
+        $event = Event::query()->whereKey((int) $eventId)->first();
+        $category = TicketCategory::query()
+            ->whereKey((int) $categoryId)
+            ->where('event_id', (int) $eventId)
+            ->where('is_active', true)
+            ->first();
+
+        if (! $event || ! $category || ! $event->isRegistrationOpen()
+            || ! $user->isStudent() || $user->firebase_uid === null || $user->email_verified_at === null
+            || ! $this->isEligibleStudentEmail($user->email)
+            || ($event->registration_eligibility !== Event::ELIGIBILITY_STUDENT
+                && $category->eligibility !== TicketCategory::ELIGIBILITY_STUDENT)) {
+            $request->session()->forget('public_registration_intent');
+
+            return null;
+        }
+
+        return route('public.events.register', [
+            'event' => $event->slug,
+            'category' => $category->id,
+        ], absolute: false);
     }
 
     private function requireSecureRequest(Request $request): void

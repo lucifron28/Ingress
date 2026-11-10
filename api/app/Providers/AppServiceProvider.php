@@ -87,6 +87,21 @@ class AppServiceProvider extends ServiceProvider
             Limit::perMinute(30)->by('ticket-transfer-ip:'.$request->ip()),
         ]);
 
+        RateLimiter::for('public-registration', function (Request $request) {
+            $event = $request->route('event');
+            $eventKey = match (true) {
+                is_object($event) && isset($event->id) => (string) $event->id,
+                is_string($event) || is_int($event) => hash('sha256', (string) $event),
+                default => 'unknown',
+            };
+
+            return [
+                Limit::perMinute(5)->by('public-registration-event:'.$request->ip().'|'.$eventKey),
+                Limit::perMinute(20)->by('public-registration-ip:'.$request->ip()),
+            ];
+        });
+        RateLimiter::for('public-ticket-pass', fn (Request $request) => Limit::perMinute(30)->by('public-ticket-pass:'.$request->ip()));
+
         // Email + IP keeps the limiter account-specific without penalizing the whole campus NAT.
         RateLimiter::for('login', function (Request $request) {
             // Middleware runs before validation, so malformed email input must still produce a safe key.

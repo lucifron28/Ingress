@@ -53,6 +53,15 @@
                 <textarea id="description" name="description" rows="4" class="form-textarea" placeholder="Provide event details, objectives, and instructions for attendees...">{{ old('description') }}</textarea>
             </div>
 
+            <div class="form-group">
+                <label for="registration_eligibility" class="form-label">Who may register?</label>
+                <select id="registration_eligibility" name="registration_eligibility" class="form-select" required>
+                    <option value="public" {{ old('registration_eligibility', 'public') === 'public' ? 'selected' : '' }}>Public — guests may check out without an account</option>
+                    <option value="student" {{ old('registration_eligibility') === 'student' ? 'selected' : '' }}>MSEUF students — verified institutional account required</option>
+                </select>
+                <p style="color: var(--neutral-muted); font-size: 0.8rem; margin-top: 0.4rem;">Every new event starts with a free General Admission category. Additional categories can be added after creation.</p>
+            </div>
+
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
                 <div class="form-group">
                     <label for="registration_opens_at" class="form-label">Registration Opens *</label>

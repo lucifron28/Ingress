@@ -78,6 +78,58 @@
 </div>
 
 <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem; margin-bottom: 2rem;">
+    @if (config('ingress.mode') === 'cloud' && auth()->user()->can('update', $event))
+        <section class="card" style="grid-column: 1 / -1;">
+            <h2>Ticket categories</h2>
+            <p>Set each category's price, capacity, and student eligibility. Paid categories stay unavailable until simulated checkout is implemented. Category details lock after the first registration to preserve ticket history.</p>
+            @if ($errors->hasAny(['name', 'price_pesos', 'capacity', 'eligibility', 'category']))
+                <div role="alert" style="background: #fef2f2; color: #991b1b; padding: .75rem; margin-bottom: 1rem;">
+                    {{ $errors->first('name') ?: ($errors->first('price_pesos') ?: ($errors->first('capacity') ?: ($errors->first('eligibility') ?: $errors->first('category')))) }}
+                </div>
+            @endif
+            <div class="table-container" style="margin-bottom: 1.25rem;">
+                <table>
+                    <thead><tr><th>Category</th><th>Eligibility</th><th>Price</th><th>Capacity</th><th>Availability</th></tr></thead>
+                    <tbody>
+                    @forelse ($event->ticketCategories as $category)
+                        <tr>
+                            <td>{{ $category->name }} @if ($category->is_default)<span class="badge badge-info">Default</span>@endif</td>
+                            <td>{{ $category->eligibility === 'student' ? 'Verified students' : 'Public' }}</td>
+                            <td>{{ $category->price_minor === 0 ? 'Free' : '₱'.number_format($category->price_minor / 100, 2) }}</td>
+                            <td>{{ $category->capacity ?? 'Event capacity' }}</td>
+                            <td>{{ $category->confirmed_registrations_count }} issued @if ($category->capacity !== null) · {{ $category->remainingCapacity() }} left @endif</td>
+                        </tr>
+                        @if ($category->registrations_count === 0 && ! $event->snapshot_prepared_at)
+                            <tr><td colspan="5">
+                                <form method="POST" action="{{ route('organizer.events.ticket-categories.update', [$event, $category]) }}" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .5rem; align-items: end;">
+                                    @csrf
+                                    @method('PUT')
+                                    <label>Name<input class="form-input" name="name" maxlength="100" required value="{{ $category->name }}"></label>
+                                    <label>Price (PHP)<input class="form-input" name="price_pesos" inputmode="decimal" pattern="[0-9]+(\.[0-9]{1,2})?" required value="{{ number_format($category->price_minor / 100, 2, '.', '') }}"></label>
+                                    <label>Capacity<input class="form-input" name="capacity" type="number" min="1" max="{{ $event->capacity }}" value="{{ $category->capacity }}" placeholder="No separate limit"></label>
+                                    <label>Eligibility<select class="form-select" name="eligibility"><option value="public" {{ $category->eligibility === 'public' ? 'selected' : '' }}>Public</option><option value="student" {{ $category->eligibility === 'student' ? 'selected' : '' }}>Verified students</option></select></label>
+                                    <button class="btn-secondary" type="submit">Save category</button>
+                                </form>
+                            </td></tr>
+                        @endif
+                    @empty
+                        <tr><td colspan="5">No ticket categories configured.</td></tr>
+                    @endforelse
+                    </tbody>
+                </table>
+            </div>
+            @if (! $event->snapshot_prepared_at)
+                <form method="POST" action="{{ route('organizer.events.ticket-categories.store', $event) }}" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: .75rem; align-items: end;">
+                    @csrf
+                    <label>New category name<input class="form-input" name="name" maxlength="100" required></label>
+                    <label>Price (PHP)<input class="form-input" name="price_pesos" inputmode="decimal" pattern="[0-9]+(\.[0-9]{1,2})?" required value="0.00"></label>
+                    <label>Capacity<input class="form-input" name="capacity" type="number" min="1" max="{{ $event->capacity }}" placeholder="No separate limit"></label>
+                    <label>Eligibility<select class="form-select" name="eligibility"><option value="public">Public</option><option value="student">Verified students</option></select></label>
+                    <button class="btn-primary" type="submit">Add category</button>
+                </form>
+            @endif
+        </section>
+    @endif
     @if ($event->snapshot_prepared_at)
         <p class="card" style="grid-column: 1 / -1;">Snapshot prepared. Event changes are locked. Node admission requires an activated authority grant.</p>
     @endif
