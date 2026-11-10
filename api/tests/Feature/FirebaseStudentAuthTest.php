@@ -3,7 +3,10 @@
 namespace Tests\Feature;
 
 use App\Http\Middleware\EnsureRuntimeDatabase;
+use App\Models\Event;
+use App\Models\EventManagerInvitation;
 use App\Models\User;
+use App\Models\Venue;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Hash;
@@ -103,6 +106,57 @@ class FirebaseStudentAuthTest extends TestCase
         $this->assertSame('A23-12345', $student->student_id);
         $this->assertSame($passwordHash, $student->password);
         $this->assertTrue(Hash::check('existing-local-password', $student->password));
+        $this->assertAuthenticatedAs($student, 'web');
+    }
+
+    public function test_firebase_sign_in_returns_to_a_pending_event_manager_invitation(): void
+    {
+        $student = User::factory()->create([
+            'email' => 'student@student.mseuf.edu.ph',
+            'firebase_uid' => 'firebase-student-123',
+            'role' => User::ROLE_STUDENT,
+        ]);
+        $admin = User::factory()->create(['role' => User::ROLE_ADMIN]);
+        $venue = Venue::create(['name' => 'Hall', 'code' => 'HALL', 'default_capacity' => 100]);
+        $event = Event::create([
+            'organizer_id' => $admin->id,
+            'venue_id' => $venue->id,
+            'title' => 'Invited Event',
+            'slug' => 'invited-event',
+            'capacity' => 20,
+            'registration_opens_at' => now()->subDay(),
+            'registration_closes_at' => now()->addDays(2),
+            'starts_at' => now()->addDays(3),
+            'ends_at' => now()->addDays(3)->addHours(2),
+            'status' => Event::STATUS_DRAFT,
+        ]);
+        $invitation = EventManagerInvitation::create([
+            'event_id' => $event->id,
+            'email' => $student->email,
+            'token_hash' => hash('sha256', str_repeat('a', 64)),
+            'invited_by_user_id' => $admin->id,
+            'expires_at' => now()->addHours(48),
+        ]);
+
+        Http::preventStrayRequests();
+        Http::fake([
+            'identitytoolkit.googleapis.com/v1/accounts:lookup*' => Http::response([
+                'users' => [[
+                    'localId' => 'firebase-student-123',
+                    'email' => $student->email,
+                    'emailVerified' => true,
+                    'displayName' => 'Verified Student',
+                    'disabled' => false,
+                    'providerUserInfo' => [['providerId' => 'password']],
+                ]],
+            ]),
+        ]);
+
+        $this->withSession(['event_manager_invitation_id' => $invitation->id])
+            ->postJson('/student/session', ['id_token' => 'firebase-id-token'])
+            ->assertOk()
+            ->assertJsonPath('redirect', route('event-manager-invitation.show', absolute: false));
+
         $this->assertAuthenticatedAs($student, 'web');
     }
 

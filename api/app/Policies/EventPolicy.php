@@ -24,7 +24,7 @@ class EventPolicy
             return true;
         }
 
-        return $user->id === $event->organizer_id || $user->isAdmin();
+        return $user->managesEvent($event);
     }
 
     /**
@@ -40,7 +40,7 @@ class EventPolicy
      */
     public function update(User $user, Event $event): bool
     {
-        return $user->id === $event->organizer_id || $user->isAdmin();
+        return $user->managesEvent($event);
     }
 
     /**
@@ -48,7 +48,7 @@ class EventPolicy
      */
     public function delete(User $user, Event $event): bool
     {
-        return $user->id === $event->organizer_id || $user->isAdmin();
+        return (int) $event->organizer_id === (int) $user->id || $user->isAdmin();
     }
 
     /**
@@ -56,7 +56,7 @@ class EventPolicy
      */
     public function publish(User $user, Event $event): bool
     {
-        return $user->id === $event->organizer_id || $user->isAdmin();
+        return $user->managesEvent($event);
     }
 
     /**
@@ -64,7 +64,15 @@ class EventPolicy
      */
     public function cancel(User $user, Event $event): bool
     {
-        return $user->id === $event->organizer_id || $user->isAdmin();
+        return $user->managesEvent($event);
+    }
+
+    /**
+     * Only platform administrators can approve event-manager assignments.
+     */
+    public function manageManagers(User $user, Event $event): bool
+    {
+        return $user->isAdmin();
     }
 
     /**
@@ -72,6 +80,6 @@ class EventPolicy
      */
     public function manageStaff(User $user, Event $event): bool
     {
-        return $user->id === $event->organizer_id || $user->isAdmin();
+        return $user->managesEvent($event);
     }
 }

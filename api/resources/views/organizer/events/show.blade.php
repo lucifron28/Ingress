@@ -292,7 +292,7 @@
             Event Staff Assignments
         </h2>
         <p style="font-size: 0.8rem; color: var(--neutral-muted); margin-bottom: 1rem;">
-            Authorized staff members permitted to scan tickets for this event.
+            Scanner access is assigned per event and can be limited to a gate. Account category does not grant scanning access.
         </p>
 
         <div class="table-container" style="margin-bottom: 1.25rem;">
@@ -301,6 +301,9 @@
                     <tr>
                         <th>Staff Member</th>
                         <th>Assigned Gate</th>
+                        @if (! $event->snapshot_prepared_at)
+                            <th>Access</th>
+                        @endif
                     </tr>
                 </thead>
                 <tbody>
@@ -317,10 +320,19 @@
                                     <span class="badge badge-neutral">All Gates</span>
                                 @endif
                             </td>
+                            @if (! $event->snapshot_prepared_at)
+                                <td>
+                                    <form method="POST" action="{{ route('organizer.events.staff.revoke', [$event, $assignment->user]) }}" onsubmit="return confirm('Revoke scanner access for this event?');">
+                                        @csrf
+                                        @method('DELETE')
+                                        <button type="submit" class="btn-danger">Revoke</button>
+                                    </form>
+                                </td>
+                            @endif
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="2" style="text-align: center; color: var(--neutral-muted);">No staff assigned yet.</td>
+                            <td colspan="{{ $event->snapshot_prepared_at ? 2 : 3 }}" style="text-align: center; color: var(--neutral-muted);">No scanner staff assigned yet.</td>
                         </tr>
                     @endforelse
                 </tbody>
@@ -330,14 +342,10 @@
         @if (! $event->snapshot_prepared_at)
         <form method="POST" action="{{ route('organizer.events.staff.assign', $event) }}" style="background: #f8fafc; padding: 1rem; border-radius: 4px; border: 1px solid var(--neutral-border);">
             @csrf
-            <div style="font-size: 0.8rem; font-weight: 600; margin-bottom: 0.75rem; color: var(--neutral-dark);">Assign Staff Member</div>
+            <div style="font-size: 0.8rem; font-weight: 600; margin-bottom: 0.75rem; color: var(--neutral-dark);">Assign Scanner Access</div>
             <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
-                <select name="user_id" required class="form-select" style="flex: 1;">
-                    <option value="">-- Select Staff User --</option>
-                    @foreach ($staffUsers as $staff)
-                        <option value="{{ $staff->id }}">{{ $staff->name }} ({{ $staff->email }})</option>
-                    @endforeach
-                </select>
+                <input type="email" name="staff_email" required class="form-input" maxlength="255" placeholder="Account email" style="flex: 1;">
+                @error('staff_email') <p role="alert">{{ $message }}</p> @enderror
                 <select name="access_point_id" class="form-select" style="flex: 1;">
                     <option value="">-- Any Gate (All Gates) --</option>
                     @foreach ($event->accessPoints as $ap)
@@ -345,9 +353,54 @@
                     @endforeach
                 </select>
             </div>
-            <button type="submit" class="btn-primary" style="width: 100%; justify-content: center;">Assign to Event</button>
+            <button type="submit" class="btn-primary" style="width: 100%; justify-content: center;">Assign Scanner Access</button>
         </form>
         @endif
     </div>
+
+    @if (auth()->user()->isAdmin() && config('ingress.mode') === 'cloud')
+        <section class="card">
+            <h2 style="font-size: 1.1rem; font-weight: 600; color: var(--neutral-dark); margin-bottom: 1rem; border-bottom: 1px solid var(--neutral-border); padding-bottom: 0.5rem;">
+                Event Managers
+            </h2>
+            <p style="font-size: 0.8rem; color: var(--neutral-muted); margin-bottom: 1rem;">
+                Only platform administrators can assign or revoke event managers. Assign an existing account or invite a new email address for this event only.
+            </p>
+            <ul>
+                @forelse ($event->managerAssignments as $managerAssignment)
+                    <li style="margin-bottom: .5rem;">
+                        {{ $managerAssignment->user->name }} ({{ $managerAssignment->user->email }})
+                        <form method="POST" action="{{ route('organizer.events.managers.revoke', [$event, $managerAssignment->user]) }}" style="display: inline;" onsubmit="return confirm('Revoke manager access to this event?');">
+                            @csrf
+                            @method('DELETE')
+                            <button type="submit" class="btn-danger">Revoke</button>
+                        </form>
+                    </li>
+                @empty
+                    <li>No event managers assigned.</li>
+                @endforelse
+            </ul>
+            <form method="POST" action="{{ route('organizer.events.managers.store', $event) }}" style="margin-top: 1rem;">
+                @csrf
+                <label for="manager-email">Manager email address</label>
+                <input id="manager-email" type="email" name="email" required maxlength="255" class="form-input">
+                <button type="submit" class="btn-primary">Assign event manager</button>
+                @error('email') <p role="alert">{{ $message }}</p> @enderror
+            </form>
+        </section>
+    @endif
+
+    <section class="card" style="grid-column: 1 / -1;">
+        <h2 style="font-size: 1.1rem; font-weight: 600; color: var(--neutral-dark); margin-bottom: 1rem; border-bottom: 1px solid var(--neutral-border); padding-bottom: 0.5rem;">
+            Event Responsibility Audit
+        </h2>
+        <ol>
+            @forelse ($event->responsibilityAudits as $audit)
+                <li>{{ $audit->created_at->format('M d, Y h:i A') }} · {{ str_replace('_', ' ', ucfirst($audit->action)) }} · {{ $audit->subject_email }} · by {{ $audit->actor_email }}@if ($audit->access_point_code) · {{ $audit->access_point_code }}@endif</li>
+            @empty
+                <li>No manager or scanner assignment changes have been recorded.</li>
+            @endforelse
+        </ol>
+    </section>
 </div>
 @endsection

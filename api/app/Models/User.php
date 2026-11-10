@@ -7,6 +7,8 @@ use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -41,6 +43,8 @@ class User extends Authenticatable
 
     public const ROLE_STUDENT = 'student';
 
+    public const ROLE_EVENT_MANAGER = 'event_manager';
+
     public function isAdmin(): bool
     {
         return $this->role === self::ROLE_ADMIN;
@@ -59,6 +63,38 @@ class User extends Authenticatable
     public function isStudent(): bool
     {
         return $this->role === self::ROLE_STUDENT;
+    }
+
+    public function managerAssignments(): HasMany
+    {
+        return $this->hasMany(EventManagerAssignment::class);
+    }
+
+    public function managedEvents(): BelongsToMany
+    {
+        return $this->belongsToMany(Event::class, 'event_manager_assignments')
+            ->withPivot('assigned_by_user_id')
+            ->withTimestamps();
+    }
+
+    public function managesEvent(Event $event): bool
+    {
+        return $this->isAdmin()
+            || (int) $event->organizer_id === (int) $this->id
+            || $this->managerAssignments()->where('event_id', $event->getKey())->exists();
+    }
+
+    public function hasEventManagementAccess(): bool
+    {
+        return $this->isAdmin()
+            || $this->isOrganizer()
+            || $this->managerAssignments()->exists()
+            || $this->events()->exists();
+    }
+
+    public function events(): HasMany
+    {
+        return $this->hasMany(Event::class, 'organizer_id');
     }
 
     /**

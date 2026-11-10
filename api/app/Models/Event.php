@@ -82,6 +82,16 @@ class Event extends Model
         return $this->hasMany(EventStaff::class);
     }
 
+    public function managerAssignments(): HasMany
+    {
+        return $this->hasMany(EventManagerAssignment::class);
+    }
+
+    public function responsibilityAudits(): HasMany
+    {
+        return $this->hasMany(EventResponsibilityAudit::class);
+    }
+
     public function staffUsers(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'event_staff')

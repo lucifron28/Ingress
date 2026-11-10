@@ -209,7 +209,7 @@ class EventManagementTest extends TestCase
         );
     }
 
-    public function test_organizer_cannot_assign_non_staff_user_to_event(): void
+    public function test_organizer_can_assign_a_student_as_scanner_staff_without_changing_their_account_role(): void
     {
         $event = Event::create([
             'organizer_id' => $this->organizerA->id,
@@ -229,8 +229,9 @@ class EventManagementTest extends TestCase
                 'user_id' => $this->student->id, // Student role, not staff!
             ]);
 
-        $response->assertSessionHasErrors(['user_id']);
-        $this->assertFalse($event->staffAssignments()->where('user_id', $this->student->id)->exists());
+        $response->assertSessionHas('success');
+        $this->assertTrue($event->staffAssignments()->where('user_id', $this->student->id)->exists());
+        $this->assertSame(User::ROLE_STUDENT, $this->student->fresh()->role);
     }
 
     public function test_organizer_cannot_assign_gate_from_another_event(): void

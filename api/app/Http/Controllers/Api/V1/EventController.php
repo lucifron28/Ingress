@@ -8,6 +8,7 @@ use App\Models\Event;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\Gate;
 
 class EventController extends Controller
 {
@@ -33,7 +34,11 @@ class EventController extends Controller
         // Allow public viewing if published, or organizer/admin if draft
         if (! $event->isPublished()) {
             $user = $request->user();
-            if (! $user || (! $user->isAdmin() && $user->id !== $event->organizer_id)) {
+            $canViewDraft = $user && (config('ingress.mode') === 'cloud'
+                ? Gate::forUser($user)->allows('view', $event)
+                : ($user->isAdmin() || $user->id === $event->organizer_id));
+
+            if (! $canViewDraft) {
                 return response()->json([
                     'message' => 'Event not found or not currently published.',
                 ], 404);
