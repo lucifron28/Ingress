@@ -7,6 +7,7 @@ use App\Models\Registration;
 use App\Models\Ticket;
 use App\Models\TicketCategory;
 use App\Models\User;
+use App\Services\Tickets\TicketCredentialRotation;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
@@ -15,10 +16,12 @@ use Illuminate\Validation\ValidationException;
 
 class RegisterAttendeeForEvent
 {
+    public function __construct(private TicketCredentialRotation $credentialRotation) {}
+
     /**
      * Register one attendee under the event lock shared by student and guest paths.
      *
-     * @return array{registration: Registration, ticket: Ticket, qr_payload: string}
+     * @return array{registration: Registration, ticket: Ticket, qr_payload: string, redemption_code: ?string}
      */
     public function execute(
         int $eventId,
@@ -134,11 +137,15 @@ class RegisterAttendeeForEvent
                 'credential_version' => 1,
                 'issued_at' => Carbon::now(),
             ]);
+            $redemptionCode = $user === null
+                ? $this->credentialRotation->issueGuestRedemptionCode($ticket, $event->id)
+                : null;
 
             return [
                 'registration' => $registration,
                 'ticket' => $ticket,
                 'qr_payload' => "ingress:v1:{$ticket->public_id}:{$secret}",
+                'redemption_code' => $redemptionCode,
             ];
         });
     }

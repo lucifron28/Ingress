@@ -21,6 +21,14 @@
         <p>{{ $registration->attendeeName() }}</p>
         <div class="qr">{!! $qr !!}</div>
         <p>Ticket reference: {{ $registration->ticket->public_id }}</p>
+        @if ($redemptionCode)
+            <section class="hint" aria-live="polite">
+                <h2>Private transfer code</h2>
+                <p>Possession of this code grants ticket transfer control.</p>
+                <p>The code is shown once. Send it to the attendee through a private channel and tell them to save it separately from the admission QR.</p>
+                <p><code id="redemption-code">{{ $redemptionCode }}</code></p>
+            </section>
+        @endif
     </main>
 </body>
 </html>

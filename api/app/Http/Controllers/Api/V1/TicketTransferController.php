@@ -10,17 +10,19 @@ use App\Models\Registration;
 use App\Models\Ticket;
 use App\Models\TicketTransfer;
 use App\Models\User;
+use App\Services\Tickets\TicketCredentialRotation;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
-use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class TicketTransferController extends Controller
 {
+    public function __construct(private TicketCredentialRotation $credentialRotation) {}
+
     public function index(Request $request): AnonymousResourceCollection
     {
         $userId = $request->user()->id;
@@ -166,14 +168,9 @@ class TicketTransferController extends Controller
                     throw ValidationException::withMessages(['transfer' => 'You already have a registration for this event.']);
                 }
 
-                $secret = bin2hex(random_bytes(32));
                 $registration->user_id = $actor->id;
                 $registration->save();
-                $ticket->qr_hash = hash('sha256', $secret);
-                $ticket->encrypted_secret = Crypt::encryptString($secret);
-                $ticket->credential_version = ((int) $ticket->credential_version) + 1;
-                $ticket->issued_at = now();
-                $ticket->save();
+                $this->credentialRotation->rotateAdmissionCredential($ticket);
 
                 $lockedTransfer->status = TicketTransfer::STATUS_ACCEPTED;
                 $lockedTransfer->accepted_at = now();

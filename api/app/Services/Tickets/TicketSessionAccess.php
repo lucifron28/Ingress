@@ -6,10 +6,13 @@ use App\Models\Registration;
 use App\Models\Ticket;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Crypt;
 
 class TicketSessionAccess
 {
     public const PDF_HANDOFF_MINUTES = 15;
+
+    public const REDEMPTION_CODE_HANDOFF_MINUTES = 15;
 
     public function grantGuest(Request $request, Registration $registration, Ticket $ticket): void
     {
@@ -36,6 +39,50 @@ class TicketSessionAccess
             'expires_at' => $now->copy()->addMinutes(self::PDF_HANDOFF_MINUTES)->timestamp,
         ];
         $request->session()->put('public_ticket_pdf_access', array_slice($pdfGrants, -20, null, true));
+    }
+
+    public function grantRedemptionCode(Request $request, Registration $registration, string $redemptionCode): void
+    {
+        $now = now();
+        $key = (string) $registration->getKey();
+        $handoffs = $request->session()->get('ticket_redemption_handoffs', []);
+        $handoffs = is_array($handoffs) ? $handoffs : [];
+        $handoffs = array_filter($handoffs, fn (mixed $handoff): bool => is_array($handoff)
+            && is_numeric($handoff['expires_at'] ?? null)
+            && (int) $handoff['expires_at'] > $now->timestamp);
+        $handoffs[$key] = [
+            'ciphertext' => Crypt::encryptString($redemptionCode),
+            'expires_at' => $now->copy()->addMinutes(self::REDEMPTION_CODE_HANDOFF_MINUTES)->timestamp,
+        ];
+        $request->session()->put('ticket_redemption_handoffs', array_slice($handoffs, -20, null, true));
+    }
+
+    public function consumeRedemptionCode(Request $request, Registration $registration): ?string
+    {
+        $key = (string) $registration->getKey();
+        $handoffs = $request->session()->get('ticket_redemption_handoffs', []);
+        $handoffs = is_array($handoffs) ? $handoffs : [];
+        $handoff = $handoffs[$key] ?? null;
+        unset($handoffs[$key]);
+
+        if ($handoffs === []) {
+            $request->session()->forget('ticket_redemption_handoffs');
+        } else {
+            $request->session()->put('ticket_redemption_handoffs', $handoffs);
+        }
+
+        if (! is_array($handoff)
+            || ! is_string($handoff['ciphertext'] ?? null)
+            || ! is_numeric($handoff['expires_at'] ?? null)
+            || (int) $handoff['expires_at'] <= now()->timestamp) {
+            return null;
+        }
+
+        try {
+            return Crypt::decryptString($handoff['ciphertext']);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     public function canView(Request $request, Registration $registration, Ticket $ticket): bool

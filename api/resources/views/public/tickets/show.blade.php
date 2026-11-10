@@ -17,5 +17,16 @@
         <p class="tag">Ticket status: Active</p>
         <p class="meta screen-only">Present this QR at the event gate. Keep the pass private; anyone holding the QR can present it for admission.</p>
         <p class="screen-only"><a class="button" href="{{ route('public.tickets.pdf', $registration) }}">Download PDF ticket</a></p>
+        <p class="screen-only"><a href="{{ route('public.tickets.redeem') }}">Transfer a guest ticket with a redemption code</a></p>
+        @if ($redemptionCode)
+            <section class="notice screen-only" aria-live="polite">
+                <h2>Private transfer code</h2>
+                <p>Possession of this code grants ticket transfer control.</p>
+                <p>The code is shown once. Save it separately from the admission QR.</p>
+                <p>There is no public reset. If you lose the code or think someone copied it, contact the event organizer. A manager may reissue credentials after verifying your identity.</p>
+                <p><code id="redemption-code">{{ $redemptionCode }}</code></p>
+                <p>Do not include this code in a screenshot of your admission QR or share it in a public channel.</p>
+            </section>
+        @endif
     </section>
 @endsection

@@ -27,8 +27,11 @@ class PublicTicketController extends Controller
 
         $writer = new Writer(new ImageRenderer(new RendererStyle(400), new SvgImageBackEnd));
         $qr = preg_replace('/<\?xml[^>]*\?>/', '', $writer->writeString($payload));
+        $redemptionCode = $registration->user_id === null && $registration->ticket->redemption_hash !== null
+            ? $ticketAccess->consumeRedemptionCode($request, $registration)
+            : null;
 
-        return response()->view('public.tickets.show', compact('registration', 'qr'))
+        return response()->view('public.tickets.show', compact('registration', 'qr', 'redemptionCode'))
             ->withHeaders([
                 'Cache-Control' => 'no-store, private',
                 'Referrer-Policy' => 'no-referrer',
