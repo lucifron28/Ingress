@@ -357,6 +357,12 @@ Session restoration distinguishes two failure modes:
 
 **Organizer web** uses ordinary Laravel session authentication. Only users who pass `isOrganizer()` may enter the organizer console; a student who authenticates successfully is logged straight back out with an explanatory error.
 
+**Student web identity** is separate from organizer credentials and Event Node identities. The Cloud student page uses Firebase email/password authentication, Firebase-managed verification and password-reset emails, and browser-session persistence. Firebase passwords are sent directly to Firebase and are never stored by Laravel. Firebase's action links return to `/student/auth`; the Firebase authorized-domain list must include the deployed Cloud host.
+
+After verification, the browser sends its Firebase ID token in a CSRF-protected POST to `/student/session`. Laravel checks that token with Firebase Identity Toolkit `accounts:lookup` using the configured Firebase project key, then independently enforces `emailVerified`, the exact `@student.mseuf.edu.ph` domain, an enabled password provider, and a student-only local account. It does not accept a client-supplied UID, verification flag, or role. The local `firebase_uid` is unique and hidden from serialized user data. An unlinked local student can be linked only when the verified address matches; admin, organizer, staff, conflicting UID, and duplicate-email records are rejected. New Firebase students receive no self-reported student number, and their required local password field is set to an unknown random value rather than their Firebase password.
+
+Student sessions rotate the Laravel session ID and require a verified Firebase-linked student for the student dashboard. The browser page, ID-token exchange, and dashboard are non-cacheable; the exchange is rate-limited and remains HTTPS-only outside local/testing. These Firebase routes are Cloud-only, so the Event Node has no Firebase runtime dependency. The existing emailed activation flow and Sanctum password login remain available during the staged mobile cutover. A verified university mailbox proves mailbox ownership, not current enrollment; event-specific enrollment evidence still requires an authoritative source.
+
 ### Login rate limiting
 
 Both login entry points share one named limiter, `throttle:login`, defined in `AppServiceProvider`:

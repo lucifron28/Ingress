@@ -10,7 +10,7 @@ For the data-transfer sequence and node-specific commands, see [Second-half arch
 - PostgreSQL 18, with a separate database for the cloud and for each Event Node.
 - A PHP runtime and web server for each application instance. The Laravel application is served from `api/public`.
 - HTTPS for the cloud, Event Node API, and staff mobile connections. The certificate must be trusted by staff devices.
-- Resend's HTTPS API for student verification email on the cloud.
+- Firebase Authentication for student web verification and password recovery. Resend's HTTPS API remains available for the legacy student activation path and application mail.
 
 The app binds a database to the first runtime identity that uses it. Do not point cloud and node runtimes at the same database. Each runtime needs its own `APP_KEY`; do not copy the cloud key to a node.
 
@@ -82,8 +82,21 @@ Set the following in **Render → ingress-cloud → Environment**. Add secret va
 | `MAIL_FROM_ADDRESS` | `onboarding@resend.dev` for account-owner-only testing, or an address on the verified sending domain |
 | `MAIL_FROM_NAME` | `Ingress` or the approved sender name |
 | `INGRESS_MAIL_TEST_RECIPIENT` | `lucifron28@gmail.com` for the authorized shared-sender test |
+| `FIREBASE_API_KEY` | Firebase Web App API key for the same project as the other Firebase values; this key is public and rendered to the student sign-in page |
+| `FIREBASE_AUTH_DOMAIN` | Firebase Web App auth domain, usually `<project-id>.firebaseapp.com` |
+| `FIREBASE_PROJECT_ID` | Firebase project ID |
+| `FIREBASE_APP_ID` | Firebase Web App ID |
+| `FIREBASE_STUDENT_EMAIL_DOMAIN` | `student.mseuf.edu.ph` |
 
 Use the current Render origin `https://ingress-pp2u.onrender.com` for `APP_URL`. If Render later assigns a different domain, replace it with the exact HTTPS origin shown on the service. Add custom domains only after Render reports HTTPS is active. Set `INGRESS_CORS_ALLOWED_ORIGINS` only when a browser client needs cross-origin API access; use exact HTTPS origins, comma-separated. Native mobile clients do not need a CORS entry.
+
+### Configure Firebase student authentication
+
+In the Firebase Console, open **Authentication → Sign-in method** and enable only **Email/Password** using Firebase's [password-auth setup](https://firebase.google.com/docs/auth/web/password-auth). Keep [email enumeration protection](https://firebase.google.com/docs/auth/web/password-auth#recommended_enable_email_enumeration_protection) enabled in Authentication settings so sign-in and account recovery do not disclose whether a mailbox has an account. Register a Firebase Web App in the same project, then copy its `apiKey`, `authDomain`, `projectId`, and `appId` into the four matching `FIREBASE_*` variables above. Leave `FIREBASE_STUDENT_EMAIL_DOMAIN` as `student.mseuf.edu.ph`. Use the Firebase project intended for this deployment; do not point staging and production at the same project unless that is deliberate.
+
+In **Authentication → Settings → Authorized domains**, add `ingress-pp2u.onrender.com`. Add each exact custom domain if the app later uses one. Firebase verification and reset messages use Firebase's email action handler and return to the current HTTPS host at `/student/auth`; the app supplies `verified=1` or `reset=sent` as the continuation state through Firebase's [email action settings](https://firebase.google.com/docs/auth/web/passing-state-in-email-actions). Customize the Firebase verification and password-reset templates as needed, and ensure the return host is authorized before testing.
+
+`FIREBASE_API_KEY` identifies the Firebase project; it is not a secret. Use the Web App key created by Firebase, keep it limited to Firebase APIs, and never use a key for a billable non-Firebase API. See Firebase's [API key guidance](https://firebase.google.com/docs/projects/api-keys). Laravel sends Firebase ID tokens to Identity Toolkit for independent verification, so an HTTP-referrer-only restriction on the same key may block that server request. Firebase sign-in and email delivery are not proven until a real account completes the verification link and password-reset flow on the configured project.
 
 Generate `APP_KEY` on your Windows development machine from `api` using `php artisan key:generate --show`. Copy its output directly into the Render `APP_KEY` secret field. Do not commit the output or reuse a key from an Event Node.
 
@@ -154,7 +167,7 @@ After Render reports the deployment as live:
 1. Open `https://<your-render-host>/up` and confirm an HTTP 200 response.
 2. In Render logs, confirm the fixed startup message `Cloud database migrations and runtime identity are ready.` Do not copy secret environment values into logs or support tickets.
 3. In Neon SQL Editor, confirm `select current_setting('server_version_num');` starts with `180`, and confirm the expected Ingress migration rows exist in `migrations`.
-4. Sign in with the administrator created above. Run the Windows Resend connectivity script and inspect **Resend → Emails**. To test student activation, use a verified sender domain and an authorized `@student.mseuf.edu.ph` mailbox. The shared Resend testing sender does not deliver verification messages to arbitrary student addresses.
+4. Sign in with the administrator created above. Run the Windows Resend connectivity script and inspect **Resend → Emails**. Test student web signup, verification, and password recovery with an authorized `@student.mseuf.edu.ph` mailbox in the configured Firebase project. The shared Resend testing sender does not deliver legacy activation messages to arbitrary student addresses.
 5. Confirm the service can be reached over HTTPS and that production debug/demo mode remain disabled.
 
 This checklist checks the cloud service only. It does not establish physical-device, venue-network, printer, admission, or Event Node verification; see the [physical-device test plan](physical-device-test-plan.md).
