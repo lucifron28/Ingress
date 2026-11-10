@@ -32,12 +32,33 @@
         <section class="card" aria-labelledby="student-title">
             <h1 id="student-title">Your student account is ready</h1>
             <p class="email">{{ $user->email }}</p>
-            <p>Your email is verified. Public event discovery and registration will appear here as the Ingress attendee portal is completed.</p>
+            <p>Your email is verified. Browse events, register for eligible tickets, and return here to open or download your current tickets.</p>
             <p>Email verification confirms mailbox ownership. It does not confirm current enrollment.</p>
+            <p><a href="{{ route('public.events.index') }}">Browse events</a></p>
             @if ($user->hasEventManagementAccess())
                 <p><a href="{{ route('organizer.dashboard') }}">Manage assigned events</a></p>
             @endif
             <a href="{{ route('login') }}">Organizer sign in</a>
+        </section>
+
+        <section class="card" style="margin-top: 18px;" aria-labelledby="tickets-title">
+            <h2 id="tickets-title">Your tickets</h2>
+            @forelse ($registrations as $registration)
+                @php
+                    $ticketIsActive = $registration->status === \App\Models\Registration::STATUS_CONFIRMED
+                        && $registration->ticket?->isActive();
+                @endphp
+                <article style="border-top: 1px solid #dfe3e8; padding: 16px 0;">
+                    <h3>{{ $registration->event->title }}</h3>
+                    <p>{{ $registration->event->starts_at->format('M j, Y · g:i A') }} · {{ $registration->event->venue->name }}</p>
+                    <p>Category: {{ $registration->ticketCategory?->name ?? 'General Admission' }} · Ticket status: {{ $ticketIsActive ? 'Active' : ucfirst($registration->status === \App\Models\Registration::STATUS_CANCELLED ? 'cancelled' : ($registration->ticket?->status ?? 'unavailable')) }}</p>
+                    @if ($ticketIsActive)
+                        <p><a href="{{ route('public.tickets.show', $registration) }}">View ticket</a> · <a href="{{ route('public.tickets.pdf', $registration) }}">Download PDF</a></p>
+                    @endif
+                </article>
+            @empty
+                <p>You do not have any account tickets yet. Public guest tickets are available from the event page without signing in.</p>
+            @endforelse
         </section>
     </main>
 </body>

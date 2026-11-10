@@ -36,6 +36,8 @@ Route::middleware('runtime:cloud')->group(function (): void {
         ->middleware('throttle:public-registration')->name('public.events.register.store');
     Route::get('/tickets/{registration}/pass', [PublicTicketController::class, 'show'])
         ->whereNumber('registration')->middleware('throttle:public-ticket-pass')->name('public.tickets.show');
+    Route::get('/tickets/{registration}/pdf', [PublicTicketController::class, 'download'])
+        ->whereNumber('registration')->middleware('throttle:public-ticket-download')->name('public.tickets.pdf');
     Route::post('/organizer/events/{event}/ticket-categories', [TicketCategoryController::class, 'store'])
         ->middleware(['auth', 'organizer'])->name('organizer.events.ticket-categories.store');
     Route::put('/organizer/events/{event}/ticket-categories/{ticketCategory}', [TicketCategoryController::class, 'update'])

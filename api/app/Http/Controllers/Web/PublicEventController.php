@@ -8,6 +8,7 @@ use App\Models\Event;
 use App\Models\Registration;
 use App\Models\TicketCategory;
 use App\Models\User;
+use App\Services\Tickets\TicketSessionAccess;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -77,8 +78,12 @@ class PublicEventController extends Controller
         return view('public.events.register', compact('event', 'categories', 'selectedCategoryId', 'hasAvailableCategory'));
     }
 
-    public function store(Request $request, Event $event, RegisterAttendeeForEvent $registration): RedirectResponse
-    {
+    public function store(
+        Request $request,
+        Event $event,
+        RegisterAttendeeForEvent $registration,
+        TicketSessionAccess $ticketAccess,
+    ): RedirectResponse {
         $this->requireSecureRequest($request);
 
         if (! $event->isRegistrationOpen()) {
@@ -121,16 +126,10 @@ class PublicEventController extends Controller
             guestEmail: $validated['guest_email'] ?? null,
         );
 
-        $registrationId = (int) $result['registration']->id;
-        $authorizedTickets = $request->session()->get('public_ticket_access', []);
-        if (! is_array($authorizedTickets)) {
-            $authorizedTickets = [];
-        }
-        $authorizedTickets[(string) $registrationId] = (int) $result['ticket']->credential_version;
-        $request->session()->put('public_ticket_access', $authorizedTickets);
+        $ticketAccess->grantGuest($request, $result['registration'], $result['ticket']);
         $request->session()->forget('public_registration_intent');
 
-        return redirect()->route('public.tickets.show', $registrationId);
+        return redirect()->route('public.tickets.show', $result['registration']);
     }
 
     private function requireSecureRequest(Request $request): void
