@@ -17,6 +17,7 @@ class Registration extends Model
 
     protected $fillable = [
         'event_id',
+        'ticket_category_id',
         'user_id',
         'attendee_type',
         'guest_name',
@@ -52,6 +53,11 @@ class Registration extends Model
     public function event(): BelongsTo
     {
         return $this->belongsTo(Event::class);
+    }
+
+    public function ticketCategory(): BelongsTo
+    {
+        return $this->belongsTo(TicketCategory::class);
     }
 
     public function user(): BelongsTo

@@ -101,6 +101,7 @@ class OrganizerEventController extends Controller
             'title' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
             'capacity' => ['required', 'integer', 'min:1'],
+            'registration_eligibility' => ['sometimes', 'in:public,student'],
             'registration_opens_at' => ['required', 'date'],
             'registration_closes_at' => ['required', 'date', 'after:registration_opens_at'],
             'starts_at' => ['required', 'date'],
@@ -119,6 +120,7 @@ class OrganizerEventController extends Controller
             'slug' => $slug,
             'description' => $validated['description'] ?? null,
             'capacity' => $validated['capacity'],
+            'registration_eligibility' => $validated['registration_eligibility'] ?? Event::ELIGIBILITY_PUBLIC,
             'registration_opens_at' => $validated['registration_opens_at'],
             'registration_closes_at' => $validated['registration_closes_at'],
             'starts_at' => $validated['starts_at'],
@@ -165,6 +167,10 @@ class OrganizerEventController extends Controller
             'staffAssignments.user',
             'staffAssignments.accessPoint',
             'managerAssignments.user',
+            'ticketCategories' => fn ($query) => $query->withCount([
+                'registrations',
+                'registrations as confirmed_registrations_count' => fn ($registrations) => $registrations->where('status', Registration::STATUS_CONFIRMED),
+            ]),
             'responsibilityAudits' => fn ($query) => $query->latest('created_at')->limit(100),
         ]);
         $guestRegistrations = config('ingress.mode') === 'cloud' && Auth::user()->can('update', $event)

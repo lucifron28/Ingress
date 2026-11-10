@@ -10,7 +10,10 @@ use App\Http\Controllers\Web\EventManagerInvitationController;
 use App\Http\Controllers\Web\GuestTicketController;
 use App\Http\Controllers\Web\OrganizerAttendanceController;
 use App\Http\Controllers\Web\OrganizerEventController;
+use App\Http\Controllers\Web\PublicEventController;
+use App\Http\Controllers\Web\PublicTicketController;
 use App\Http\Controllers\Web\StudentAuthController;
+use App\Http\Controllers\Web\TicketCategoryController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
@@ -18,7 +21,25 @@ Route::get('/', function () {
         return redirect()->to(route('node.operator.login', absolute: false));
     }
 
+    if (config('ingress.mode') === 'cloud') {
+        return redirect()->route('public.events.index');
+    }
+
     return redirect()->to(route('login', absolute: false));
+});
+
+Route::middleware('runtime:cloud')->group(function (): void {
+    Route::get('/events', [PublicEventController::class, 'index'])->name('public.events.index');
+    Route::get('/events/{event:slug}', [PublicEventController::class, 'show'])->name('public.events.show');
+    Route::get('/events/{event:slug}/register', [PublicEventController::class, 'register'])->name('public.events.register');
+    Route::post('/events/{event:slug}/register', [PublicEventController::class, 'store'])
+        ->middleware('throttle:public-registration')->name('public.events.register.store');
+    Route::get('/tickets/{registration}/pass', [PublicTicketController::class, 'show'])
+        ->whereNumber('registration')->middleware('throttle:public-ticket-pass')->name('public.tickets.show');
+    Route::post('/organizer/events/{event}/ticket-categories', [TicketCategoryController::class, 'store'])
+        ->middleware(['auth', 'organizer'])->name('organizer.events.ticket-categories.store');
+    Route::put('/organizer/events/{event}/ticket-categories/{ticketCategory}', [TicketCategoryController::class, 'update'])
+        ->middleware(['auth', 'organizer'])->name('organizer.events.ticket-categories.update');
 });
 
 Route::get('/student/auth', [StudentAuthController::class, 'show'])->middleware('runtime:cloud')->name('student.auth');

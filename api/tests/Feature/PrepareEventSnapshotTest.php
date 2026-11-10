@@ -81,6 +81,9 @@ class PrepareEventSnapshotTest extends TestCase
         $registration = $this->actingAs($student)->postJson("/api/v1/events/{$event->id}/registration")->assertCreated();
         $rawQr = $registration->json('qr_payload');
         $ticketId = $registration->json('ticket.id');
+        $registrationId = $registration->json('registration_id');
+        $categoryId = DB::table('registrations')->where('id', $registrationId)->value('ticket_category_id');
+        $this->assertNotNull($categoryId);
         $ticketHash = DB::table('tickets')->where('id', $ticketId)->value('qr_hash');
         $this->actingAs($owner)->post("/organizer/events/{$event->id}/close-registration")->assertRedirect();
         $this->post("/organizer/events/{$event->id}/prepare-snapshot")->assertRedirect();
@@ -95,6 +98,8 @@ class PrepareEventSnapshotTest extends TestCase
         $this->assertStringNotContainsString(explode(':', $rawQr)[3], $json);
         $payload = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
         $this->assertSame($snapshot->id, $payload['snapshot_id']);
+        $this->assertArrayNotHasKey('registration_eligibility', $payload['event']);
+        $this->assertArrayNotHasKey('ticket_category_id', $payload['registrations'][0]);
         $this->assertSame($ticketHash, $payload['registrations'][0]['ticket']['qr_hash']);
         $this->assertSame('Snapshot Attendee', $payload['registrations'][0]['attendee']['name']);
         $this->assertSame($staff->name, $payload['staff'][0]['user']['name']);
