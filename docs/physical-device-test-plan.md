@@ -108,10 +108,11 @@ The internet may be unavailable during admission, but the venue LAN and the sing
 ## 7. Test guest, alumni, walk-in, and printing flows
 
 1. From the cloud organizer page, issue one guest and one alumni pass before registration cutoff. Open each printable pass and confirm it contains the correct synthetic identity and QR. Email delivery is not implemented; the organizer must hand each pass to its recipient through an approved private channel.
-2. With WAN still disconnected, issue a walk-in from the paired staff app. Confirm the node returns a pass, does not admit the person at issuance, and enforces the event capacity. Scan the pass, preview it, then explicitly confirm entry.
-3. Test recovery with a synthetic walk-in attendee. Staff must verify the attendee in person under the event's approved identity procedure, select a recovery reason, and hand over the recovered pass directly. Confirm recovery does not admit the attendee. Do not record identity document numbers or keep copies.
-4. Print a cloud guest/alumni pass from the organizer flow and a node walk-in pass from the mobile flow. Use a standard printer, verify the complete QR has a quiet margin, and scan the paper copy at normal gate distance and lighting. Record the printer model, paper size, scale, and scan result.
-5. Keep every printed pass controlled; its QR is a bearer credential. Shred or securely destroy test copies after the run.
+2. While WAN is available, create a synthetic accountless guest ticket through the public guest flow. Redeem it for Guest A, then transfer it to Guest B and Guest C using distinct synthetic identities. After each transfer, confirm the current guest can open the ticket and the prior redemption code no longer works. The automated backend test covers a lost response after commit; do not inject a session-storage failure on the live service.
+3. With WAN still disconnected, issue a walk-in from the paired staff app. Confirm the node returns a pass, does not admit the person at issuance, and enforces the event capacity. Scan the pass, preview it, then explicitly confirm entry.
+4. Test recovery with a synthetic walk-in attendee. Staff must verify the attendee in person under the event's approved identity procedure, select a recovery reason, and hand over the recovered pass directly. Confirm recovery does not admit the attendee. Do not record identity document numbers or keep copies.
+5. Print a cloud guest/alumni pass from the organizer flow and a node walk-in pass from the mobile flow. Use a standard printer, verify the complete QR has a quiet margin, and scan the paper copy at normal gate distance and lighting. Record the printer model, paper size, scale, and scan result.
+6. Keep every printed pass controlled; its QR is a bearer credential. Shred or securely destroy test copies after the run.
 
 ## 8. Restore internet and confirm synchronization
 
@@ -143,6 +144,7 @@ Mark each row only after it has been run on the named devices. Record date, test
 | Institutional email signup and activation | Pending until verified sender domain and authorized mailbox | |
 | Synthetic student website sign-in, registration, ticket PDF download | Pending | |
 | Ticket transfer before finalization | Pending | |
+| Accountless guest transfer from A to B to C; prior redemption codes rejected | Pending | |
 | Snapshot receipts and single-node authority activation | Pending | |
 | Staff pairing, session restore, and gate scoping | Pending | |
 | WAN disconnected; downloaded PDF QR; preview then confirmed admission | Pending | |
