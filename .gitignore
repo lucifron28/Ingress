@@ -50,3 +50,4 @@ Thumbs.db
 # Local database data & logs
 pgdata/
 *.log
+.neon
