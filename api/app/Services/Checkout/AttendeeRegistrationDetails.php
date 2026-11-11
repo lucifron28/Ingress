@@ -56,8 +56,10 @@ class AttendeeRegistrationDetails
         ?User $user,
         ?string $guestEmail,
         ?int $ignoreCheckoutOrderId = null,
+        ?int $ignoreRegistrationId = null,
     ): void {
-        $registrations = Registration::query()->where('event_id', $eventId);
+        $registrations = Registration::query()->where('event_id', $eventId)
+            ->when($ignoreRegistrationId !== null, fn ($query) => $query->whereKeyNot($ignoreRegistrationId));
         $orders = CheckoutOrder::query()->where('event_id', $eventId)->activeReservation()
             ->when($ignoreCheckoutOrderId !== null, fn ($query) => $query->whereKeyNot($ignoreCheckoutOrderId));
 

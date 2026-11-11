@@ -105,6 +105,8 @@ if (trim((string) $signal) !== 'GO') {
 
 if ($mode === 'guest_ticket_redeem') {
     $payload['redemption_code'] = trim((string) fgets(STDIN));
+    $payload['guest_name'] = trim((string) fgets(STDIN));
+    $payload['guest_email'] = trim((string) fgets(STDIN));
 }
 
 // --- Execute the contested operation -----------------------------------------
@@ -248,7 +250,11 @@ try {
         $emit(['ok' => $response->getStatusCode() === 200, 'http_code' => $response->getStatusCode()]);
     } elseif ($mode === 'guest_ticket_redeem') {
         config(['ingress.mode' => 'cloud']);
-        $result = app(GuestTicketTransfer::class)->redeem($payload['redemption_code']);
+        $result = app(GuestTicketTransfer::class)->redeem(
+            $payload['redemption_code'],
+            $payload['guest_name'],
+            $payload['guest_email'],
+        );
         $emit([
             'ok' => true,
             'ticket_id' => $result['ticket']->id,

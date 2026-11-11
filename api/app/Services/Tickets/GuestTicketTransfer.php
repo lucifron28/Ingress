@@ -8,21 +8,34 @@ use App\Models\Registration;
 use App\Models\Ticket;
 use App\Models\TicketCategory;
 use App\Models\User;
+use App\Services\Checkout\AttendeeRegistrationDetails;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class GuestTicketTransfer
 {
     private const INVALID_CODE_MESSAGE = 'This code is invalid or the ticket cannot be transferred.';
 
-    public function __construct(private TicketCredentialRotation $credentialRotation) {}
+    public function __construct(
+        private TicketCredentialRotation $credentialRotation,
+        private AttendeeRegistrationDetails $attendeeDetails,
+    ) {}
 
     /**
      * @return array{registration: Registration, ticket: Ticket, redemption_code: string}
      */
-    public function redeem(string $redemptionCode): array
+    public function redeem(string $redemptionCode, string $guestName, string $guestEmail): array
     {
-        if (! preg_match('/\A[a-f0-9]{64}\z/', $redemptionCode)) {
+        $guestName = trim($guestName);
+        $guestEmail = Str::lower(trim($guestEmail));
+
+        if (! preg_match('/\A[a-f0-9]{64}\z/', $redemptionCode)
+            || $guestName === ''
+            || mb_strlen($guestName) > 255
+            || str_contains($guestName, "\0")
+            || strlen($guestEmail) > 255
+            || filter_var($guestEmail, FILTER_VALIDATE_EMAIL) === false) {
             $this->reject();
         }
 
@@ -39,7 +52,7 @@ class GuestTicketTransfer
             $this->reject();
         }
 
-        return DB::transaction(function () use ($candidate, $eventId, $redemptionHash): array {
+        return DB::transaction(function () use ($candidate, $eventId, $redemptionHash, $guestName, $guestEmail): array {
             $event = Event::query()->whereKey($eventId)->lockForUpdate()->first();
             $ticket = Ticket::query()->whereKey($candidate->id)->lockForUpdate()->first();
             $registration = $ticket
@@ -61,6 +74,16 @@ class GuestTicketTransfer
             }
 
             $this->assertTransferable($event, $registration, $ticket, $category);
+            $this->attendeeDetails->assertIdentityAvailable(
+                (int) $event->id,
+                null,
+                $guestEmail,
+                ignoreRegistrationId: (int) $registration->id,
+            );
+            $registration->forceFill([
+                'guest_name' => $guestName,
+                'guest_email' => $guestEmail,
+            ])->save();
             $newCode = $this->credentialRotation->rotateGuestCredentials($event, $ticket, 'redeemed');
 
             return [
