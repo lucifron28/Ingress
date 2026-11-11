@@ -239,6 +239,11 @@ class AuthTest extends TestCase
             ->assertSee('name="remember"', false)
             ->assertSee('data-password-toggle', false)
             ->assertSee('aria-label="Show password"', false)
+            ->assertSee('login-page__watermark')
+            ->assertSee('ingress-logo-horizontal-transparent.png')
+            ->assertSee('ingress-gateway-symbol-transparent.png')
+            ->assertDontSee('class="login-card"', false)
+            ->assertDontSee('Demo organizer:')
             ->assertSee('Sign In');
         $form->assertDontSee('do not match our records');
 
