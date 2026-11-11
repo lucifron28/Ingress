@@ -25,7 +25,7 @@ class GuestTicketTransfer
     /**
      * @return array{registration: Registration, ticket: Ticket, redemption_code: string}
      */
-    public function redeem(string $redemptionCode, string $guestName, string $guestEmail): array
+    public function redeem(string $redemptionCode, string $guestName, string $guestEmail, string $recoverySessionHash): array
     {
         $guestName = trim($guestName);
         $guestEmail = Str::lower(trim($guestEmail));
@@ -35,7 +35,8 @@ class GuestTicketTransfer
             || mb_strlen($guestName) > 255
             || str_contains($guestName, "\0")
             || strlen($guestEmail) > 255
-            || filter_var($guestEmail, FILTER_VALIDATE_EMAIL) === false) {
+            || filter_var($guestEmail, FILTER_VALIDATE_EMAIL) === false
+            || ! preg_match('/\A[a-f0-9]{64}\z/', $recoverySessionHash)) {
             $this->reject();
         }
 
@@ -43,6 +44,23 @@ class GuestTicketTransfer
         $candidate = Ticket::query()
             ->where('redemption_hash', $redemptionHash)
             ->first(['id', 'registration_id']);
+
+        if (! $candidate) {
+            $rotation = DB::table('guest_ticket_credential_rotations')
+                ->where('previous_redemption_hash', $redemptionHash)
+                ->where('recovery_session_hash', $recoverySessionHash)
+                ->where('kind', 'redeemed')
+                ->where('redemption_code_expires_at', '>', now())
+                ->first(['ticket_id', 'to_credential_version']);
+
+            if ($rotation) {
+                $candidate = Ticket::query()
+                    ->whereKey($rotation->ticket_id)
+                    ->where('credential_version', $rotation->to_credential_version)
+                    ->first(['id', 'registration_id']);
+            }
+        }
+
         if (! $candidate) {
             $this->reject();
         }
@@ -52,7 +70,7 @@ class GuestTicketTransfer
             $this->reject();
         }
 
-        return DB::transaction(function () use ($candidate, $eventId, $redemptionHash, $guestName, $guestEmail): array {
+        return DB::transaction(function () use ($candidate, $eventId, $redemptionHash, $guestName, $guestEmail, $recoverySessionHash): array {
             $event = Event::query()->whereKey($eventId)->lockForUpdate()->first();
             $ticket = Ticket::query()->whereKey($candidate->id)->lockForUpdate()->first();
             $registration = $ticket
@@ -61,8 +79,7 @@ class GuestTicketTransfer
 
             if (! $event || ! $ticket || ! $registration
                 || (int) $registration->event_id !== (int) $event->id
-                || ! is_string($ticket->redemption_hash)
-                || ! hash_equals($ticket->redemption_hash, $redemptionHash)) {
+                || ! is_string($ticket->redemption_hash)) {
                 $this->reject();
             }
 
@@ -74,6 +91,30 @@ class GuestTicketTransfer
             }
 
             $this->assertTransferable($event, $registration, $ticket, $category);
+
+            if (! hash_equals($ticket->redemption_hash, $redemptionHash)) {
+                if (trim((string) $registration->guest_name) !== $guestName
+                    || Str::lower(trim((string) $registration->guest_email)) !== $guestEmail) {
+                    $this->reject();
+                }
+
+                $recoveredCode = $this->credentialRotation->recoverInterruptedGuestRotation(
+                    $ticket,
+                    'redeemed',
+                    $recoverySessionHash,
+                    previousRedemptionHash: $redemptionHash,
+                );
+                if ($recoveredCode === null) {
+                    $this->reject();
+                }
+
+                return [
+                    'registration' => $registration,
+                    'ticket' => $ticket,
+                    'redemption_code' => $recoveredCode,
+                ];
+            }
+
             $this->attendeeDetails->assertIdentityAvailable(
                 (int) $event->id,
                 null,
@@ -84,7 +125,12 @@ class GuestTicketTransfer
                 'guest_name' => $guestName,
                 'guest_email' => $guestEmail,
             ])->save();
-            $newCode = $this->credentialRotation->rotateGuestCredentials($event, $ticket, 'redeemed');
+            $newCode = $this->credentialRotation->rotateGuestCredentials(
+                $event,
+                $ticket,
+                'redeemed',
+                $recoverySessionHash,
+            );
 
             return [
                 'registration' => $registration,
@@ -97,13 +143,13 @@ class GuestTicketTransfer
     /**
      * @return array{registration: Registration, ticket: Ticket, redemption_code: string}
      */
-    public function recover(int $eventId, int $registrationId, User $actor): array
+    public function recover(int $eventId, int $registrationId, User $actor, string $recoverySessionHash): array
     {
-        if (config('ingress.mode') !== 'cloud') {
+        if (config('ingress.mode') !== 'cloud' || ! preg_match('/\A[a-f0-9]{64}\z/', $recoverySessionHash)) {
             $this->rejectRecovery();
         }
 
-        return DB::transaction(function () use ($eventId, $registrationId, $actor): array {
+        return DB::transaction(function () use ($eventId, $registrationId, $actor, $recoverySessionHash): array {
             $event = Event::query()->whereKey($eventId)->lockForUpdate()->first();
             if (! $event) {
                 $this->rejectRecovery();
@@ -127,10 +173,26 @@ class GuestTicketTransfer
             }
 
             $this->assertTransferable($event, $registration, $ticket, $category, recovery: true);
+
+            $recoveredCode = $this->credentialRotation->recoverInterruptedGuestRotation(
+                $ticket,
+                'recovery',
+                $recoverySessionHash,
+                actorUserId: $actor->id,
+            );
+            if ($recoveredCode !== null) {
+                return [
+                    'registration' => $registration,
+                    'ticket' => $ticket,
+                    'redemption_code' => $recoveredCode,
+                ];
+            }
+
             $newCode = $this->credentialRotation->rotateGuestCredentials(
                 $event,
                 $ticket,
                 'recovery',
+                $recoverySessionHash,
                 $actor->id,
             );
 

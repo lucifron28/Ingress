@@ -81,7 +81,12 @@ class GuestTicketController extends Controller
         abort_if(! $request->secure() && ! app()->environment(['local', 'testing']), 403, 'HTTPS is required.');
         $request->validate(['identity_verified' => ['required', 'accepted']]);
 
-        $result = $guestTicketTransfer->recover($event->id, $registration->id, $request->user());
+        $result = $guestTicketTransfer->recover(
+            $event->id,
+            $registration->id,
+            $request->user(),
+            hash('sha256', $request->session()->getId()),
+        );
         $ticketAccess->grantGuest($request, $result['registration'], $result['ticket']);
         $ticketAccess->grantRedemptionCode($request, $result['registration'], $result['redemption_code']);
 

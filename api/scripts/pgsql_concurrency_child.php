@@ -264,6 +264,7 @@ try {
             $payload['redemption_code'],
             $payload['guest_name'],
             $payload['guest_email'],
+            hash('sha256', random_bytes(32)),
         );
         $emit([
             'ok' => true,
