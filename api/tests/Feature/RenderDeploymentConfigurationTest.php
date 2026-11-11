@@ -6,6 +6,7 @@ use App\Http\Middleware\TrustConfiguredProxies;
 use App\Http\Middleware\TrustRenderCloudHosts;
 use App\Support\CloudRuntimeIdentityGuard;
 use App\Support\RenderDeploymentConfiguration;
+use App\Support\SensitiveMailTransport;
 use Illuminate\Http\Request;
 use Illuminate\Mail\Transport\ResendTransport;
 use Illuminate\Support\Facades\DB;
@@ -24,6 +25,22 @@ class RenderDeploymentConfigurationTest extends TestCase
 
         try {
             $this->assertSame([], RenderDeploymentConfiguration::validate($this->validConfiguration($certificate)));
+        } finally {
+            unlink($certificate);
+        }
+    }
+
+    public function test_render_cloud_startup_does_not_require_mail_configuration(): void
+    {
+        $certificate = tempnam(sys_get_temp_dir(), 'ingress-ca-');
+        $this->assertNotFalse($certificate);
+        file_put_contents($certificate, 'test certificate');
+        $config = $this->validConfiguration($certificate);
+        $config['mail'] = [];
+        unset($config['services']['resend']);
+
+        try {
+            $this->assertSame([], RenderDeploymentConfiguration::validate($config));
         } finally {
             unlink($certificate);
         }
@@ -108,6 +125,50 @@ class RenderDeploymentConfigurationTest extends TestCase
             ResendTransport::class,
             app('mail.manager')->mailer('resend')->getSymfonyTransport(),
         );
+    }
+
+    public function test_sensitive_mail_transport_requires_credentials_valid_sender_and_encrypted_delivery(): void
+    {
+        config([
+            'mail.default' => 'resend',
+            'mail.from.address' => 'ingress@verified.example',
+            'services.resend.key' => '',
+        ]);
+        $this->assertFalse(SensitiveMailTransport::canSendSafely());
+
+        config(['services.resend.key' => 're_test_configured_key']);
+        $this->assertTrue(SensitiveMailTransport::canSendSafely());
+
+        config(['mail.from.address' => 'not-an-email']);
+        $this->assertFalse(SensitiveMailTransport::canSendSafely());
+        config(['mail.from.address' => 'ingress@verified.example']);
+
+        config([
+            'mail.default' => 'smtp',
+            'mail.mailers.smtp.url' => null,
+            'mail.mailers.smtp.scheme' => 'smtp',
+            'mail.mailers.smtp.port' => 587,
+        ]);
+        $this->assertFalse(SensitiveMailTransport::canSendSafely());
+
+        config(['mail.mailers.smtp.scheme' => 'smtps']);
+        $this->assertTrue(SensitiveMailTransport::canSendSafely());
+
+        $this->app->detectEnvironment(fn () => 'production');
+        config(['mail.default' => 'log']);
+        $this->assertFalse(SensitiveMailTransport::canSendSafely());
+        config(['mail.default' => 'array']);
+        $this->assertFalse(SensitiveMailTransport::canSendSafely());
+
+        config(['mail.default' => 'sendmail']);
+        $this->assertFalse(SensitiveMailTransport::canSendSafely());
+
+        config([
+            'mail.default' => 'failover',
+            'mail.mailers.failover.mailers' => ['resend', 'log'],
+            'services.resend.key' => 're_test_configured_key',
+        ]);
+        $this->assertFalse(SensitiveMailTransport::canSendSafely());
     }
 
     public function test_cloud_startup_identity_guard_allows_a_new_or_cloud_database(): void

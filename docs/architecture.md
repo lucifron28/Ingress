@@ -346,7 +346,7 @@ The Cloud authorization model uses three separate relationships:
 
 `event_responsibility_audits` records manager assignment, invitation, acceptance, revocation, scanner assignment, gate change, and scanner revocation. Audit rows keep event, actor, subject, and gate text snapshots so the history remains readable after an account or event is removed. Removing a manager assignment immediately removes its event-management access. Scanner admission remains based on the existing assignment checks and is unchanged on the Event Node.
 
-An administrator can assign an existing account directly or invite a new email address. New-account invitations use a random single-use token stored only as a SHA-256 hash, expire after 48 hours, and place the raw token in the email URL fragment. The invitation page removes the fragment before sending the token in a private POST body. Invitation and student verification mail is never sent through a logging transport, and invitation responses are non-cacheable with a no-referrer policy.
+An administrator can assign an existing account directly or invite a new email address. New-account invitations use a random single-use token stored only as a SHA-256 hash, expire after 48 hours, and place the raw token in the email URL fragment. The invitation page removes the fragment before sending the token in a private POST body. Invitations require a configured safe mail transport; logging and plaintext SMTP are rejected before an invitation is created. Invitation responses are non-cacheable with a no-referrer policy. Firebase handles student verification and password-reset messages.
 
 ---
 

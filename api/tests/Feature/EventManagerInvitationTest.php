@@ -147,6 +147,40 @@ class EventManagerInvitationTest extends TestCase
         $this->assertDatabaseCount('event_manager_invitations', 0);
     }
 
+    public function test_manager_invitation_fails_closed_when_resend_has_no_api_key(): void
+    {
+        config([
+            'ingress.mode' => 'cloud',
+            'app.url' => 'https://ingress.example.test',
+            'mail.default' => 'resend',
+            'services.resend.key' => '',
+        ]);
+        Mail::fake();
+
+        $admin = User::factory()->create(['role' => User::ROLE_ADMIN]);
+        $owner = User::factory()->create(['role' => User::ROLE_ORGANIZER]);
+        $venue = Venue::create(['name' => 'Hall', 'code' => 'HALL', 'default_capacity' => 100]);
+        $event = Event::create([
+            'organizer_id' => $owner->id,
+            'venue_id' => $venue->id,
+            'title' => 'Faculty Workshop',
+            'slug' => 'faculty-workshop-no-mail',
+            'capacity' => 50,
+            'registration_opens_at' => Carbon::now()->subDay(),
+            'registration_closes_at' => Carbon::now()->addDays(5),
+            'starts_at' => Carbon::now()->addDays(6),
+            'ends_at' => Carbon::now()->addDays(6)->addHours(3),
+            'status' => Event::STATUS_DRAFT,
+        ]);
+
+        $this->actingAs($admin)
+            ->post(route('organizer.events.managers.store', $event), ['email' => 'new.manager@mseuf.edu.ph'])
+            ->assertSessionHasErrors('email');
+
+        Mail::assertNothingSent();
+        $this->assertDatabaseCount('event_manager_invitations', 0);
+    }
+
     public function test_invitation_for_an_existing_account_requires_that_account_to_be_authenticated(): void
     {
         config([

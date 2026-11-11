@@ -31,7 +31,6 @@ use App\Actions\SyncWalkInRecovery;
 use App\Actions\TransferEventAuthority;
 use App\Http\Controllers\Api\V1\NodeStaffAuthController;
 use App\Http\Controllers\Api\V1\TicketTransferController;
-use App\Http\Controllers\StudentEmailVerificationController;
 use App\Http\Controllers\Web\OrganizerEventController;
 use App\Http\Middleware\EnsureRuntimeDatabase;
 use App\Models\AccessPoint;
@@ -260,15 +259,6 @@ try {
         config(['ingress.mode' => 'node', 'ingress.node_id' => $payload['node_id']]);
         $request = Request::create('/api/v1/auth/node-staff/login', 'POST', ['email' => $payload['email'], 'password' => $payload['password']]);
         $response = app(NodeStaffAuthController::class)->login($request, app(NodeStaffAccess::class));
-        $emit(['ok' => $response->getStatusCode() === 200, 'http_code' => $response->getStatusCode()]);
-    } elseif ($mode === 'student_complete') {
-        $app->detectEnvironment(fn () => 'testing');
-        config(['ingress.mode' => 'cloud']);
-        $request = Request::create('/student/complete', 'POST', [
-            'token' => $payload['token'], 'name' => 'Race Student', 'student_id' => $payload['student_id'],
-            'password' => 'long-race-password', 'password_confirmation' => 'long-race-password',
-        ]);
-        $response = app(StudentEmailVerificationController::class)->complete($request);
         $emit(['ok' => $response->getStatusCode() === 200, 'http_code' => $response->getStatusCode()]);
     } elseif ($mode === 'runtime') {
         $app->detectEnvironment(fn () => 'production');

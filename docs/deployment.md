@@ -10,7 +10,7 @@ For the data-transfer sequence and node-specific commands, see [Second-half arch
 - PostgreSQL 18, with a separate database for the cloud and for each Event Node.
 - A PHP runtime and web server for each application instance. The Laravel application is served from `api/public`.
 - HTTPS for the cloud, Event Node API, and staff mobile connections. The certificate must be trusted by staff devices.
-- Firebase Authentication for student web verification and password recovery. Resend's HTTPS API remains available for the legacy student activation path and application mail.
+- Firebase Authentication for student web verification and password recovery. Laravel mail is optional and is used for event-manager invitations.
 
 The app binds a database to the first runtime identity that uses it. Do not point cloud and node runtimes at the same database. Each runtime needs its own `APP_KEY`; do not copy the cloud key to a node.
 
@@ -26,11 +26,13 @@ Neon's published [PostgreSQL 18 announcement](https://neon.com/blog/postgres-18)
 
 Keep the database URL private. Do not paste it into source control, issue comments, build arguments, or logs. Neon branches/projects can suspend when idle; the first connection after suspension may take longer.
 
-### Create the Resend sender
+### Optional Resend mail for event-manager invitations
 
-For an account-owner connectivity test before you own a sending domain, use `onboarding@resend.dev` as `MAIL_FROM_ADDRESS` and `lucifron28@gmail.com` as `INGRESS_MAIL_TEST_RECIPIENT`. Resend's shared test sender is restricted to account-owner testing; it cannot activate student accounts at other domains. The mail test sends a static message without a verification token or link.
+Cloud startup does not require a mail provider. Student verification and password-reset messages come from Firebase Authentication. Laravel mail is used only for event-manager invitations and the static connectivity test. If invitation mail is not configured, or the selected transport is unsafe, the app refuses the invitation before creating its record.
 
-To send student activation messages to real `@student.mseuf.edu.ph` inboxes, add and verify a sending domain from the Resend Dashboard's **Domains** page. From **API Keys**, create a key with **Sending access** restricted to that domain and set `MAIL_FROM_ADDRESS` to an address on it. The key is a secret and belongs only in Render's environment settings. See [Resend API key permissions](https://resend.com/changelog/new-api-key-permissions) and the [domain verification guide](https://resend.com/docs/dashboard/domains/introduction). A verified sender domain and an authorized institutional mailbox are required for real student activation.
+To enable event-manager invitations through Resend, set `MAIL_MAILER=resend`, `RESEND_API_KEY`, and `MAIL_FROM_ADDRESS` in Render. Create an API key with **Sending access** in Resend's **API Keys** page. For delivery to other people, verify a sender domain in **Domains** and use an address on that domain. The API key is a secret. Keep it only in Render's environment settings. See [Resend API key permissions](https://resend.com/changelog/new-api-key-permissions) and the [domain verification guide](https://resend.com/docs/dashboard/domains/introduction).
+
+Resend's shared `onboarding@resend.dev` sender is restricted to the Resend account owner's inbox. Use it only for the static connectivity test, with `INGRESS_MAIL_TEST_RECIPIENT` set to the address registered to that Resend account. It cannot deliver event-manager invitations to arbitrary recipients.
 
 ### Create the Render web service
 
@@ -78,11 +80,11 @@ Set the following in **Render → ingress-cloud → Environment**. Add secret va
 | `QUEUE_CONNECTION` | `sync` |
 | `LOG_CHANNEL` | `stderr` |
 | `LOG_LEVEL` | `info` |
-| `MAIL_MAILER` | `resend` |
-| `RESEND_API_KEY` | The Resend API key |
-| `MAIL_FROM_ADDRESS` | `onboarding@resend.dev` for account-owner-only testing, or an address on the verified sending domain |
-| `MAIL_FROM_NAME` | `Ingress` or the approved sender name |
-| `INGRESS_MAIL_TEST_RECIPIENT` | `lucifron28@gmail.com` for the authorized shared-sender test |
+| `MAIL_MAILER` | Optional. Set to `resend` to enable Resend delivery for event-manager invitations. |
+| `RESEND_API_KEY` | Optional Resend secret. Required when `MAIL_MAILER=resend` is used to send. |
+| `MAIL_FROM_ADDRESS` | Optional sender address. Resend delivery to other people requires an address on a verified sending domain. |
+| `MAIL_FROM_NAME` | Optional sender name, such as `Ingress`. |
+| `INGRESS_MAIL_TEST_RECIPIENT` | Optional. Set to the Resend account owner's email only when using the static connectivity test. |
 | `FIREBASE_API_KEY` | Firebase Web App API key for the same project as the other Firebase values; this key is public and rendered to the student sign-in page |
 | `FIREBASE_AUTH_DOMAIN` | Firebase Web App auth domain, usually `<project-id>.firebaseapp.com` |
 | `FIREBASE_PROJECT_ID` | Firebase project ID |
@@ -161,13 +163,13 @@ powershell -ExecutionPolicy Bypass -File .\api\scripts\register_render_node.ps1
 
 Use a new stable node ID. The command checks HTTPS/runtime configuration, direct Neon TLS, PostgreSQL 18, the cloud identity, and the migration advisory lock. It prints `INGRESS_NODE_SYNC_KEY` once after successful registration. Copy it directly into the matching node's private environment, then clear the terminal and do not save it in shell history, source control, or logs. Keep each node on a separate PostgreSQL database with a separate `APP_KEY`.
 
-Test Resend from Windows without sending a student verification link:
+Run the optional Resend connectivity test from Windows:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\api\scripts\send_render_mail_test.ps1
 ```
 
-Enter `onboarding@resend.dev` until a sending domain is verified, and use the address registered to the Resend account as the recipient. The command sends a static message through Laravel's official Resend transport and reports when Resend accepts the request. Check **Resend → Emails** and the authorized inbox to distinguish provider acceptance from final inbox delivery. This test does not activate a student account. Gmail addresses are not accepted by public student registration; real student activation still requires the institutional domain and an authorized student mailbox.
+Set the optional Render values above, then enter `onboarding@resend.dev` as the sender until a sending domain is verified. Use the email registered to the Resend account as the recipient. The command sends a static message through Laravel's official Resend transport and reports when Resend accepts the request. Check **Resend → Emails** and the authorized inbox to distinguish provider acceptance from final inbox delivery. The test does not activate or verify a student account.
 
 ### Verify the deployment
 
@@ -176,7 +178,7 @@ After Render reports the deployment as live:
 1. Open `https://<your-render-host>/up` and confirm an HTTP 200 response.
 2. In Render logs, confirm the fixed startup message `Cloud database migrations and runtime identity are ready.` Do not copy secret environment values into logs or support tickets.
 3. In Neon SQL Editor, confirm `select current_setting('server_version_num');` starts with `180`, and confirm the expected Ingress migration rows exist in `migrations`.
-4. Sign in with the administrator created above. Run the Windows Resend connectivity script and inspect **Resend → Emails**. Test student web signup, verification, and password recovery with an authorized `@student.mseuf.edu.ph` mailbox in the configured Firebase project. The shared Resend testing sender does not deliver legacy activation messages to arbitrary student addresses.
+4. Sign in with the administrator created above. Test student web signup, verification, and password recovery with an authorized `@student.mseuf.edu.ph` mailbox in the configured Firebase project. If you enabled Resend, send a manager invitation and confirm delivery; the static connectivity test is optional.
 5. Confirm the service can be reached over HTTPS and that production debug/demo mode remain disabled.
 
 This checklist checks the cloud service only. It does not establish physical-device, venue-network, printer, admission, or Event Node verification; see the [physical-device test plan](physical-device-test-plan.md).
@@ -186,8 +188,8 @@ This checklist checks the cloud service only. It does not establish physical-dev
 - Provider quotas below were checked on 2026-11-09. Render Free web services spin down after 15 minutes without inbound traffic and take about a minute to wake. Each workspace receives 750 free instance hours per calendar month. Render says Free services are intended for evaluation, not production workloads. See [Render Free limitations](https://render.com/docs/free).
 - Free services have an ephemeral filesystem, one instance, no persistent disk, no SSH/shell, and no pre-deploy or one-off command. Redeploys and restarts must not be relied on to preserve files.
 - Neon Free currently includes 1 GB of storage and 100 compute-unit hours per project each month, with autoscaling up to 2 compute units. Free computes can scale to zero. Check [Neon pricing and limits](https://neon.com/pricing) before use; a suspended or quota-limited database can delay or prevent service startup.
-- Resend Free currently allows 3,000 emails per month, 100 per day, and 3 sending domains, with 30-day data retention. Check [Resend pricing](https://resend.com/pricing) before use.
-- The Render/Neon/Resend combination is suitable for preparing and evaluating the deployment. Render Free is not a production availability or data-retention guarantee. Choose paid or institution-managed service capacity before real event operations.
+- Resend is optional and has separate sending limits. Check [current Resend pricing](https://resend.com/pricing) before enabling invitation mail.
+- Render Free and Neon are suitable for preparing and evaluating the deployment. Resend is optional. Render Free is not a production availability or data-retention guarantee. Choose paid or institution-managed service capacity before real event operations.
 
 ## Configure a Windows Event Node
 

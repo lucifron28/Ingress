@@ -2,9 +2,12 @@
 
 namespace App\Support;
 
+use Illuminate\Support\ConfigurationUrlParser;
+use Throwable;
+
 class SensitiveMailTransport
 {
-    public static function canSendWithoutLogging(?string $mailer = null): bool
+    public static function canSendSafely(?string $mailer = null): bool
     {
         $mailer ??= config('mail.default');
 
@@ -45,8 +48,52 @@ class SensitiveMailTransport
                     return false;
                 }
             }
+
+            return true;
         }
 
-        return true;
+        if ($transport === 'array') {
+            return app()->environment('testing');
+        }
+
+        if (! self::hasValidSender()) {
+            return false;
+        }
+
+        return match ($transport) {
+            'resend' => self::hasCredential(config('services.resend.key')),
+            'smtp' => self::smtpUsesTls($config),
+            'postmark' => self::hasCredential(config('services.postmark.key')),
+            'ses', 'ses-v2' => self::hasCredential(config('services.ses.key'))
+                && self::hasCredential(config('services.ses.secret'))
+                && self::hasCredential(config('services.ses.region')),
+            default => false,
+        };
+    }
+
+    private static function hasCredential(mixed $value): bool
+    {
+        return is_string($value) && trim($value) !== '';
+    }
+
+    private static function hasValidSender(): bool
+    {
+        $address = config('mail.from.address');
+
+        return is_string($address) && filter_var($address, FILTER_VALIDATE_EMAIL) !== false;
+    }
+
+    /** @param  array<string, mixed>  $config */
+    private static function smtpUsesTls(array $config): bool
+    {
+        try {
+            $resolved = (new ConfigurationUrlParser)->parseConfiguration($config);
+        } catch (Throwable) {
+            return false;
+        }
+
+        $scheme = $resolved['scheme'] ?? (($resolved['port'] ?? null) == 465 ? 'smtps' : 'smtp');
+
+        return is_string($scheme) && strtolower($scheme) === 'smtps';
     }
 }
