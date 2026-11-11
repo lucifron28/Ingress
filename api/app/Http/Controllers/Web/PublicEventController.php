@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Web;
 
+use App\Actions\CreateSimulatedCheckout;
 use App\Actions\RegisterAttendeeForEvent;
 use App\Http\Controllers\Controller;
 use App\Models\Event;
@@ -12,6 +13,7 @@ use App\Services\Tickets\TicketSessionAccess;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
@@ -25,9 +27,15 @@ class PublicEventController extends Controller
             ->with([
                 'venue',
                 'ticketCategories' => fn ($query) => $query->active()
-                    ->withCount(['registrations as confirmed_registrations_count' => fn ($registrations) => $registrations->where('status', Registration::STATUS_CONFIRMED)]),
+                    ->withCount([
+                        'registrations as confirmed_registrations_count' => fn ($registrations) => $registrations->where('status', Registration::STATUS_CONFIRMED),
+                        'checkoutOrders as active_checkout_orders_count' => fn ($orders) => $orders->activeReservation(),
+                    ]),
             ])
-            ->withCount(['registrations as confirmed_registrations_count' => fn ($registrations) => $registrations->where('status', Registration::STATUS_CONFIRMED)])
+            ->withCount([
+                'registrations as confirmed_registrations_count' => fn ($registrations) => $registrations->where('status', Registration::STATUS_CONFIRMED),
+                'checkoutOrders as active_checkout_orders_count' => fn ($orders) => $orders->activeReservation(),
+            ])
             ->orderBy('starts_at')
             ->get();
 
@@ -41,12 +49,18 @@ class PublicEventController extends Controller
         $event->load([
             'venue',
             'ticketCategories' => fn ($query) => $query->active()
-                ->withCount(['registrations as confirmed_registrations_count' => fn ($registrations) => $registrations->where('status', Registration::STATUS_CONFIRMED)]),
+                ->withCount([
+                    'registrations as confirmed_registrations_count' => fn ($registrations) => $registrations->where('status', Registration::STATUS_CONFIRMED),
+                    'checkoutOrders as active_checkout_orders_count' => fn ($orders) => $orders->activeReservation(),
+                ]),
         ]);
-        $event->loadCount(['registrations as confirmed_registrations_count' => fn ($registrations) => $registrations->where('status', Registration::STATUS_CONFIRMED)]);
+        $event->loadCount([
+            'registrations as confirmed_registrations_count' => fn ($registrations) => $registrations->where('status', Registration::STATUS_CONFIRMED),
+            'checkoutOrders as active_checkout_orders_count' => fn ($orders) => $orders->activeReservation(),
+        ]);
 
-        $remainingPlaces = max(0, $event->capacity - (int) $event->confirmed_registrations_count);
-        $hasAvailableCategory = $event->ticketCategories->contains(fn (TicketCategory $category): bool => $category->price_minor === 0 && $category->remainingCapacity() !== 0
+        $remainingPlaces = max(0, $event->capacity - (int) $event->confirmed_registrations_count - (int) $event->active_checkout_orders_count);
+        $hasAvailableCategory = $event->ticketCategories->contains(fn (TicketCategory $category): bool => ($category->price_minor === 0 || $event->canOfferSimulatedPayments()) && $category->remainingCapacity() !== 0
         );
         $registrationOpen = $event->isRegistrationOpen() && $remainingPlaces > 0 && $hasAvailableCategory;
 
@@ -59,12 +73,15 @@ class PublicEventController extends Controller
 
         $categories = $event->ticketCategories()
             ->active()
-            ->withCount(['registrations as confirmed_registrations_count' => fn ($registrations) => $registrations->where('status', Registration::STATUS_CONFIRMED)])
+            ->withCount([
+                'registrations as confirmed_registrations_count' => fn ($registrations) => $registrations->where('status', Registration::STATUS_CONFIRMED),
+                'checkoutOrders as active_checkout_orders_count' => fn ($orders) => $orders->activeReservation(),
+            ])
             ->orderByDesc('is_default')
             ->orderBy('name')
             ->get();
 
-        $availableCategories = $categories->filter(fn (TicketCategory $category): bool => $category->price_minor === 0 && $category->remainingCapacity() !== 0
+        $availableCategories = $categories->filter(fn (TicketCategory $category): bool => ($category->price_minor === 0 || $event->canOfferSimulatedPayments()) && $category->remainingCapacity() !== 0
         );
         $selectedCategoryId = $request->query('category');
         if (! is_string($selectedCategoryId) || ! ctype_digit($selectedCategoryId)
@@ -74,14 +91,23 @@ class PublicEventController extends Controller
         }
 
         $hasAvailableCategory = $availableCategories->isNotEmpty();
+        $idempotencyKey = (string) Str::uuid();
+        $formKeys = $request->session()->get('public_checkout_form_keys', []);
+        $formKeys = is_array($formKeys) ? $formKeys : [];
+        $eventKeys = $formKeys[(string) $event->id] ?? [];
+        $eventKeys = is_array($eventKeys) ? $eventKeys : [];
+        $eventKeys[$idempotencyKey] = true;
+        $formKeys[(string) $event->id] = array_slice($eventKeys, -10, null, true);
+        $request->session()->put('public_checkout_form_keys', array_slice($formKeys, -10, null, true));
 
-        return view('public.events.register', compact('event', 'categories', 'selectedCategoryId', 'hasAvailableCategory'));
+        return view('public.events.register', compact('event', 'categories', 'selectedCategoryId', 'hasAvailableCategory', 'idempotencyKey'));
     }
 
     public function store(
         Request $request,
         Event $event,
         RegisterAttendeeForEvent $registration,
+        CreateSimulatedCheckout $checkout,
         TicketSessionAccess $ticketAccess,
     ): RedirectResponse {
         $this->requireSecureRequest($request);
@@ -94,6 +120,7 @@ class PublicEventController extends Controller
             'ticket_category_id' => ['required', 'integer'],
             'guest_name' => ['nullable', 'string', 'max:255'],
             'guest_email' => ['nullable', 'email', 'max:255'],
+            'idempotency_key' => ['nullable', 'uuid'],
         ]);
 
         $category = $event->ticketCategories()
@@ -116,6 +143,33 @@ class PublicEventController extends Controller
             ]);
 
             return redirect()->route('student.auth');
+        }
+
+        if ($category->price_minor > 0) {
+            if (! $event->canOfferSimulatedPayments()) {
+                throw ValidationException::withMessages(['payment' => ['Simulated paid checkout is not authorized for this event.']]);
+            }
+
+            $idempotencyKey = $validated['idempotency_key'] ?? null;
+            $formKeys = $request->session()->get('public_checkout_form_keys', []);
+            if (! is_string($idempotencyKey)
+                || ! is_array($formKeys)
+                || ! isset($formKeys[(string) $event->id][$idempotencyKey])) {
+                throw ValidationException::withMessages(['idempotency_key' => ['Reload the registration form to start a secure checkout.']]);
+            }
+
+            $order = $checkout->execute(
+                eventId: $event->id,
+                categoryId: $category->id,
+                user: $requiresStudent && $user instanceof User ? $user : null,
+                guestName: $validated['guest_name'] ?? null,
+                guestEmail: $validated['guest_email'] ?? null,
+                idempotencyKey: $idempotencyKey,
+            );
+            $request->session()->put('simulated_checkout_access.'.$order->public_id, true);
+            $request->session()->forget('public_registration_intent');
+
+            return redirect()->route('public.checkout.show', $order->public_id);
         }
 
         $result = $registration->execute(

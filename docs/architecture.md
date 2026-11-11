@@ -139,9 +139,19 @@ DB::transaction(function () use ($user, $eventId) {
 
 Under high concurrent load (e.g. 50 students competing for the final seat), database transactions queue cleanly behind the row lock. Exactly one transaction succeeds; all subsequent transactions see `confirmed == capacity` and fail safely without overbooking.
 
+### Simulated paid checkout and reservations
+
+Paid checkout is an internal demo path. It accepts no payment credentials and calls no financial provider. The deployment must explicitly set `INGRESS_SIMULATED_PAYMENTS_ENABLED=true`, and an authorized event manager must enable the event-level switch. The event switch and its actor are recorded in `event_simulated_payment_audits`. The deployment switch defaults to false and is independent of `APP_ENV` and `INGRESS_DEMO_MODE`.
+
+`checkout_orders` snapshots the selected category price and currency and holds one seat for ten minutes. Capacity checks count confirmed registrations plus unexpired pending and failed orders at both event and category level. Checkout creation, payment confirmation, cancellation, expiry, and event capacity edits acquire the event row lock first. A failed attempt can be retried while the reservation is active. Cancellation, expiry, or event authorization revocation releases the seat and cancels any pending attempt.
+
+`payment_attempts` records the selected generic test method and simulator outcome only. It has no fields for card, wallet, banking, or identity credentials. The server chooses the simulator result; the confirmation endpoint ignores client status fields. On success, one database transaction creates the registration and ticket and marks the order and attempt successful. Replaying confirmation returns the existing registration. Pending, failed, cancelled, and expired orders do not issue tickets. This workflow must remain isolated from any real financial integration.
+
+For an accountless purchase whose successful confirmation response is interrupted, the order can restore the ticket and a one-time code handoff for fifteen minutes. The handoff is encrypted with the Laravel application key, hidden from model serialization, and never stored as plaintext. Viewing the ticket clears it; after expiry the application refuses recovery and clears it on the next checkout view. The code is never included in the PDF or QR.
+
 ### Keeping capacity valid when an organizer edits an event
 
-Registration is not the only writer of capacity. `OrganizerEventController::update()` takes the **same `events` row lock** inside a transaction, counts the confirmed registrations, and rejects any new capacity below that count:
+Registration is not the only writer of capacity. `OrganizerEventController::update()` takes the **same `events` row lock** inside a transaction, counts confirmed registrations and active paid reservations, and rejects any new capacity below that count:
 
 ```
 capacity = 500, confirmed = 420, requested = 300  ->  rejected (422, capacity unchanged)

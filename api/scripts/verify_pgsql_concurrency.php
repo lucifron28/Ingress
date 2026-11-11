@@ -41,6 +41,7 @@ use App\Actions\SyncWalkInRecovery;
 use App\Http\Controllers\Api\V1\TicketTransferController;
 use App\Models\AccessPoint;
 use App\Models\Admission;
+use App\Models\CheckoutOrder;
 use App\Models\Event;
 use App\Models\EventStaff;
 use App\Models\Registration;
@@ -286,6 +287,66 @@ $seatSuccesses = count(array_filter($seatResults, fn ($r) => ($r['ok'] ?? false)
 echo "  confirmed registrations in database: {$seatConfirmed}\n";
 $assert($seatSuccesses === 1, 'exactly one child reported a successful registration');
 $assert($seatConfirmed === 1, 'exactly one confirmed registration exists (capacity invariant holds)');
+echo "\n";
+
+// CASE A2 — A paid reservation and free registration compete for the same final seat.
+echo "CASE A2: paid reservation and free registration compete for the final seat\n";
+
+$mixedSeatEvent = Event::create([
+    'organizer_id' => $organizer->id,
+    'venue_id' => $venue->id,
+    'title' => 'Paid and Free Seat Race',
+    'slug' => "paid-free-seat-race-{$suffix}",
+    'capacity' => 1,
+    'registration_opens_at' => now()->subHour(),
+    'registration_closes_at' => now()->addDay(),
+    'starts_at' => now()->addDays(2),
+    'ends_at' => now()->addDays(2)->addHours(3),
+    'status' => Event::STATUS_PUBLISHED,
+    'simulated_payments_enabled' => true,
+]);
+$paidCategory = $mixedSeatEvent->ticketCategories()->create([
+    'name' => 'Paid Admission',
+    'price_minor' => 12500,
+    'currency' => 'PHP',
+    'capacity' => 1,
+    'eligibility' => 'public',
+    'is_active' => true,
+    'is_default' => false,
+]);
+$mixedSeatStudent = User::create([
+    'name' => "Mixed Race Student {$suffix}",
+    'email' => "mixed.race.{$suffix}@mseuf.edu.ph",
+    'student_id' => "MIX-{$suffix}",
+    'role' => User::ROLE_STUDENT,
+    'password' => Hash::make('password'),
+]);
+
+$mixedSeatResults = $runConcurrently([
+    ['seat', ['user_id' => $mixedSeatStudent->id, 'event_id' => $mixedSeatEvent->id]],
+    ['paid_checkout_start', [
+        'event_id' => $mixedSeatEvent->id,
+        'category_id' => $paidCategory->id,
+        'guest_name' => 'Paid Race Guest',
+        'email' => "paid.race.{$suffix}@example.test",
+        'idempotency_key' => (string) Str::uuid(),
+    ]],
+], $childScript, $testDatabase);
+
+foreach ($mixedSeatResults as $index => $result) {
+    echo '  worker '.($index + 1).': '.json_encode($result).PHP_EOL;
+}
+
+$mixedSeatConfirmed = Registration::query()->where('event_id', $mixedSeatEvent->id)
+    ->where('status', Registration::STATUS_CONFIRMED)->count();
+$mixedSeatReserved = CheckoutOrder::query()->where('event_id', $mixedSeatEvent->id)->activeReservation()->count();
+$mixedSeatSuccesses = count(array_filter($mixedSeatResults, fn ($result) => ($result['ok'] ?? false) === true));
+$mixedSeatTickets = Ticket::query()->whereHas('registration', fn ($query) => $query->where('event_id', $mixedSeatEvent->id))->count();
+
+echo "  confirmed registrations: {$mixedSeatConfirmed}; active paid reservations: {$mixedSeatReserved}\n";
+$assert($mixedSeatSuccesses === 1, 'only one payment reservation or free registration won');
+$assert($mixedSeatConfirmed + $mixedSeatReserved === 1, 'confirmed registrations plus active reservations stay within capacity');
+$assert($mixedSeatTickets === $mixedSeatConfirmed, 'pending paid reservations issue no ticket');
 echo "\n";
 
 // =============================================================================

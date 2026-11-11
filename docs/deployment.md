@@ -60,6 +60,7 @@ Set the following in **Render → ingress-cloud → Environment**. Add secret va
 | `APP_KEY` | A fresh Laravel key generated for this cloud runtime |
 | `INGRESS_RUNTIME` | `cloud` |
 | `INGRESS_DEMO_MODE` | `false` |
+| `INGRESS_SIMULATED_PAYMENTS_ENABLED` | `false` for regular deployments; use `true` only for an isolated demo that will not handle real payments |
 | `INGRESS_AUTHORITY_PRIVATE_KEY` | Base64 Ed25519 private signing key; keep secret in Render |
 | `INGRESS_AUTHORITY_PUBLIC_KEY` | Matching Base64 Ed25519 public key |
 | `TRUSTED_PROXIES` | `REMOTE_ADDR` |
@@ -89,6 +90,14 @@ Set the following in **Render → ingress-cloud → Environment**. Add secret va
 | `FIREBASE_STUDENT_EMAIL_DOMAIN` | `student.mseuf.edu.ph` |
 
 Use the current Render origin `https://ingress-pp2u.onrender.com` for `APP_URL`. If Render later assigns a different domain, replace it with the exact HTTPS origin shown on the service. Add custom domains only after Render reports HTTPS is active. Set `INGRESS_CORS_ALLOWED_ORIGINS` only when a browser client needs cross-origin API access; use exact HTTPS origins, comma-separated. Native mobile clients do not need a CORS entry.
+
+### Simulated paid checkout
+
+Paid checkout is an internal demo. It does not charge money and does not use a payment provider. Leave `INGRESS_SIMULATED_PAYMENTS_ENABLED=false` for deployments that should not offer it. For an isolated demo, set it to `true` in the Render Environment page, then have an authorized event manager enable simulated checkout for that event in the organizer event page. The event toggle records who changed it and when. Both switches must be on, and the Cloud runtime must be active, before a paid category can start checkout. Keep this feature off anywhere connected to real payment processing.
+
+Checkout asks attendees to choose **Test Wallet** or **Test Card**. It never asks for card numbers, security codes, PINs, passwords, or OTPs. Each checkout reserves one event and category seat for ten minutes. Failed attempts retain the seat until expiry so an attendee can retry; cancellation, expiry, or event-level revocation releases it. Only a successful server-side simulator result creates the registration and ticket. A client-supplied payment status cannot approve an order. Do not set any real payment credentials for this feature.
+
+For accountless tickets, the server temporarily stores an application-key-encrypted copy of the redemption code so the same checkout session can recover after an interrupted success response. The application refuses recovery after fifteen minutes and clears the ciphertext when the ticket page displays the code or the checkout is next viewed after expiry. Keep the Render `APP_KEY` secret and stable. The ticket PDF and admission QR never contain this transfer code.
 
 ### Configure Firebase student authentication
 

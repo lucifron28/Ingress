@@ -5,6 +5,7 @@ use App\Http\Controllers\NodeOperatorHandoffController;
 use App\Http\Controllers\NodeOperatorStaffController;
 use App\Http\Controllers\StudentEmailVerificationController;
 use App\Http\Controllers\Web\AuthController;
+use App\Http\Controllers\Web\CheckoutController;
 use App\Http\Controllers\Web\EventManagerController;
 use App\Http\Controllers\Web\EventManagerInvitationController;
 use App\Http\Controllers\Web\GuestTicketController;
@@ -13,6 +14,7 @@ use App\Http\Controllers\Web\OrganizerAttendanceController;
 use App\Http\Controllers\Web\OrganizerEventController;
 use App\Http\Controllers\Web\PublicEventController;
 use App\Http\Controllers\Web\PublicTicketController;
+use App\Http\Controllers\Web\SimulatedPaymentAuthorizationController;
 use App\Http\Controllers\Web\StudentAuthController;
 use App\Http\Controllers\Web\TicketCategoryController;
 use Illuminate\Support\Facades\Route;
@@ -35,6 +37,14 @@ Route::middleware('runtime:cloud')->group(function (): void {
     Route::get('/events/{event:slug}/register', [PublicEventController::class, 'register'])->name('public.events.register');
     Route::post('/events/{event:slug}/register', [PublicEventController::class, 'store'])
         ->middleware('throttle:public-registration')->name('public.events.register.store');
+    Route::get('/checkout/{checkoutOrder:public_id}', [CheckoutController::class, 'show'])
+        ->name('public.checkout.show');
+    Route::post('/checkout/{checkoutOrder:public_id}/attempt', [CheckoutController::class, 'beginAttempt'])
+        ->middleware('throttle:public-registration')->name('public.checkout.attempt');
+    Route::post('/checkout/{checkoutOrder:public_id}/process', [CheckoutController::class, 'process'])
+        ->middleware('throttle:public-registration')->name('public.checkout.process');
+    Route::post('/checkout/{checkoutOrder:public_id}/cancel', [CheckoutController::class, 'cancel'])
+        ->middleware('throttle:public-registration')->name('public.checkout.cancel');
     Route::get('/tickets/{registration}/pass', [PublicTicketController::class, 'show'])
         ->whereNumber('registration')->middleware('throttle:public-ticket-pass')->name('public.tickets.show');
     Route::get('/tickets/{registration}/pdf', [PublicTicketController::class, 'download'])
@@ -130,6 +140,8 @@ Route::middleware(['auth', 'organizer', 'runtime:legacy,cloud'])->prefix('organi
     Route::post('/events/{event}/authority-transfer', [OrganizerEventController::class, 'transferAuthority'])->middleware('runtime:cloud')->name('events.authority.transfer');
     Route::post('/events/{event}/discard-snapshot', [OrganizerEventController::class, 'discardSnapshot'])->middleware('runtime:cloud')->name('events.snapshot.discard');
     Route::post('/events/{event}/prepare-snapshot', [OrganizerEventController::class, 'prepareSnapshot'])->middleware('runtime:cloud')->name('events.snapshot.prepare');
+    Route::post('/events/{event}/simulated-payments', [SimulatedPaymentAuthorizationController::class, 'update'])
+        ->middleware('runtime:cloud')->name('events.simulated-payments.update');
     Route::post('/events/{event}/close-registration', [OrganizerEventController::class, 'closeRegistration'])->name('events.registration.close');
     Route::post('/events/{event}/cancel', [OrganizerEventController::class, 'cancel'])->name('events.cancel');
     Route::post('/events/{event}/guests', [GuestTicketController::class, 'store'])->middleware('runtime:cloud')->name('events.guests.store');

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Web;
 
 use App\Actions\ConfirmImportReceipt;
 use App\Actions\ConfirmSnapshotReceipt;
+use App\Actions\ExpireCheckoutReservations;
 use App\Actions\ExportSnapshot;
 use App\Actions\PrepareEventSnapshot;
 use App\Actions\TransferEventAuthority;
@@ -16,6 +17,7 @@ use App\Models\Registration;
 use App\Models\TicketTransfer;
 use App\Models\User;
 use App\Models\Venue;
+use App\Services\Checkout\CheckoutCapacity;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -170,8 +172,10 @@ class OrganizerEventController extends Controller
             'ticketCategories' => fn ($query) => $query->withCount([
                 'registrations',
                 'registrations as confirmed_registrations_count' => fn ($registrations) => $registrations->where('status', Registration::STATUS_CONFIRMED),
+                'checkoutOrders as active_checkout_orders_count' => fn ($orders) => $orders->activeReservation(),
             ]),
             'responsibilityAudits' => fn ($query) => $query->latest('created_at')->limit(100),
+            'simulatedPaymentAudits' => fn ($query) => $query->with('actor')->latest('created_at')->limit(20),
         ]);
         $guestRegistrations = config('ingress.mode') === 'cloud' && Auth::user()->can('update', $event)
             ? $event->registrations()->whereIn('attendee_type', ['guest', 'alumni'])
@@ -240,8 +244,12 @@ class OrganizerEventController extends Controller
     /**
      * Update event details.
      */
-    public function update(Request $request, Event $event): RedirectResponse
-    {
+    public function update(
+        Request $request,
+        Event $event,
+        CheckoutCapacity $capacity,
+        ExpireCheckoutReservations $expiration,
+    ): RedirectResponse {
         Gate::authorize('update', $event);
 
         $validated = $request->validate([
@@ -259,17 +267,16 @@ class OrganizerEventController extends Controller
         ]);
 
         // Use the registration lock boundary so capacity cannot drop below a concurrent signup.
-        DB::transaction(function () use ($event, $validated) {
+        DB::transaction(function () use ($event, $validated, $capacity, $expiration) {
             $lockedEvent = Event::whereKey($event->getKey())->lockForUpdate()->firstOrFail();
             $lockedEvent->assertSnapshotNotPrepared();
 
-            $confirmed = Registration::where('event_id', $lockedEvent->id)
-                ->where('status', Registration::STATUS_CONFIRMED)
-                ->count();
+            $expiration->forLockedEvent($lockedEvent);
+            $occupied = $capacity->eventOccupancy($lockedEvent);
 
-            if ($validated['capacity'] < $confirmed) {
+            if ($validated['capacity'] < $occupied) {
                 throw ValidationException::withMessages([
-                    'capacity' => "Capacity cannot be lowered below the {$confirmed} confirmed registrations for this event.",
+                    'capacity' => "Capacity cannot be lowered below the {$occupied} confirmed registrations and active checkout reservations for this event.",
                 ]);
             }
 

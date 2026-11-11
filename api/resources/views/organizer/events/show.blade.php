@@ -81,7 +81,38 @@
     @if (config('ingress.mode') === 'cloud' && auth()->user()->can('update', $event))
         <section class="card" style="grid-column: 1 / -1;">
             <h2>Ticket categories</h2>
-            <p>Set each category's price, capacity, and student eligibility. Paid categories stay unavailable until simulated checkout is implemented. Category details lock after the first registration to preserve ticket history.</p>
+            <p>Set each category's price, capacity, and student eligibility. Category details lock after the first registration to preserve ticket history.</p>
+            <div class="notice" role="note" style="margin-bottom: 1rem;">
+                Simulated checkout never charges money or collects card details.
+                @if (config('ingress.simulated_payments.enabled'))
+                    Deployment authorization is on. Paid checkout is {{ $event->simulated_payments_enabled ? 'enabled' : 'disabled' }} for this event.
+                    @if (! $event->snapshot_prepared_at)
+                        <form method="POST" action="{{ route('organizer.events.simulated-payments.update', $event) }}" style="display: inline-block; margin-left: .5rem;">
+                            @csrf
+                            <input type="hidden" name="enabled" value="{{ $event->simulated_payments_enabled ? '0' : '1' }}">
+                            <button class="btn-secondary" type="submit">{{ $event->simulated_payments_enabled ? 'Disable' : 'Enable' }} for this event</button>
+                        </form>
+                    @endif
+                @elseif ($event->simulated_payments_enabled)
+                    Deployment configuration currently disables checkout for this event.
+                    @if (! $event->snapshot_prepared_at)
+                        <form method="POST" action="{{ route('organizer.events.simulated-payments.update', $event) }}" style="display: inline-block; margin-left: .5rem;">
+                            @csrf
+                            <input type="hidden" name="enabled" value="0">
+                            <button class="btn-secondary" type="submit">Revoke event authorization</button>
+                        </form>
+                    @endif
+                @else
+                    Simulated checkout is disabled by deployment configuration.
+                @endif
+                @if ($event->simulatedPaymentAudits->isNotEmpty())
+                    <ul class="meta" style="margin-bottom: 0;">
+                        @foreach ($event->simulatedPaymentAudits as $audit)
+                            <li>{{ $audit->enabled ? 'Enabled' : 'Disabled' }} by {{ $audit->actor?->name ?? 'a former account' }} · {{ $audit->created_at->format('M j, Y g:i A') }}</li>
+                        @endforeach
+                    </ul>
+                @endif
+            </div>
             @if ($errors->hasAny(['name', 'price_pesos', 'capacity', 'eligibility', 'category']))
                 <div role="alert" style="background: #fef2f2; color: #991b1b; padding: .75rem; margin-bottom: 1rem;">
                     {{ $errors->first('name') ?: ($errors->first('price_pesos') ?: ($errors->first('capacity') ?: ($errors->first('eligibility') ?: $errors->first('category')))) }}
@@ -99,7 +130,7 @@
                             <td>{{ $category->capacity ?? 'Event capacity' }}</td>
                             <td>{{ $category->confirmed_registrations_count }} issued @if ($category->capacity !== null) · {{ $category->remainingCapacity() }} left @endif</td>
                         </tr>
-                        @if ($category->registrations_count === 0 && ! $event->snapshot_prepared_at)
+                        @if ($category->registrations_count === 0 && $category->active_checkout_orders_count === 0 && ! $event->snapshot_prepared_at)
                             <tr><td colspan="5">
                                 <form method="POST" action="{{ route('organizer.events.ticket-categories.update', [$event, $category]) }}" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .5rem; align-items: end;">
                                     @csrf
