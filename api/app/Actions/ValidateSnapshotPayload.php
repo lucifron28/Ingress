@@ -157,7 +157,7 @@ class ValidateSnapshotPayload
             $this->unique($assignmentIds, $assignment['id']);
             $this->unique($staffIds, $assignment['user']['id']);
         }
-        $registrationIds = $attendeeIds = $attendeeEmails = $ticketIds = $publicIds = $hashes = [];
+        $registrationIds = $attendeeIds = $studentEmails = $guestEmails = $ticketIds = $publicIds = $hashes = [];
         $confirmed = 0;
         foreach ($payload['registrations'] as $registration) {
             $registration = $this->object($registration, ['id', 'status', 'created_at', 'cancelled_at', 'attendee', 'ticket']);
@@ -176,6 +176,7 @@ class ValidateSnapshotPayload
                 if ($kind === 'student') {
                     $this->identity($attendee, false, $users);
                     $this->unique($attendeeIds, $attendee['id']);
+                    $this->unique($studentEmails, mb_strtolower($attendee['email']));
                 } elseif (in_array($kind, ['guest', 'alumni'], true)) {
                     if ($attendee['id'] !== null || $attendee['student_id'] !== null) {
                         $this->invalid();
@@ -185,13 +186,14 @@ class ValidateSnapshotPayload
                     if (! filter_var($attendee['email'], FILTER_VALIDATE_EMAIL) || mb_strtolower($attendee['email']) !== $attendee['email']) {
                         $this->invalid();
                     }
+                    $this->unique($guestEmails, $attendee['email']);
                 } else {
                     $this->invalid();
                 }
-                $this->unique($attendeeEmails, mb_strtolower($attendee['email']));
             } else {
                 $this->identity($attendee, false, $users);
                 $this->unique($attendeeIds, $attendee['id']);
+                $this->unique($studentEmails, mb_strtolower($attendee['email']));
             }
             if ($registration['status'] === 'confirmed') {
                 $confirmed++;

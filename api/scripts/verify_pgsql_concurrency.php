@@ -1907,6 +1907,30 @@ $assert(Ticket::whereHas('registration', fn ($query) => $query->where('event_id'
 echo "\n";
 
 // =============================================================================
+// CASE AF2 - A guest contact does not reserve a student account identity
+// =============================================================================
+echo "CASE AF2: concurrent guest and student registrations share a contact email\n";
+$sharedIdentityEmail = "shared-identity-{$suffix}@example.test";
+$sharedIdentityEvent = Event::create([
+    'organizer_id' => $organizer->id, 'venue_id' => $venue->id, 'title' => 'Shared identity race',
+    'slug' => "shared-identity-{$suffix}", 'capacity' => 2, 'registration_opens_at' => now()->subHour(),
+    'registration_closes_at' => now()->addDay(), 'starts_at' => now(), 'ends_at' => now()->addDay(),
+    'status' => Event::STATUS_PUBLISHED,
+]);
+$sharedIdentityStudent = User::create(['name' => 'Shared Identity Student', 'email' => $sharedIdentityEmail,
+    'student_id' => "SI-{$suffix}", 'role' => User::ROLE_STUDENT, 'password' => Hash::make('password')]);
+$sharedIdentityResults = $runConcurrently([
+    ['guest_registration', ['event_id' => $sharedIdentityEvent->id, 'email' => $sharedIdentityEmail]],
+    ['seat', ['event_id' => $sharedIdentityEvent->id, 'user_id' => $sharedIdentityStudent->id]],
+], $childScript, $testDatabase);
+$assert(($sharedIdentityResults[0]['ok'] ?? false) && ($sharedIdentityResults[1]['ok'] ?? false), 'both distinct identities registered successfully');
+$assert(Registration::where('event_id', $sharedIdentityEvent->id)->where('user_id', $sharedIdentityStudent->id)->exists(), 'student account registration exists');
+$assert(Registration::where('event_id', $sharedIdentityEvent->id)->where('guest_email', $sharedIdentityEmail)->exists(), 'guest contact registration exists');
+$assert(Registration::where('event_id', $sharedIdentityEvent->id)->where('status', 'confirmed')->count() === 2, 'both registrations fit within capacity');
+$assert(Ticket::whereHas('registration', fn ($query) => $query->where('event_id', $sharedIdentityEvent->id))->count() === 2, 'both identities received tickets');
+echo "\n";
+
+// =============================================================================
 // CASE AG - Walk-ins compete for the final node seat
 // =============================================================================
 echo "CASE AG: concurrent node walk-ins compete for the final seat\n";

@@ -73,10 +73,8 @@ class TicketTransferController extends Controller
                 throw ValidationException::withMessages(['recipient' => 'Choose a different verified student account.']);
             }
 
-            $recipientEmail = Str::lower($recipient->email);
             $alreadyRegistered = Registration::where('event_id', $event->id)
-                ->where(fn (Builder $query) => $query->where('user_id', $recipient->id)
-                    ->orWhereRaw('LOWER(guest_email) = ?', [$recipientEmail]))
+                ->where('user_id', $recipient->id)
                 ->exists();
             if ($alreadyRegistered) {
                 throw ValidationException::withMessages(['recipient' => 'The recipient already has a registration for this event.']);
@@ -161,8 +159,7 @@ class TicketTransferController extends Controller
 
                 $alreadyRegistered = Registration::where('event_id', $event->id)
                     ->where('id', '!=', $registration->id)
-                    ->where(fn (Builder $query) => $query->where('user_id', $actor->id)
-                        ->orWhereRaw('LOWER(guest_email) = ?', [Str::lower($actor->email)]))
+                    ->where('user_id', $actor->id)
                     ->exists();
                 if ($alreadyRegistered) {
                     throw ValidationException::withMessages(['transfer' => 'You already have a registration for this event.']);

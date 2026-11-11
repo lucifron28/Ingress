@@ -139,25 +139,25 @@ class GuestTicketTest extends TestCase
 
     public function test_duplicate_email_cutoff_and_capacity_apply_to_guest_and_student_registrations(): void
     {
-        $this->event->update(['capacity' => 2]);
+        $this->event->update(['capacity' => 4]);
         $guest = ['guest_name' => 'Guest', 'guest_email' => 'guest@example.test', 'attendee_type' => 'guest'];
         $this->actingAs($this->owner)->post("/organizer/events/{$this->event->id}/guests", $guest)->assertRedirect();
         $this->post("/organizer/events/{$this->event->id}/guests", $guest)->assertSessionHasErrors('guest');
         $sameEmail = User::factory()->create(['role' => User::ROLE_STUDENT, 'email' => 'guest@example.test']);
-        $this->actingAs($sameEmail)->postJson("/api/v1/events/{$this->event->id}/registration")->assertStatus(422);
+        $this->actingAs($sameEmail)->postJson("/api/v1/events/{$this->event->id}/registration")->assertCreated();
         $student = User::factory()->create(['role' => User::ROLE_STUDENT, 'email' => 'student@example.test']);
         $this->actingAs($student)->postJson("/api/v1/events/{$this->event->id}/registration")->assertCreated();
         $this->actingAs($this->owner)->post("/organizer/events/{$this->event->id}/guests", [
             'guest_name' => 'Duplicate', 'guest_email' => 'STUDENT@example.test', 'attendee_type' => 'alumni',
-        ])->assertSessionHasErrors('guest');
+        ])->assertRedirect();
         $this->post("/organizer/events/{$this->event->id}/guests", [
             'guest_name' => 'Extra', 'guest_email' => 'extra@example.test', 'attendee_type' => 'guest',
         ])->assertSessionHasErrors('guest');
-        $this->assertDatabaseCount('registrations', 2);
+        $this->assertDatabaseCount('registrations', 4);
         $this->event->update(['registration_closed_at' => now()]);
         $this->post("/organizer/events/{$this->event->id}/guests", [
             'guest_name' => 'Late', 'guest_email' => 'late@example.test', 'attendee_type' => 'guest',
         ])->assertSessionHasErrors('guest');
-        $this->assertDatabaseCount('registrations', 2);
+        $this->assertDatabaseCount('registrations', 4);
     }
 }
