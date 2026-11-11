@@ -57,6 +57,7 @@ class GuestTicketRedemptionController extends Controller
                 strtolower($validated['redemption_code']),
                 $validated['guest_name'],
                 $validated['guest_email'],
+                hash('sha256', $request->session()->getId()),
             );
         } catch (ValidationException) {
             return $this->reject($request);

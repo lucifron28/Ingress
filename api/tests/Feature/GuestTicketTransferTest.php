@@ -217,6 +217,83 @@ class GuestTicketTransferTest extends TestCase
         $this->assertSame('Compare the attendee with an approved photo ID before confirming.', $preview['detail']);
     }
 
+    public function test_retrying_the_original_code_recovers_a_committed_redemption_after_session_persistence_failure(): void
+    {
+        [$registration, $ticket, $codeA] = $this->checkoutGuest('session-failure@example.test');
+        $this->flushSession();
+        $sessionId = str_repeat('c', 40);
+
+        $this->failNextSessionWrite();
+
+        $this->withCookie(config('session.cookie'), $sessionId)
+            ->post(route('public.tickets.redeem.store'), [
+                'redemption_code' => $codeA,
+                'guest_name' => 'Second Ticket Holder',
+                'guest_email' => 'second-holder@example.test',
+            ])->assertInternalServerError();
+
+        $this->assertDatabaseHas('registrations', [
+            'id' => $registration->id,
+            'guest_name' => 'Second Ticket Holder',
+            'guest_email' => 'second-holder@example.test',
+        ]);
+        $this->assertSame(2, $ticket->fresh()->credential_version);
+        $rotation = DB::table('guest_ticket_credential_rotations')
+            ->where('ticket_id', $ticket->id)
+            ->where('previous_redemption_hash', hash('sha256', $codeA))
+            ->first();
+        $this->assertNotNull($rotation);
+        $this->assertNotSame($codeA, $rotation->redemption_code_ciphertext);
+        $this->assertTrue(Carbon::parse($rotation->redemption_code_expires_at)->isFuture());
+
+        $this->withCookie(config('session.cookie'), str_repeat('b', 40))
+            ->post(route('public.tickets.redeem.store'), [
+                'redemption_code' => $codeA,
+                'guest_name' => 'Second Ticket Holder',
+                'guest_email' => 'second-holder@example.test',
+            ])->assertRedirect(route('public.tickets.redeem'))
+            ->assertSessionHasErrors('redemption_code');
+
+        $this->withCookie(config('session.cookie'), $sessionId)
+            ->post(route('public.tickets.redeem.store'), [
+                'redemption_code' => $codeA,
+                'guest_name' => 'Unauthorized Ticket Holder',
+                'guest_email' => 'attacker@example.test',
+            ])->assertRedirect(route('public.tickets.redeem'))
+            ->assertSessionHasErrors('redemption_code');
+        $this->assertDatabaseHas('registrations', [
+            'id' => $registration->id,
+            'guest_name' => 'Second Ticket Holder',
+            'guest_email' => 'second-holder@example.test',
+        ]);
+
+        $this->flushSession();
+        $this->withCookie(config('session.cookie'), $sessionId)
+            ->post(route('public.tickets.redeem.store'), [
+                'redemption_code' => $codeA,
+                'guest_name' => 'Second Ticket Holder',
+                'guest_email' => 'second-holder@example.test',
+            ])->assertRedirect(route('public.tickets.show', $registration));
+
+        $pass = $this->get(route('public.tickets.show', $registration))->assertOk();
+        $codeB = $this->redemptionCodeFrom($pass->getContent());
+        $this->assertSame($codeB, Crypt::decryptString($rotation->redemption_code_ciphertext));
+        $this->assertSame(hash('sha256', $codeB), $ticket->fresh()->redemption_hash);
+        $this->assertSame(2, $ticket->fresh()->credential_version);
+        $this->assertDatabaseCount('guest_ticket_credential_rotations', 2);
+
+        $this->flushSession();
+        $this->travel(16)->minutes();
+        $this->withCookie(config('session.cookie'), $sessionId)
+            ->post(route('public.tickets.redeem.store'), [
+                'redemption_code' => $codeA,
+                'guest_name' => 'Second Ticket Holder',
+                'guest_email' => 'second-holder@example.test',
+            ])->assertRedirect(route('public.tickets.redeem'))
+            ->assertSessionHasErrors('redemption_code');
+        $this->assertSame(2, $ticket->fresh()->credential_version);
+    }
+
     public function test_guest_redemption_rejects_invalid_attendee_details_without_flashing_the_code(): void
     {
         [$registration, $ticket, $code] = $this->checkoutGuest('invalid-details@example.test');
@@ -368,6 +445,39 @@ class GuestTicketTransferTest extends TestCase
         $this->assertDatabaseCount('guest_ticket_credential_rotations', 1);
     }
 
+    public function test_event_manager_retry_reuses_a_committed_guest_recovery_code_after_session_persistence_failure(): void
+    {
+        [$registration, $ticket, $oldCode] = $this->checkoutGuest('manager-session-failure@example.test');
+        $recoveryUrl = route('organizer.events.guests.recover', [$this->event, $registration]);
+        $payload = ['identity_verified' => '1'];
+        $sessionId = str_repeat('d', 40);
+
+        $this->failNextSessionWrite();
+
+        $this->withCookie(config('session.cookie'), $sessionId)
+            ->actingAs($this->organizer, 'web')->post($recoveryUrl, $payload)
+            ->assertInternalServerError();
+        $this->assertSame(2, $ticket->fresh()->credential_version);
+
+        $rotation = DB::table('guest_ticket_credential_rotations')
+            ->where('ticket_id', $ticket->id)
+            ->where('kind', 'recovery')
+            ->where('actor_user_id', $this->organizer->id)
+            ->first();
+        $this->assertNotNull($rotation);
+        $this->assertNotSame($oldCode, $rotation->redemption_code_ciphertext);
+
+        $this->withCookie(config('session.cookie'), $sessionId)
+            ->post($recoveryUrl, $payload)
+            ->assertRedirect(route('organizer.events.guest-pass', [$this->event, $registration]));
+
+        $pass = $this->get(route('organizer.events.guest-pass', [$this->event, $registration]))->assertOk();
+        $newCode = $this->redemptionCodeFrom($pass->getContent());
+        $this->assertSame($newCode, Crypt::decryptString($rotation->redemption_code_ciphertext));
+        $this->assertSame(2, $ticket->fresh()->credential_version);
+        $this->assertDatabaseCount('guest_ticket_credential_rotations', 2);
+    }
+
     public function test_only_an_assigned_event_manager_can_recover_and_reissue_a_guest_code(): void
     {
         [$registration, $ticket, $oldCode] = $this->checkoutGuest('recovery-holder@example.test');
@@ -485,6 +595,54 @@ class GuestTicketTransferTest extends TestCase
     /**
      * @return array{0: Registration, 1: Ticket, 2: string}
      */
+    private function failNextSessionWrite(): void
+    {
+        $session = $this->app['session.store'];
+        $handler = $session->getHandler();
+        $session->setHandler(new class($handler) implements \SessionHandlerInterface
+        {
+            private bool $hasFailed = false;
+
+            public function __construct(private \SessionHandlerInterface $handler) {}
+
+            public function open(string $path, string $name): bool
+            {
+                return $this->handler->open($path, $name);
+            }
+
+            public function close(): bool
+            {
+                return $this->handler->close();
+            }
+
+            public function read(string $id): string|false
+            {
+                return $this->handler->read($id);
+            }
+
+            public function write(string $id, string $data): bool
+            {
+                if (! $this->hasFailed) {
+                    $this->hasFailed = true;
+
+                    throw new \RuntimeException('Session persistence failed.');
+                }
+
+                return $this->handler->write($id, $data);
+            }
+
+            public function destroy(string $id): bool
+            {
+                return $this->handler->destroy($id);
+            }
+
+            public function gc(int $max_lifetime): int|false
+            {
+                return $this->handler->gc($max_lifetime);
+            }
+        });
+    }
+
     private function checkoutGuest(string $email): array
     {
         $category = $this->event->ticketCategories()->firstOrFail();
