@@ -153,6 +153,8 @@ class OrganizerEventController extends Controller
             ? $event->registrations()->whereIn('attendee_type', ['guest', 'alumni'])->with('ticket')->orderBy('id')->get() : collect();
         $ticketTransfers = Auth::user()->can('update', $event)
             ? TicketTransfer::where('event_id', $event->id)->orderByDesc('requested_at')->paginate(100) : collect();
+        $pendingTicketTransferCount = Auth::user()->can('update', $event)
+            ? TicketTransfer::where('event_id', $event->id)->where('status', TicketTransfer::STATUS_PENDING)->count() : 0;
         $walkInRecoveries = config('ingress.mode') === 'cloud' && Auth::user()->can('update', $event)
             ? DB::table('cloud_walk_in_recoveries as recovery')
                 ->join('cloud_walk_in_receipts as issuance', fn ($join) => $join->on('issuance.node_id', '=', 'recovery.node_id')
@@ -184,7 +186,7 @@ class OrganizerEventController extends Controller
                 ->whereNull('event_snapshots.invalidated_at')->value('event_snapshot_import_receipts.node_id');
         }
 
-        return view('organizer.events.show', compact('event', 'staffUsers', 'receiptNodeId', 'importReceiptNodeId', 'authority', 'guestRegistrations', 'walkInRecoveries', 'ticketTransfers'));
+        return view('organizer.events.show', compact('event', 'staffUsers', 'receiptNodeId', 'importReceiptNodeId', 'authority', 'guestRegistrations', 'walkInRecoveries', 'ticketTransfers', 'pendingTicketTransferCount'));
     }
 
     /**

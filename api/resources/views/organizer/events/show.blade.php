@@ -21,7 +21,7 @@
                     <span class="badge badge-neutral">{{ ucfirst($event->status) }}</span>
                 @endif
             </div>
-            <p style="color: var(--neutral-muted); font-size: 0.875rem;">Venue: <strong>{{ $event->venue->name }}</strong> &bull; Capacity: <strong class="mono">{{ $event->capacity }}</strong> &bull; Re-entry: <strong>{{ $event->re_entry_allowed ? 'Allowed' : 'Not allowed' }}</strong> &bull; Identity: <strong>{{ $event->identity_verification_level === 'id_check' ? 'Approved ID check' : 'Standard details' }}</strong></p>
+            <p style="color: var(--neutral-muted); font-size: 0.875rem;">Venue: <strong>{{ $event->venue->name }}</strong> &bull; Capacity: <strong class="mono">{{ $event->capacity }}</strong></p>
         </div>
 
         <div style="display: flex; gap: 0.5rem; align-items: center;">
@@ -77,7 +77,7 @@
     </div>
 </div>
 
-<div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem; margin-bottom: 2rem;">
+<div class="event-overview-grid">
     @if ($event->snapshot_prepared_at)
         <p class="card" style="grid-column: 1 / -1;">Snapshot prepared. Event changes are locked. Node admission requires an activated authority grant.</p>
     @endif
@@ -159,55 +159,165 @@
         @endif
     @endif
     @if (auth()->user()->can('update', $event))
-        <section class="card" style="grid-column: 1 / -1;">
-            <h2>Ticket transfer history</h2>
-            <p>{{ $event->ticket_transfers_allowed ? 'Transfers are enabled until the event snapshot is prepared.' : 'Transfers are disabled.' }} History is paginated at 100 requests.</p>
-            @forelse ($ticketTransfers as $transfer)
-                <p>{{ $transfer->ticket_public_id }} &middot; {{ $transfer->from_name }} ({{ $transfer->from_email }}) &rarr; {{ $transfer->recipient_name }} ({{ $transfer->recipient_email }}) &middot; {{ ucfirst($transfer->status) }} &middot; Requested {{ $transfer->requested_at->format('M d, Y h:i A') }}
-                    @if ($transfer->accepted_at) &middot; Accepted {{ $transfer->accepted_at->format('M d, Y h:i A') }} @endif
-                    @if ($transfer->declined_at) &middot; Declined {{ $transfer->declined_at->format('M d, Y h:i A') }} @endif
-                    @if ($transfer->cancelled_at) &middot; Cancelled {{ $transfer->cancelled_at->format('M d, Y h:i A') }} @endif
-                    @if ($transfer->expired_at) &middot; Expired {{ $transfer->expired_at->format('M d, Y h:i A') }} @endif
-                </p>
-            @empty
-                <p>No ticket transfer requests.</p>
-            @endforelse
-            {{ $ticketTransfers->links() }}
-        </section>
-    @endif
-    <!-- Event Details Card -->
-    <div class="card">
-        <h2 style="font-size: 1.1rem; font-weight: 600; color: var(--neutral-dark); margin-bottom: 1rem; border-bottom: 1px solid var(--neutral-border); padding-bottom: 0.5rem;">
-            Event Schedule &amp; Configuration
-        </h2>
-
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-bottom: 1.25rem;">
-            <div>
-                <div style="font-size: 0.75rem; text-transform: uppercase; color: var(--neutral-muted); font-weight: 600;">Registration Period</div>
-                <div style="font-size: 0.875rem; margin-top: 0.25rem;">
-                    {{ $event->registration_opens_at->format('M d, Y h:i A') }}<br>
-                    to {{ $event->registration_closes_at->format('M d, Y h:i A') }}
-                    @if ($event->registration_closed_at)
-                        <br><strong>Closed by organizer</strong>
+        @php
+            $ticketTransfersEnabled = $event->ticket_transfers_allowed && $event->snapshot_prepared_at === null;
+        @endphp
+        <section class="card event-transfers" aria-labelledby="event-transfers-title">
+            <header class="event-transfers__header">
+                <div>
+                    <h2 id="event-transfers-title" class="event-section-title">Ticket Transfers</h2>
+                    @if ($event->snapshot_prepared_at)
+                        <p class="event-transfers__description">Transfers are disabled after the event snapshot was prepared.</p>
+                    @elseif ($event->ticket_transfers_allowed)
+                        <p class="event-transfers__description">Ticket transfers are enabled in event settings.</p>
+                    @else
+                        <p class="event-transfers__description">Ticket transfers are disabled in event settings.</p>
                     @endif
                 </div>
-            </div>
-            <div>
-                <div style="font-size: 0.75rem; text-transform: uppercase; color: var(--neutral-muted); font-weight: 600;">Event Program Schedule</div>
-                <div style="font-size: 0.875rem; margin-top: 0.25rem;">
-                    {{ $event->starts_at->format('M d, Y h:i A') }}<br>
-                    to {{ $event->ends_at->format('M d, Y h:i A') }}
+                <span class="badge badge-neutral">{{ $ticketTransfersEnabled ? 'Enabled' : 'Disabled' }}</span>
+            </header>
+
+            @if ($ticketTransfers->total() === 0)
+                <p class="event-transfers__empty">No transfer requests yet.</p>
+            @else
+                <p class="event-transfers__summary">
+                    {{ $ticketTransfers->total() }} transfer request{{ $ticketTransfers->total() === 1 ? '' : 's' }}
+                    @if ($pendingTicketTransferCount > 0)
+                        <span class="badge badge-neutral">{{ $pendingTicketTransferCount }} pending</span>
+                    @endif
+                </p>
+
+                <details class="event-transfer-history" @if ($pendingTicketTransferCount > 0 || request()->boolean('transfer_history')) open @endif>
+                    <summary>View Ticket transfer history</summary>
+                    <div id="event-transfer-history" class="event-transfer-history__content">
+                        <ol class="event-transfer-history__list">
+                            @forelse ($ticketTransfers as $transfer)
+                                <li class="event-transfer-item">
+                                    <div class="event-transfer-item__header">
+                                        <p class="event-transfer-item__ticket">Ticket {{ $transfer->ticket_public_id }}</p>
+                                        <span class="badge badge-neutral">{{ ucfirst($transfer->status) }}</span>
+                                    </div>
+                                    <dl class="event-transfer-item__details">
+                                        <div class="event-transfer-item__field">
+                                            <dt>From</dt>
+                                            <dd>{{ $transfer->from_name }} <span class="event-transfer-item__email">({{ $transfer->from_email }})</span></dd>
+                                        </div>
+                                        <div class="event-transfer-item__field">
+                                            <dt>To</dt>
+                                            <dd>{{ $transfer->recipient_name }} <span class="event-transfer-item__email">({{ $transfer->recipient_email }})</span></dd>
+                                        </div>
+                                        <div class="event-transfer-item__field">
+                                            <dt>Requested</dt>
+                                            <dd><time datetime="{{ $transfer->requested_at->format('c') }}">{{ $transfer->requested_at->format('M d, Y h:i A') }}</time></dd>
+                                        </div>
+                                        @if ($transfer->accepted_at)
+                                            <div class="event-transfer-item__field">
+                                                <dt>Accepted</dt>
+                                                <dd><time datetime="{{ $transfer->accepted_at->format('c') }}">{{ $transfer->accepted_at->format('M d, Y h:i A') }}</time></dd>
+                                            </div>
+                                        @endif
+                                        @if ($transfer->declined_at)
+                                            <div class="event-transfer-item__field">
+                                                <dt>Declined</dt>
+                                                <dd><time datetime="{{ $transfer->declined_at->format('c') }}">{{ $transfer->declined_at->format('M d, Y h:i A') }}</time></dd>
+                                            </div>
+                                        @endif
+                                        @if ($transfer->cancelled_at)
+                                            <div class="event-transfer-item__field">
+                                                <dt>Cancelled</dt>
+                                                <dd><time datetime="{{ $transfer->cancelled_at->format('c') }}">{{ $transfer->cancelled_at->format('M d, Y h:i A') }}</time></dd>
+                                            </div>
+                                        @endif
+                                        @if ($transfer->expired_at)
+                                            <div class="event-transfer-item__field">
+                                                <dt>Expired</dt>
+                                                <dd><time datetime="{{ $transfer->expired_at->format('c') }}">{{ $transfer->expired_at->format('M d, Y h:i A') }}</time></dd>
+                                            </div>
+                                        @endif
+                                    </dl>
+                                </li>
+                            @empty
+                                <li class="event-transfer-history__empty">No transfer requests on this page.</li>
+                            @endforelse
+                        </ol>
+                        {{ $ticketTransfers->appends(['transfer_history' => 1])->links() }}
+                    </div>
+                </details>
+            @endif
+        </section>
+    @endif
+
+    <section class="card event-details-card" aria-labelledby="event-details-title">
+        <h2 id="event-details-title" class="event-section-title">Event Schedule &amp; Configuration</h2>
+
+        <section class="event-detail-section" aria-labelledby="event-dates-title">
+            <h3 id="event-dates-title" class="event-detail-section__title">Event dates</h3>
+            <div class="event-date-grid">
+                <div class="event-date-block">
+                    <span class="event-date-block__label">Starts</span>
+                    <time class="event-date-block__datetime" datetime="{{ $event->starts_at->format('c') }}">
+                        <span class="event-date-block__date">{{ $event->starts_at->format('F j, Y') }}</span>
+                        <span class="event-date-block__time"><x-icon name="clock-3" size="16" />{{ $event->starts_at->format('g:i A') }}</span>
+                    </time>
+                </div>
+                <div class="event-date-block">
+                    <span class="event-date-block__label">Ends</span>
+                    <time class="event-date-block__datetime" datetime="{{ $event->ends_at->format('c') }}">
+                        <span class="event-date-block__date">{{ $event->ends_at->format('F j, Y') }}</span>
+                        <span class="event-date-block__time"><x-icon name="clock-3" size="16" />{{ $event->ends_at->format('g:i A') }}</span>
+                    </time>
                 </div>
             </div>
-        </div>
+        </section>
 
-        <div>
-            <div style="font-size: 0.75rem; text-transform: uppercase; color: var(--neutral-muted); font-weight: 600;">Description</div>
-            <div style="font-size: 0.875rem; margin-top: 0.25rem; color: var(--neutral-body); line-height: 1.6;">
-                {{ $event->description ?: 'No description provided.' }}
+        <section class="event-detail-section" aria-labelledby="event-registration-title">
+            <div class="event-detail-section__header">
+                <h3 id="event-registration-title" class="event-detail-section__title">Registration period</h3>
+                @if ($event->registration_closed_at)
+                    <span class="badge badge-neutral">Closed by organizer</span>
+                @endif
             </div>
-        </div>
-    </div>
+            <dl class="event-registration-grid">
+                <div class="event-registration-item">
+                    <dt>Opens</dt>
+                    <dd>
+                        <time datetime="{{ $event->registration_opens_at->format('c') }}">
+                            <span>{{ $event->registration_opens_at->format('F j, Y') }}</span>
+                            <span class="event-registration-item__time"><x-icon name="clock-3" size="15" />{{ $event->registration_opens_at->format('g:i A') }}</span>
+                        </time>
+                    </dd>
+                </div>
+                <div class="event-registration-item">
+                    <dt>Closes</dt>
+                    <dd>
+                        <time datetime="{{ $event->registration_closes_at->format('c') }}">
+                            <span>{{ $event->registration_closes_at->format('F j, Y') }}</span>
+                            <span class="event-registration-item__time"><x-icon name="clock-3" size="15" />{{ $event->registration_closes_at->format('g:i A') }}</span>
+                        </time>
+                    </dd>
+                </div>
+            </dl>
+        </section>
+
+        <section class="event-detail-section" aria-labelledby="event-about-title">
+            <h3 id="event-about-title" class="event-detail-section__title">About this Event</h3>
+            <p class="event-about">{{ $event->description ?: 'No description provided.' }}</p>
+        </section>
+
+        <section class="event-detail-section event-admission" aria-labelledby="event-admission-title">
+            <h3 id="event-admission-title" class="event-detail-section__title">Admission policies</h3>
+            <dl class="event-admission__list">
+                <div class="event-admission__item">
+                    <dt>Re-entry</dt>
+                    <dd><span class="badge badge-neutral">{{ $event->re_entry_allowed ? 'Allowed' : 'Not allowed' }}</span></dd>
+                </div>
+                <div class="event-admission__item">
+                    <dt>Identity verification</dt>
+                    <dd><span class="badge badge-neutral">{{ $event->identity_verification_level === 'id_check' ? 'Approved ID check' : 'Name and identifier comparison' }}</span></dd>
+                </div>
+            </dl>
+        </section>
+    </section>
 
     <!-- Quick Stats Card -->
     <div class="card">
