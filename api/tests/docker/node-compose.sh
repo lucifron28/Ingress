@@ -6,10 +6,12 @@ test_dir="$(mktemp -d "$api_root/.node-docker-test.XXXXXX")"
 temporary_root="$(cd "${TMPDIR:-/tmp}" && pwd)"
 secrets_dir="$(mktemp -d "$temporary_root/ingress-node-docker-test-secrets.XXXXXX")"
 project="ingress-node-ci-$(date +%s)-$$"
+image_tag="ingress-node-ci:$project"
 env_file="$test_dir/node.env"
 base64_sync_key=''
 app_key=''
 database_password=''
+operator_password=''
 
 compose() {
     docker compose --project-name "$project" --env-file "$env_file" --file "$api_root/compose.node.yaml" "$@"
@@ -29,6 +31,11 @@ cleanup() {
     fi
 
     compose down --volumes --remove-orphans --timeout 10 >/dev/null 2>&1 || true
+
+    case "$image_tag" in
+        "ingress-node-ci:$project") docker image rm "$image_tag" >/dev/null 2>&1 || true ;;
+        *) printf 'Refusing to remove an unexpected test image.\n' >&2; exit 1 ;;
+    esac
 
     case "$test_dir" in
         "$api_root"/.node-docker-test.*) rm -rf -- "$test_dir" ;;
@@ -79,6 +86,7 @@ INGRESS_OPERATOR_PORT=$operator_port
 INGRESS_EGRESS_SUBNET=$egress_subnet
 INGRESS_EGRESS_GATEWAY=$egress_gateway
 NODE_SECRETS_DIR=$secrets_dir
+INGRESS_NODE_IMAGE=$image_tag
 DB_DATABASE=ingress_node
 DB_USERNAME=ingress_node
 EOF
@@ -86,7 +94,7 @@ EOF
 compose config --quiet
 compose build ingress-node
 
-docker run --rm --entrypoint php ingress-node:compose -r '
+docker run --rm --entrypoint php "$image_tag" -r '
     $required = ["mbstring", "pdo_pgsql", "pcntl", "sodium", "xmlwriter"];
     $missing = array_diff($required, get_loaded_extensions());
     if ($missing || ! extension_loaded("Zend OPcache")) {
@@ -184,6 +192,35 @@ database_stores="$(docker exec "$db_id" psql -U ingress_node -d ingress_node -At
 test "$database_stores" = 't|t|t'
 printf 'PostgreSQL 18 identity and database-backed stores passed.\n'
 
+operator_email='ingress-node-ci@example.test'
+operator_password="$(openssl rand -hex 32)"
+if ! printf 'CI Venue Operator\n%s\n%s\n%s\n' "$operator_email" "$operator_password" "$operator_password" \
+    | compose run --rm --no-deps --no-TTY ingress-cli > "$test_dir/operator-provision.log" 2>&1; then
+    printf 'The isolated Event Node operator bootstrap failed.\n' >&2
+    exit 1
+fi
+grep --fixed-strings --quiet 'Event Node operator account created.' "$test_dir/operator-provision.log"
+if grep --fixed-strings --quiet "$operator_password" "$test_dir/operator-provision.log"; then
+    printf 'The Event Node operator password was echoed during provisioning.\n' >&2
+    exit 1
+fi
+operator_count="$(docker exec "$db_id" psql -U ingress_node -d ingress_node -At -F '|' \
+    -c "select count(*), min(email) from node_operators")"
+test "$operator_count" = "1|$operator_email"
+operator_state_before="$(docker exec "$db_id" psql -U ingress_node -d ingress_node -At -F '|' \
+    -c "select id, email, is_active, password from node_operators where email = '$operator_email'")"
+test -n "$operator_state_before"
+
+if compose run --rm --no-deps --no-TTY ingress-cli > "$test_dir/operator-reprovision.log" 2>&1; then
+    printf 'A second operator-bootstrap attempt unexpectedly succeeded.\n' >&2
+    exit 1
+fi
+grep --fixed-strings --quiet 'An Event Node operator is already provisioned.' "$test_dir/operator-reprovision.log"
+operator_state_after_reprovision="$(docker exec "$db_id" psql -U ingress_node -d ingress_node -At -F '|' \
+    -c "select id, email, is_active, password from node_operators where email = '$operator_email'")"
+test "$operator_state_after_reprovision" = "$operator_state_before"
+printf 'Existing Event Node operator bootstrap is protected from overwrite.\n'
+
 if compose exec --no-TTY ingress-scheduler php -r '
     $ip = gethostbyname("ingress-node");
     $request = curl_init("https://node.test:8444/node/operator/login");
@@ -227,21 +264,24 @@ done
 persistence_value="$(docker exec "$db_id" psql -U ingress_node -d ingress_node -At \
     -c 'select value from node_docker_persistence_probe where id = 1')"
 test "$persistence_value" = 'persisted'
+operator_state_after_restart="$(docker exec "$db_id" psql -U ingress_node -d ingress_node -At -F '|' \
+    -c "select id, email, is_active, password from node_operators where email = '$operator_email'")"
+test "$operator_state_after_restart" = "$operator_state_before"
 printf 'PostgreSQL data survived container recreation.\n'
 
 container_environment="$(docker inspect --format '{{json .Config.Env}}' "$node_id")"
-for secret_value in "$app_key" "$database_password" "$base64_sync_key"; do
+for secret_value in "$app_key" "$database_password" "$base64_sync_key" "$operator_password"; do
     if printf '%s' "$container_environment" | grep --fixed-strings --quiet "$secret_value"; then
         printf 'A secret value is present in the node container configuration.\n' >&2
         exit 1
     fi
 done
 container_logs="$(compose logs --no-color)"
-for secret_value in "$app_key" "$database_password" "$base64_sync_key" synthetic-ticket-secret; do
+for secret_value in "$app_key" "$database_password" "$base64_sync_key" "$operator_password" synthetic-ticket-secret; do
     if printf '%s' "$container_logs" | grep --fixed-strings --quiet "$secret_value"; then
         printf 'A secret or ticket test value is present in container logs.\n' >&2
         exit 1
     fi
 done
 
-printf 'Event Node Docker integration passed: migrations, identity guard, HTTPS listeners, operator isolation, database stores, restart persistence, and secret/log checks.\n'
+printf 'Event Node Docker integration passed: migrations, identity guard, HTTPS listeners, operator isolation and persistence, database stores, restart persistence, and secret/log checks.\n'

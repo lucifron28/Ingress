@@ -29,7 +29,7 @@ services:
       - no-new-privileges:true
 
   ingress-migrate:
-    image: ingress-node:compose
+    image: ${INGRESS_NODE_IMAGE:-ingress-node:compose}
     build:
       context: .
       dockerfile: Dockerfile.node
@@ -93,7 +93,7 @@ services:
       - ALL
 
   ingress-node:
-    image: ingress-node:compose
+    image: ${INGRESS_NODE_IMAGE:-ingress-node:compose}
     build:
       context: .
       dockerfile: Dockerfile.node
@@ -135,7 +135,7 @@ services:
       - ALL
 
   ingress-scheduler:
-    image: ingress-node:compose
+    image: ${INGRESS_NODE_IMAGE:-ingress-node:compose}
     build:
       context: .
       dockerfile: Dockerfile.node
@@ -165,7 +165,7 @@ services:
       - ALL
 
   ingress-cli:
-    image: ingress-node:compose
+    image: ${INGRESS_NODE_IMAGE:-ingress-node:compose}
     build:
       context: .
       dockerfile: Dockerfile.node

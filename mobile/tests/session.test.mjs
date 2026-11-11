@@ -250,6 +250,28 @@ test('Event Node local authentication and pairing remain isolated and TLS-only',
       Platform.OS = 'android';
     });
 
+    await t.test('a disconnected Event Node prevents preview and sends no admission confirmation', async () => {
+      const calls = [];
+      globalThis.fetch = async (url, options) => {
+        calls.push({ url: String(url), options });
+        if (String(url).endsWith('/auth/node-staff/login')) {
+          return new Response(JSON.stringify({ token: 'offline-test-node-token', user: staffUser, node_staff: true }), { status: 200 });
+        }
+        throw new TypeError('Network request failed');
+      };
+
+      await nodeSession.loginNodeStaff('https://node.example/api/v1', 'staff@example.test', 'local-password');
+      await assert.rejects(
+        nodeSession.nodeRequest('/staff/events/12/admissions/preview', { method: 'POST', body: '{}' }),
+        (error) => error.status === 0 && error.message.includes('Cannot reach the Event Node'),
+      );
+
+      assert.equal(calls.length, 2);
+      assert.equal(calls[1].url, 'https://node.example/api/v1/staff/events/12/admissions/preview');
+      assert.equal(calls.some((call) => call.url.endsWith('/admissions')), false);
+      await SecureStore.deleteItemAsync('ingress_node_staff_session_v1');
+    });
+
     await t.test('the scanner session has no cloud credential store', async () => {
       const stored = await SecureStore.getItemAsync('ingress_node_staff_session_v1');
       assert.equal(stored, null);
