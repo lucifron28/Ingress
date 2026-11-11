@@ -32,7 +32,10 @@ use App\Actions\TransferEventAuthority;
 use App\Http\Controllers\Api\V1\NodeStaffAuthController;
 use App\Http\Controllers\Api\V1\TicketTransferController;
 use App\Http\Controllers\StudentEmailVerificationController;
+use App\Http\Controllers\Web\OrganizerEventController;
 use App\Http\Middleware\EnsureRuntimeDatabase;
+use App\Models\AccessPoint;
+use App\Models\Event;
 use App\Models\TicketTransfer;
 use App\Models\User;
 use App\Services\Tickets\GuestTicketTransfer;
@@ -43,6 +46,7 @@ use Illuminate\Database\Connection;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Laravel\Sanctum\PersonalAccessToken;
@@ -278,6 +282,28 @@ try {
         } catch (HttpException $e) {
             $emit(['http_code' => $e->getStatusCode()]);
         }
+    } elseif ($mode === 'deactivate_gate') {
+        $actor = User::findOrFail($payload['actor_id']);
+        Auth::setUser($actor);
+        $request = Request::create('/organizer/events/'.$payload['event_id'].'/access-points/'.$payload['access_point_id'], 'PUT', [
+            'name' => 'Race Gate', 'code' => 'RACE-GATE', 'is_active' => '0',
+        ]);
+        $request->setUserResolver(fn () => $actor);
+        $response = app(OrganizerEventController::class)->updateAccessPoint(
+            $request,
+            Event::findOrFail($payload['event_id']),
+            AccessPoint::findOrFail($payload['access_point_id']),
+        );
+        $emit(['ok' => $response->getStatusCode() >= 300 && $response->getStatusCode() < 400]);
+    } elseif ($mode === 'assign_gate_staff') {
+        $actor = User::findOrFail($payload['actor_id']);
+        Auth::setUser($actor);
+        $request = Request::create('/organizer/events/'.$payload['event_id'].'/staff', 'POST', [
+            'user_id' => $payload['staff_id'], 'access_point_id' => $payload['access_point_id'],
+        ]);
+        $request->setUserResolver(fn () => $actor);
+        $response = app(OrganizerEventController::class)->assignStaff($request, Event::findOrFail($payload['event_id']));
+        $emit(['ok' => $response->getStatusCode() >= 300 && $response->getStatusCode() < 400]);
     } else {
         $emit(['ok' => false, 'reason' => 'unknown_mode']);
         exit(1);

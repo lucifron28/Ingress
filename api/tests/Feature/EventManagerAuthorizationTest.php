@@ -242,6 +242,21 @@ class EventManagerAuthorizationTest extends TestCase
         $this->assertSame(User::ROLE_STUDENT, $scanner->fresh()->role);
     }
 
+    public function test_unassigned_organizer_cannot_view_another_published_events_management_details(): void
+    {
+        config(['ingress.mode' => 'cloud']);
+
+        $owner = User::factory()->create(['role' => User::ROLE_ORGANIZER]);
+        $unrelatedOrganizer = User::factory()->create(['role' => User::ROLE_ORGANIZER]);
+        $venue = Venue::create(['name' => 'Hall', 'code' => 'HALL', 'default_capacity' => 100]);
+        $event = $this->event($owner, $venue, 'Published Event', 'published-event');
+        $event->forceFill(['status' => Event::STATUS_PUBLISHED])->save();
+
+        $this->actingAs($unrelatedOrganizer)
+            ->get(route('organizer.events.show', $event))
+            ->assertForbidden();
+    }
+
     private function event(User $owner, Venue $venue, string $title, string $slug): Event
     {
         return Event::create([

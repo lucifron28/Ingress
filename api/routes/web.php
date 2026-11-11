@@ -12,6 +12,7 @@ use App\Http\Controllers\Web\GuestTicketController;
 use App\Http\Controllers\Web\GuestTicketRedemptionController;
 use App\Http\Controllers\Web\OrganizerAttendanceController;
 use App\Http\Controllers\Web\OrganizerEventController;
+use App\Http\Controllers\Web\OrganizerVenueController;
 use App\Http\Controllers\Web\PublicEventController;
 use App\Http\Controllers\Web\PublicTicketController;
 use App\Http\Controllers\Web\SimulatedPaymentAuthorizationController;
@@ -123,6 +124,10 @@ Route::prefix('node/operator')->name('node.operator.')->middleware([
 Route::middleware(['auth', 'organizer', 'runtime:legacy,cloud'])->prefix('organizer')->name('organizer.')->group(function () {
     Route::get('/dashboard', [OrganizerEventController::class, 'dashboard'])->name('dashboard');
 
+    Route::get('/venues', [OrganizerVenueController::class, 'index'])->middleware('runtime:cloud')->name('venues.index');
+    Route::post('/venues', [OrganizerVenueController::class, 'store'])->middleware('runtime:cloud')->name('venues.store');
+    Route::put('/venues/{venue}', [OrganizerVenueController::class, 'update'])->middleware('runtime:cloud')->name('venues.update');
+
     Route::get('/events', [OrganizerEventController::class, 'index'])->name('events.index');
     Route::get('/events/create', [OrganizerEventController::class, 'create'])->name('events.create');
     Route::post('/events', [OrganizerEventController::class, 'store'])->name('events.store');
@@ -150,6 +155,7 @@ Route::middleware(['auth', 'organizer', 'runtime:legacy,cloud'])->prefix('organi
         ->middleware(['runtime:cloud', 'throttle:guest-ticket-redemption'])->name('events.guests.recover');
 
     Route::post('/events/{event}/access-points', [OrganizerEventController::class, 'storeAccessPoint'])->name('events.access-points.store');
+    Route::put('/events/{event}/access-points/{accessPoint}', [OrganizerEventController::class, 'updateAccessPoint'])->name('events.access-points.update');
     Route::post('/events/{event}/staff', [OrganizerEventController::class, 'assignStaff'])->name('events.staff.assign');
     Route::delete('/events/{event}/staff/{staff}', [OrganizerEventController::class, 'revokeStaff'])->name('events.staff.revoke');
 

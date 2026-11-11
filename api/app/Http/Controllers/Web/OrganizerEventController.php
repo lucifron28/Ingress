@@ -10,6 +10,7 @@ use App\Actions\PrepareEventSnapshot;
 use App\Actions\TransferEventAuthority;
 use App\Http\Controllers\Controller;
 use App\Models\AccessPoint;
+use App\Models\Admission;
 use App\Models\Event;
 use App\Models\EventResponsibilityAudit;
 use App\Models\EventStaff;
@@ -161,7 +162,7 @@ class OrganizerEventController extends Controller
      */
     public function show(Event $event): View
     {
-        Gate::authorize('view', $event);
+        Gate::authorize('update', $event);
 
         $event->load([
             'venue',
@@ -510,6 +511,63 @@ class OrganizerEventController extends Controller
         return back()->with('success', "Access point '{$validated['name']}' added.");
     }
 
+    public function updateAccessPoint(Request $request, Event $event, AccessPoint $accessPoint): RedirectResponse
+    {
+        Gate::authorize('manageStaff', $event);
+        $event->accessPoints()->whereKey($accessPoint->getKey())->firstOrFail();
+        $request->merge(['code' => Str::upper(trim((string) $request->input('code')))]);
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:100'],
+            'code' => [
+                'required', 'string', 'max:32', 'alpha_dash',
+                Rule::unique('access_points', 'code')->where('event_id', $event->id)->ignore($accessPoint->id),
+            ],
+            'is_active' => ['required', 'boolean'],
+        ]);
+
+        try {
+            DB::transaction(function () use ($event, $accessPoint, $validated): void {
+                $lockedEvent = Event::query()->whereKey($event->getKey())->lockForUpdate()->firstOrFail();
+                $lockedEvent->assertSnapshotNotPrepared();
+                $lockedAccessPoint = $lockedEvent->accessPoints()->whereKey($accessPoint->getKey())
+                    ->lockForUpdate()->firstOrFail();
+
+                $hasAdmissions = Admission::query()->whereHas('ticket.registration', fn ($registrations) => $registrations
+                    ->where('event_id', $lockedEvent->id))->exists();
+                if ($hasAdmissions) {
+                    throw ValidationException::withMessages([
+                        'access_point' => ['Gate details cannot change after admissions have been recorded.'],
+                    ]);
+                }
+
+                $deactivatingAssignedGate = $lockedAccessPoint->is_active
+                    && ! (bool) $validated['is_active']
+                    && $lockedAccessPoint->staffAssignments()->exists();
+                if ($deactivatingAssignedGate) {
+                    throw ValidationException::withMessages([
+                        'access_point' => ['Reassign or revoke scanner staff before deactivating this gate.'],
+                    ]);
+                }
+
+                $duplicateCode = $lockedEvent->accessPoints()->where('id', '<>', $lockedAccessPoint->getKey())
+                    ->whereRaw('UPPER(code) = ?', [$validated['code']])->exists();
+                if ($duplicateCode) {
+                    throw ValidationException::withMessages(['code' => ['A gate with this code already exists for the event.']]);
+                }
+
+                $lockedAccessPoint->update([
+                    'name' => $validated['name'],
+                    'code' => $validated['code'],
+                    'is_active' => (bool) $validated['is_active'],
+                ]);
+            });
+        } catch (UniqueConstraintViolationException) {
+            throw ValidationException::withMessages(['code' => ['A gate with this code already exists for the event.']]);
+        }
+
+        return redirect()->route('organizer.events.show', $event)->with('success', 'Gate updated.');
+    }
+
     /**
      * Assign staff to event and access point.
      */
@@ -522,7 +580,8 @@ class OrganizerEventController extends Controller
             'staff_email' => ['nullable', 'string', 'email:rfc', 'max:255', 'required_without:user_id'],
             'access_point_id' => [
                 'nullable',
-                Rule::exists('access_points', 'id')->where(fn ($q) => $q->where('event_id', $event->id)),
+                Rule::exists('access_points', 'id')->where(fn ($query) => $query
+                    ->where('event_id', $event->id)->where('is_active', true)),
             ],
         ]);
 
@@ -549,12 +608,19 @@ class OrganizerEventController extends Controller
                 $lockedEvent = Event::whereKey($event->getKey())->lockForUpdate()->firstOrFail();
                 $lockedEvent->assertSnapshotNotPrepared();
                 $lockedUser = User::query()->whereKey($staffUser->getKey())->lockForUpdate()->firstOrFail();
+                $accessPointId = $validated['access_point_id'] ?? null;
+                if ($accessPointId !== null && ! $lockedEvent->accessPoints()->whereKey($accessPointId)
+                    ->where('is_active', true)->exists()) {
+                    throw ValidationException::withMessages([
+                        'access_point_id' => ['Choose an active gate from this event.'],
+                    ]);
+                }
+
                 $assignment = EventStaff::query()
                     ->where('event_id', $lockedEvent->id)
                     ->where('user_id', $lockedUser->id)
                     ->lockForUpdate()
                     ->first();
-                $accessPointId = $validated['access_point_id'] ?? null;
 
                 if ($assignment && (int) $assignment->access_point_id === (int) $accessPointId) {
                     return false;
