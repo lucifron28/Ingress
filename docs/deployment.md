@@ -605,7 +605,9 @@ notepad "$phpHome\php.ini"
 & "$phpHome\php-cgi.exe" -v
 ```
 
-Give the node a stable campus DNS name and reserve its LAN address in DHCP. Obtain a publicly trusted certificate whose DNS name matches the Event Node URL, then bind only that hostname on HTTPS port 443 in IIS. Do not add an HTTP binding. Android release builds use the system certificate authorities. Android does not trust user-installed certificate authorities by default, so installing a private CA root in the phone's user certificate store will not make the release app trust it. See [Android Network Security Configuration](https://developer.android.com/privacy-and-security/security-config). Prefer a public certificate with DNS-01 validation and split-horizon DNS that resolves the node hostname to its LAN address on campus. If the venue cannot use a publicly trusted certificate, stop device testing until a hostname-specific native trust configuration has been reviewed and tested; do not add a broad user-CA or trust-all exception.
+Give the node a stable campus DNS name and reserve its LAN address in DHCP. Prefer a publicly trusted certificate whose name matches the Event Node URL, then bind only that hostname on HTTPS port 443 in IIS. Do not add an HTTP binding. The scanner's `preview` and `production` profiles use Android system certificate authorities. Android does not trust user-installed certificate authorities by default, so installing a private root in the phone's user certificate store will not make those builds trust it. See [Android Network Security Configuration](https://developer.android.com/privacy-and-security/security-config).
+
+For an isolated LAN demo that cannot use a publicly trusted certificate, the separate `lanDemo` APK profile can trust one dedicated public CA for one configured Event Node hostname or IPv4 address. The profile still requires HTTPS and hostname validation; it does not trust that CA for other hosts. Keep the CA private key with the node operator and follow the [staff scanner build instructions](../mobile/README.md). Do not add the CA to source control, use a broad user-CA trust setting, or add a trust-all or HTTP exception. Perform physical-device and venue-network checks before relying on this profile at an event.
 
 Create a dedicated PostgreSQL role and database for this node. The commands below use the PostgreSQL 18 default port; adjust the port if the local service uses another one. Run `psql` as the database administrator, then enter the password at PostgreSQL's hidden prompt instead of putting it in a command or shell history:
 
@@ -750,22 +752,18 @@ When TLS terminates at a reverse proxy, configure only the trusted proxy peers a
 
 ## Build the mobile app
 
-The mobile app uses Expo SDK 58 and React Native 0.88.1. The EAS `preview` profile creates an internal Android APK; `production` creates an Android App Bundle for store testing. Both release profiles require `EXPO_PUBLIC_API_URL` to contain the deployed cloud HTTPS API base URL ending in `/api/v1`. They reject the placeholder URL, HTTP, demo mode, and HTTP node access. The variable is public client configuration, so do not put credentials or private keys in it.
+The Expo SDK 58 and React Native 0.88.1 app is now a staff-only Event Node scanner. It has no student account, Cloud API, attendee wallet, or event-discovery client. `preview` creates an internal Android APK with system certificate trust, and `production` creates an Android App Bundle with system trust. Both use HTTPS for Event Node requests and require no Cloud API URL in EAS.
 
-The staging cloud API is `https://ingress-pp2u.onrender.com/api/v1`. In Expo's project dashboard, add `EXPO_PUBLIC_API_URL` to the **preview** environment as a plain-text value with that URL, or set it from PowerShell. EAS remote builds do not receive the local `.env` file. The checked-in `mobile/eas.json` selects the `preview` environment, APK output, disabled demo credentials, and disabled HTTP access:
+From the project root, build the default preview APK with:
 
 ```powershell
 cd mobile
-npx eas-cli@latest env:set --name EXPO_PUBLIC_API_URL --value https://ingress-pp2u.onrender.com/api/v1 --environment preview --visibility plaintext
-npx eas-cli@latest env:list --environment preview
 npx eas-cli@latest build --platform android --profile preview
 ```
 
-After EAS finishes, download the `.apk` from the build page. With Android Platform Tools installed and USB debugging enabled, use `adb devices` to confirm the phone is connected, then `adb install -r .\Ingress-preview.apk`. Repeat for each test phone. Keep the API URL limited to the cloud; staff pairing supplies the Event Node URL separately. Before a store build, configure the `production` EAS environment separately and use the production profile, which creates an Android App Bundle. See the [physical-device test plan](physical-device-test-plan.md), the [EAS environment variable guide](https://docs.expo.dev/eas/environment-variables/), and the [Android APK build guide](https://docs.expo.dev/build-reference/apk/).
+After EAS finishes, download the `.apk` from its build page. With Android Platform Tools installed and USB debugging enabled, use `adb devices` to confirm the phone is connected, then `adb install -r .\Ingress-preview.apk`. Staff pair or enter the Event Node HTTPS address in the app. The address must match a certificate trusted by Android and include the `/api/v1` path. See the [physical-device test plan](physical-device-test-plan.md) and [Android APK build guide](https://docs.expo.dev/build-reference/apk/).
 
-The app's native configuration disables cleartext HTTP by default. Staff devices must connect to an Event Node URL with a certificate they trust.
-
-For a local HTTP development server or Event Node, set `EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE=true` before starting Expo or generating the native app configuration, and point `EXPO_PUBLIC_API_URL` at the local server when needed. The mobile node client accepts HTTP only for localhost and private LAN hosts when this flag is enabled. Android's native cleartext allowance applies to the whole development build, so never include the flag in a production build. The checked-in `mobile/.env.example` points to the current Render staging API; it contains no secrets.
+If a venue demo cannot use a publicly trusted certificate, configure the separate `lanDemo` profile with a public CA certificate file and the exact Event Node hostname or IPv4 address in the EAS **preview** environment, then build with `npx eas-cli@latest build --platform android --profile lanDemo`. The app trusts that CA only for the configured host and continues to reject HTTP. Follow the [staff scanner build instructions](../mobile/README.md) for dashboard variable types and certificate requirements. Do not set an HTTP override; the scanner accepts HTTPS only in development and release builds.
 
 ## Run the node synchronization scheduler
 

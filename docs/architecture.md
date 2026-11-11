@@ -10,20 +10,20 @@
 Ingress runs as a cloud application and one or more separate Event Node applications. Each runtime has a separate PostgreSQL database and application key. The cloud handles accounts, event discovery, registration, ticket transfers, and organizer reporting. An Event Node receives one encrypted event snapshot and becomes the admission authority after the organizer confirms its staging and import receipts and activates the signed authority grant.
 
 ```text
-Student app --HTTPS--> Cloud runtime --PostgreSQL
+Student website --HTTPS--> Cloud runtime --PostgreSQL
                            |
                            | encrypted snapshot and signed authority grant
                            v
-Staff scanners --venue LAN--> Event Node --PostgreSQL
+Staff-only scanner app --venue LAN--> Event Node --PostgreSQL
                                    |
                                    | authenticated admission and walk-in sync
                                    v
                                Cloud runtime
 ```
 
-The snapshot transfer is a manual operator workflow. After authority activation, the Event Node records admissions and walk ins locally. Staff scanners need the venue LAN and the Event Node, but admission does not require public internet. Student tickets cached after online synchronization remain display only. They do not allow offline registration or admission.
+The snapshot transfer is a manual operator workflow. After authority activation, the Event Node records admissions and walk ins locally. Staff scanners need the venue LAN and the Event Node, but admission does not require public internet. Students can display previously downloaded ticket PDFs offline; the Event Node still validates each credential.
 
-Staff authenticate to the Event Node with local credentials or a one use pairing QR. Student accounts and Event Node staff sessions use separate mobile sessions. Production connections use HTTPS. A local development build may opt into HTTP for local or private LAN node addresses.
+Staff authenticate to the Event Node with local credentials or a one use pairing QR. The mobile app stores only the Event Node staff session. Production and development scanner requests require HTTPS. Android's isolated `lanDemo` profile can trust a public CA for one exact Event Node hostname or IPv4 address while retaining hostname verification. The other Android profiles use system CAs. See [Staff scanner build instructions](../mobile/README.md).
 
 The organizer attendance page reports current presence and movement counts and provides a private CSV export. Events can require staff to confirm an approved ID check. The system does not collect photos. See [deployment and operating limits](second-half-architecture.md) and the [deployment guide](deployment.md) for recovery, retention, and production configuration details.
 
@@ -367,7 +367,7 @@ Session restoration distinguishes two failure modes:
 
 After verification, the browser sends its Firebase ID token in a CSRF-protected POST to `/student/session`. Laravel checks that token with Firebase Identity Toolkit `accounts:lookup` using the configured Firebase project key, then independently enforces `emailVerified`, the exact `@student.mseuf.edu.ph` domain, an enabled password provider, and a student-only local account. It does not accept a client-supplied UID, verification flag, or role. The local `firebase_uid` is unique and hidden from serialized user data. An unlinked local student can be linked only when the verified address matches; admin, organizer, staff, conflicting UID, and duplicate-email records are rejected. New Firebase students receive no self-reported student number, and their required local password field is set to an unknown random value rather than their Firebase password.
 
-Student sessions rotate the Laravel session ID and require a verified Firebase-linked student for the student dashboard. The browser page, ID-token exchange, and dashboard are non-cacheable; the exchange is rate-limited and remains HTTPS-only outside local/testing. These Firebase routes are Cloud-only, so the Event Node has no Firebase runtime dependency. The existing emailed activation flow and Sanctum password login remain available during the staged mobile cutover. A verified university mailbox proves mailbox ownership, not current enrollment; event-specific enrollment evidence still requires an authoritative source.
+Student sessions rotate the Laravel session ID and require a verified Firebase-linked student for the student dashboard. The browser page, ID-token exchange, and dashboard are non-cacheable; the exchange is rate-limited and remains HTTPS-only outside local/testing. These Firebase routes are Cloud-only, so the Event Node has no Firebase runtime dependency. The emailed activation and Sanctum password login paths remain available on the web and legacy API. The native scanner does not use Cloud student authentication. A verified university mailbox proves mailbox ownership, not current enrollment; event-specific enrollment evidence still requires an authoritative source.
 
 ### Login rate limiting
 
@@ -382,4 +382,4 @@ Throttle state uses the configured cache store (`database` in production, `array
 
 ### Demo mode
 
-`INGRESS_DEMO_MODE` → `config('app.demo_mode')` (default **false**) gates every predictable credential in the system. See ADR 010 for the decision; the operational effect is that the seeder, the organizer login hint, and the mobile quick-select are all inert unless an environment opts in, and `APP_ENV=production` with demo mode on is a hard boot error.
+`INGRESS_DEMO_MODE` → `config('app.demo_mode')` (default **false**) gates predictable server demo credentials. See ADR 010 for the decision; the seeder and organizer login hint are inert unless an environment opts in, and `APP_ENV=production` with demo mode on is a hard boot error. The current mobile scanner has no demo login or attendee credentials.

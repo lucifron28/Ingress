@@ -8,15 +8,15 @@
 ## ADR 001: Monolithic Laravel 13 Backend with Blade & Sanctum REST API
 
 ### Context
-Ingress requires an organizer web application for event management, reporting, and staff assignment, alongside an API layer serving cross-platform mobile apps for students and gate staff.
+Ingress uses a Laravel website for student accounts, event registration, ticket access, and organizer tools, alongside an API used by the staff-only Event Node scanner.
 
 ### Alternatives Considered
 1. **Full SPA (Next.js / Vue) + Separate Laravel API**: Adds unnecessary build complexity, state synchronization overhead, and deployment friction for a student project.
 2. **Microservices (Go scanner service, Node auth service, Python analytics)**: Violates project requirements; introduces distributed network failures and impossible defense justification.
-3. **Monolithic Laravel with Blade Web UI + Sanctum REST API**: Single codebase, shared database transactions, native session management for organizers, and lightweight bearer token issuance for mobile clients.
+3. **Monolithic Laravel with Blade Web UI + Sanctum REST API**: Single codebase, shared database transactions, native session management for the website, and lightweight bearer tokens for the Event Node staff scanner.
 
 ### Decision
-Use **Laravel 13** as a cohesive monolith. Blade templates provide fast, robust server-rendered administration for campus organizers, while Laravel Sanctum provides token authentication for mobile clients under `/api/v1/*`.
+Use **Laravel 13** as a cohesive monolith. Blade templates provide server-rendered student and organizer flows, while Laravel Sanctum provides API authentication for Event Node staff clients under `/api/v1/*`.
 
 ---
 
@@ -127,7 +127,7 @@ A concurrent insert that loses the race on the unique index is caught and mapped
 ## ADR 006: Expo SDK 58 with Expo Router and SecureStore
 
 ### Context
-The mobile app must support cross-platform deployment (Android and iOS) on campus with camera barcode scanning and secure credential persistence.
+The staff scanner needs camera barcode scanning, local Event Node authentication, and secure credential persistence on mobile devices.
 
 ### Alternatives Considered
 1. **Bare React Native**:
@@ -138,7 +138,7 @@ The mobile app must support cross-platform deployment (Android and iOS) on campu
    File-based route navigation, native hardware keystore encryption (Android Keystore / iOS Keychain), and managed `expo-camera` barcode scanning.
 
 ### Decision
-Use Expo SDK `58.0.23`, React Native `0.88.1`, Expo Router `58.0.30`, and `expo-secure-store` for the cross-platform mobile client. The production cloud API URL is supplied at build time. Native cleartext HTTP is disabled by default; a public development flag enables it only for local builds.
+Use Expo SDK `58.0.23`, React Native `0.88.1`, Expo Router `58.0.30`, and `expo-secure-store` for the staff-only Event Node scanner. The app requires HTTPS and has no Cloud API URL. Android preview and production builds use system certificate authorities. The separate LAN-demo APK can trust one supplied public CA for one exact Event Node host without enabling cleartext traffic.
 
 ---
 
@@ -210,16 +210,16 @@ The prototype runs the Event Node on a laptop and phones connect over a local Wi
 
 ### Decision
 
-**Local development.** Native builds disable cleartext HTTP by default. Set `EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE=true` to enable local HTTP during development. The mobile node client accepts HTTP only for localhost or private LAN hosts. Android's native `usesCleartextTraffic` setting applies to the whole app build, so the flag must remain unset in release builds. iOS enables local networking only while the flag is set.
+**Historical local-development choice.** The former mobile client could opt into cleartext HTTP for local development. Phase 8 removed that option: the current scanner requires HTTPS in development and release builds. Android's `preview` and `production` profiles use system CA trust; the separate `lanDemo` profile can add one public CA for one exact Event Node hostname or IPv4 address. It does not enable cleartext traffic. See ADR 020 and [Staff scanner build instructions](../mobile/README.md).
 
 **Production.** Event Node traffic must use HTTPS/TLS. Passwords, Sanctum bearer tokens, QR credentials, and attendee identity data all cross this link, and over plaintext HTTP on an untrusted network they are readable and modifiable in transit. A production deployment must:
 
 - terminate TLS in front of Laravel (reverse proxy or the platform's load balancer) and never expose the cleartext listener;
-- leave `EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE` unset and connect the Event Node only through an `https://` origin;
+- connect the Event Node only through an `https://` origin;
 - set `SESSION_SECURE_COOKIE=true` and `APP_URL=https://…`.
 
 ### Consequences
-The cleartext switch and HTTP LAN procedure in `docs/lan-demo.md` are for local development. The application does not implement certificate pinning or client certificates. A production rollout must provision a certificate the staff devices trust, including when the Event Node has no outbound internet.
+The former cleartext switch is no longer available in the mobile app. The legacy web-only demo can use HTTP on an isolated local network. The application does not implement certificate pinning or client certificates. A production rollout must provision a certificate the staff devices trust, including when the Event Node has no outbound internet.
 
 ---
 
@@ -238,13 +238,13 @@ Introduce `INGRESS_DEMO_MODE`, read once into `config('app.demo_mode')` with a *
 
 - `DatabaseSeeder` seeds the demonstration users and events only when demo mode is on. Venues (pure reference data with nothing predictable) are always seeded.
 - The organizer login page advertises the demo credentials only when demo mode is on.
-- The mobile app gates its quick-select chips and pre-filled password behind its own build-time flag, `EXPO_PUBLIC_INGRESS_DEMO_MODE`, which also defaults to off.
+- The former mobile app gated quick-select chips and pre-filled passwords behind a build-time flag. Phase 8 removed that attendee login flow; the current scanner contains no demo account credentials.
 - Booting with demo mode enabled while `APP_ENV=production` is a **hard error**: the application refuses to start rather than serve predictable credentials.
 
 `.env.example` ships `INGRESS_DEMO_MODE=true` so copying the example file keeps the documented quickstart working, while an environment that does not opt in gets nothing predictable.
 
 ### Consequences
-Outside demo mode there are no accounts at all, so an operator must provision the first organizer deliberately; the README documents that one-liner. The mobile flag is client-side UX only and cannot make the server safer or less safe — whether the demo accounts exist is decided solely by the server flag.
+Outside demo mode there are no seeded accounts, so an operator must provision the first organizer deliberately; the README documents that one-liner. The native scanner has no account-creation or demo-login screen.
 
 
 ---
@@ -335,7 +335,7 @@ The QR payload itself remains free of PII.
 ## ADR 015: Cloud Student Auth with Offline Session Restoration
 
 ### Status
-Implemented in the native mobile app. A student must authenticate online before the app can cache the wallet. Cached tickets are display only; they do not enable registration or admission.
+Historical mobile design. Phase 8 removed the attendee wallet and student session from the native app. Student account and ticket flows remain on the website; attendees can download ticket PDFs for local display. See ADR 020.
 
 ### Context
 Students may arrive without usable internet but still need to open the app and show a ticket. Verifying passwords locally would create a second authentication system and would not reflect current server account state.
@@ -356,7 +356,7 @@ Students never configure an Event Node URL.
 ## ADR 016: Scanner QR Pairing and Event-Local Staff Authentication
 
 ### Status
-Implemented with one use scanner pairing, Event Node staff credentials, and HTTPS required outside local development.
+Implemented with one-use scanner pairing and Event Node staff credentials. The current scanner requires HTTPS in every build; Android LAN-demo CA scoping is defined in ADR 020.
 
 ### Context
 Manual IP entry is acceptable for the prototype but is poor event-day UX. Scanner authentication also cannot depend only on public internet if the system is intended to operate during an upstream outage.
@@ -413,9 +413,9 @@ Guest and alumni tickets do not require a MSEUF account. The organizer can issue
 
 The roster distinguishes student, guest, alumni, and walk in attendee records. Reporting can distinguish student accounts from guest and alumni attendees. Email verification proves control of the institutional address, not student number ownership or current enrollment.
 
-The ticket source changes how the ticket is issued, not how it is validated. Student wallet tickets, organizer-issued guest passes, and printed walk in passes all use the Event Node's server-authoritative validation pipeline.
+The ticket source changes how the ticket is issued, not how it is validated. Student tickets displayed from the website or a downloaded PDF, organizer-issued guest passes, and printed walk-in passes all use the Event Node's server-authoritative validation pipeline.
 
-This decision also reinforces the choice not to use TOTP. A static opaque credential can be shown from a student app or printed pass without requiring the attendee to run a synchronized dynamic-code client.
+This decision also reinforces the choice not to use TOTP. A static opaque credential can be shown from the website, a downloaded PDF, or a printed pass without requiring the attendee to run a synchronized dynamic-code client.
 
 ---
 
@@ -448,5 +448,23 @@ OUTSIDE --ENTRY--> INSIDE   # permitted re-entry
 The existing two-stage scanner invariant remains in force: scanning performs read-only validation and identity preview; only explicit authorized staff confirmation records the entry or exit.
 
 Node-to-cloud batches carry movement direction and ID-check acknowledgment, and cloud applies them idempotently. The attendance feed reports attendees who ever entered, current inside and outside counts, re-entry count, and current student-account versus guest/alumni occupancy. The organizer can export the current confirmed roster as a private CSV. Standard events keep their prior snapshot and batch schemas for compatibility. Snapshot schema version 4 carries ID-check policy, and batch schema version 3 carries each staff acknowledgment. Versions 1 through 3 remain readable with standard identity checks.
+
+---
+
+## ADR 020: Staff-only mobile scanner
+
+### Status
+Implemented in the scanner-only mobile cutover. Physical-device and venue testing remains pending.
+
+### Context
+The Expo app previously combined student accounts, ticket discovery and wallets, and Event Node scanning. The student account and ticket flows now live on the website. Keeping both client implementations increased maintenance and left cloud credentials on phones that only need local admission access.
+
+### Decision
+Keep the native app focused on Event Node staff workflows: local sign-in or one-use pairing, assigned events and gates, scan preview followed by explicit confirmation, walk-ins, and secure session storage. Remove attendee routes, Cloud API authentication, event discovery, wallet and transfer services, and mobile demo credentials. Student registration, account tickets, and transfers remain web flows. A previously downloaded PDF may be displayed offline; the Event Node remains the only admission authority.
+
+The scanner requires HTTPS in all app builds. Android `preview` and `production` use system CA trust. A separate `lanDemo` APK may add one public CA for one exact configured Node hostname or IPv4 address. This profile retains normal TLS hostname validation, leaves cleartext disabled, and must not use the private CA key in the app.
+
+### Consequences
+Automated tests cover the staff-only route tree, Node session security, build profiles, and scoped certificate configuration. Expo prebuild can verify generated Android policy, but only physical-device testing can confirm the phone's runtime trust behavior and venue workflow.
 
 ---

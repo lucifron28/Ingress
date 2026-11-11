@@ -21,8 +21,8 @@ For an Event Node failure after authority activation, stop all gates. Preserve t
 
 1. Use the current Render cloud at `https://ingress-pp2u.onrender.com` and one Windows Event Node. Each runtime needs its own PostgreSQL 18 database and unique `APP_KEY`; never point the cloud and node at the same database. Do not reuse the legacy single-database demo. Safe legacy database migration is not implemented.
 2. Configure the cloud with `INGRESS_RUNTIME=cloud`, `APP_DEBUG=false`, `INGRESS_DEMO_MODE=false`, a cloud-only authority private key, an exact CORS allowlist if needed, and Resend's HTTPS API. Run `send_render_mail_test.ps1` to check delivery to the authorized `lucifron28@gmail.com` inbox while using Resend's shared development sender. That static message contains no verification link. Public student signup still requires `@student.mseuf.edu.ph` and an authorized sending domain/mailbox; Gmail is not an accepted student domain.
-3. Provision synthetic staging users through `provision_render_staging_account.ps1`. A synthetic student uses `@example.test` and an ID beginning `STAGE-`; its account remains unverified. It can test staging login, registration, ticket display, and wallet caching. It cannot exercise the student email-activation or verified-student ticket-transfer flow. Do not mark a real student verified to work around a missing sender domain.
-4. Configure one Windows Event Node using a single profile from [Deployment and Operations](deployment.md#configure-a-windows-event-node): Docker Desktop with WSL2, native WSL2 with Nginx, or native Windows IIS. Use a stable campus DNS name, reserved LAN address, and a publicly trusted certificate. Android release builds do not trust user-installed CA roots by default. A public certificate issued with DNS-01 validation can use split-horizon DNS to resolve the node hostname to its LAN address on campus. Restrict the HTTPS listener to the staff subnet and keep PostgreSQL unreachable from attendee devices. If the venue cannot provide a publicly trusted certificate, stop device testing until a narrowly scoped native trust configuration has been reviewed.
+3. Provision synthetic staging users through `provision_render_staging_account.ps1`. A synthetic student uses `@example.test` and an ID beginning `STAGE-`; its account remains unverified. Use the website to test staging login, registration, ticket display, and PDF download. It cannot exercise student email activation or verified-student ticket transfer. Do not mark a real student verified to work around a missing sender domain.
+4. Configure one Windows Event Node using a single profile from [Deployment and Operations](deployment.md#configure-a-windows-event-node): Docker Desktop with WSL2, native WSL2 with Nginx, or native Windows IIS. Use a stable campus DNS name, reserved LAN address, and a publicly trusted certificate when possible. Android release builds do not trust user-installed CA roots by default. A public certificate issued with DNS-01 validation can use split-horizon DNS to resolve the node hostname to its LAN address on campus. Restrict the HTTPS listener to the staff subnet and keep PostgreSQL unreachable from attendee devices. For a venue demo that cannot use a public certificate, use the isolated host-scoped `lanDemo` profile documented in [Staff scanner build instructions](../mobile/README.md); test that profile on a physical device before relying on it.
 5. For Docker, confirm the separate `ingress-scheduler` container is running; do not create a duplicate Windows scheduled task. For native WSL, confirm Linux cron is enabled and the Windows startup task starts the required services. For IIS, configure **Task Scheduler** to run Laravel's scheduler at startup and every minute. Confirm `/up` and the node API respond over HTTPS from staff Wi-Fi. After closing and reopening the mobile app, confirm the saved node token does not activate scanner access on its own. Tap **Continue as** to make a fresh `/me` request over the venue LAN; if the node is unavailable, scanner access stays inactive. Keep the venue LAN working when WAN is unavailable.
 6. Before using real attendee information, obtain an institution-approved retention schedule and operator-owned deletion procedure. Automatic snapshot and roster retention is not implemented. Use synthetic records until that policy exists.
 7. Prepare two synthetic events with two or more gates, staff assigned to specific gates, and a small capacity. Set one event to prohibit re-entry and the other to allow it. Enable the approved ID-check policy on one event. Finalize all policies before snapshot preparation. Prepare synthetic student, guest, alumni, and walk-in cases.
@@ -42,20 +42,19 @@ The following items are separate from CI and remain pending until someone runs t
 - [ ] With WAN disconnected and staff Wi-Fi intact, the Event Node remains available for admission. After WAN returns, the scheduler retries synchronization without duplicate records.
 - [ ] A protected database backup is written outside the container and checkout, then copied to encrypted off-host storage. Restore is practiced only in an isolated test copy or after the original node is retired.
 
-## 2. Build and install the Android preview APK
+## 2. Build and install the Android staff scanner APK
 
-The `preview` EAS profile creates an internal APK. The `production` profile creates a store AAB and is not the profile for direct device installation. Both profiles select an explicit EAS environment, disable demo credentials and local HTTP, and require a deployed HTTPS cloud API URL ending in `/api/v1`. `EXPO_PUBLIC_API_URL` is public client configuration, not a secret. Do not put credentials or private keys in any `EXPO_PUBLIC_` variable.
+The `preview` EAS profile creates an internal Android APK with system CA trust. The `lanDemo` profile creates an internal APK that also trusts a supplied public CA for one exact Event Node host. The `production` profile creates a store AAB and is not the profile for direct device installation. The scanner has no Cloud API URL or student-account configuration. All profiles require HTTPS for Event Node requests.
 
-In PowerShell, configure the EAS `preview` environment with the current staging URL and build:
+Build the default preview APK in PowerShell:
 
 ```powershell
 cd mobile
 npx eas-cli@latest login
-$cloudApiUrl = "https://ingress-pp2u.onrender.com/api/v1"
-npx eas-cli@latest env:set --name EXPO_PUBLIC_API_URL --value $cloudApiUrl --environment preview --visibility plaintext
-npx eas-cli@latest env:list --environment preview
 npx eas-cli@latest build --platform android --profile preview
 ```
+
+If the venue needs its own CA, add `INGRESS_LAN_DEMO_CA_CERT` as a **Sensitive File** and `INGRESS_LAN_DEMO_NODE_HOST` as a plain-text variable to the EAS **preview** environment, then build with `npx eas-cli@latest build --platform android --profile lanDemo`. The CA must be public, currently valid, and issued for the configured Event Node hostname or IP. See [Staff scanner build instructions](../mobile/README.md) for the certificate and host rules. Never add the CA private key to EAS or source control.
 
 Download the APK from the EAS build page. With Android Platform Tools installed and USB debugging enabled, install it from PowerShell:
 
@@ -64,17 +63,17 @@ adb devices
 adb install -r .\Ingress-preview.apk
 ```
 
-Repeat on each test phone. Confirm the EAS build commit and package ID `com.lucifron28.ingress`. In Android app settings, the scanner should need camera access; it should not need microphone, broad storage, or display-over-other-apps access. The first scanner visit should request camera permission. Denying it must leave scanning unavailable without affecting the attendee wallet.
+Repeat on each test phone. Confirm the EAS build commit and package ID `com.lucifron28.ingress`. In Android app settings, the scanner should need camera access; it should not need microphone, broad storage, or display-over-other-apps access. The first scanner visit should request camera permission. Denying it must leave QR scanning unavailable while staff can still use the manual local sign-in flow.
 
-Before a future store build, set the actual cloud URL in the EAS `production` environment and use `npx eas-cli@latest build --platform android --profile production`. The profile produces an AAB for a Play testing track; it is not a sideloadable APK. Expo's [EAS environment variable guide](https://docs.expo.dev/eas/environment-variables/) explains environment setup, and the [APK build guide](https://docs.expo.dev/build-reference/apk/) explains the internal APK profile.
+Before a future store build, use `npx eas-cli@latest build --platform android --profile production`. The profile produces an AAB for a Play testing track; it is not a sideloadable APK. See Expo's [APK build guide](https://docs.expo.dev/build-reference/apk/) for internal APK builds.
 
-## 3. Test student verification, registration, and the offline wallet
+## 3. Test student verification, web registration, and tickets
 
 1. If an authorized `@student.mseuf.edu.ph` mailbox and a verified sending domain are available, request the single-use verification link, complete signup, and sign in. Confirm a non-institutional address is rejected, the link cannot be reused, and an expired link cannot create an account. Until both are available, mark institutional activation pending; use only the synthetic operator-provisioned student for the non-email staging flow. Do not use the shared Resend development sender for student activation.
-2. Register for the synthetic event and confirm capacity decreases once. Open the ticket and confirm the QR remains a static opaque credential. Do not photograph or share the QR.
-3. Refresh the wallet while online, force-stop and reopen the app, and confirm the same cached ticket is displayed. Sign out and confirm the old account's wallet is no longer visible.
-4. Ticket transfer requires verified student accounts. If the institutional mailbox is not available, leave this device scenario pending; do not use the synthetic unverified student to bypass it. Automated backend checks cover rejection of the sender's rotated QR.
-5. Briefly disconnect WAN access while keeping the device on venue Wi-Fi. Confirm the saved ticket remains display-only and online registration actions fail closed. Restore internet access for cloud setup; later repeat the WAN outage during LAN admission testing.
+2. Register for the synthetic event on the website and confirm capacity decreases once. Open the ticket and confirm its QR remains a static opaque credential. Download the PDF. Do not photograph or share the QR.
+3. On the test phone, open the website ticket and download its PDF. Confirm the saved PDF opens from local storage after the browser closes. Sign out in the website and confirm the previous account's ticket details are no longer visible there.
+4. Ticket transfer requires verified student accounts. Test transfer through the website. If the institutional mailbox is not available, leave this scenario pending; do not use the synthetic unverified student to bypass it. Automated backend checks cover rejection of the sender's rotated QR.
+5. Briefly disconnect WAN access while keeping the device on venue Wi-Fi. Confirm the previously downloaded PDF remains available to display, while online registration and transfer requests fail closed. Restore internet access for cloud setup; later repeat the WAN outage during LAN admission testing.
 
 ## 4. Finalize the event and activate one Event Node
 
@@ -97,7 +96,7 @@ If either receipt is missing or mismatched, do not activate authority. Before gr
 ## 6. Exercise offline admission across gates
 
 1. Connect the Event Node and all test phones to the staff Wi-Fi. Confirm the stable node DNS name resolves to the reserved LAN address and its HTTPS certificate is trusted. Verify client isolation is off for the staff subnet and attendee devices cannot reach the node database.
-2. Disconnect the router's WAN/internet connection while preserving the local Wi-Fi and Event Node. Confirm the staff app can still open the node event and the student app can still show its cached QR.
+2. Disconnect the router's WAN/internet connection while preserving the local Wi-Fi and Event Node. Confirm the staff scanner can still open the node event and a previously downloaded ticket PDF can still display its QR.
 3. Scan a ticket and stop at the preview screen. Cancel or back out and confirm no movement was recorded.
 4. Scan again and explicitly confirm entry. Scan the same ticket at the second gate; it must report already inside and create no second entry. Confirm the gate and staff shown in the response are correct.
 5. Record an exit. On the event with re-entry disabled, confirm another entry is rejected. On the separate event with re-entry enabled, confirm a later entry succeeds after exit.
@@ -126,7 +125,7 @@ The internet may be unavailable during admission, but the venue LAN and the sing
 
 1. While WAN is down and the LAN is up, stop the node application service. Scanners must show the node unavailable and must not record or queue an admission locally. Restart the same node and database; confirm service resumes with the same authority.
 2. While the node is healthy, interrupt only cloud sync. Admissions must continue at the node and pending batches must remain there. Restore cloud connectivity and confirm retry/reconciliation without duplicates.
-3. Try a node URL with an untrusted certificate and a pairing code for the wrong node. The mobile app must reject both; do not enable local HTTP in a release build to bypass the failure.
+3. Try a node URL with an untrusted certificate and a pairing code for the wrong node. The mobile app must reject both; do not enable local HTTP in any build to bypass the failure.
 4. If the active node or its database is lost, stop the event at every gate. Do not promote a backup or cloned database while the original could still admit. There is no safe automated post-grant authority recovery; unresolved authority means admissions stay stopped.
 
 ## 10. Results and exit criteria
@@ -142,11 +141,11 @@ Mark each row only after it has been run on the named devices. Record date, test
 | APK installed; camera-only scanner permission | Pending | |
 | Resend static test message reaches authorized account-owner inbox | Pending | |
 | Institutional email signup and activation | Pending until verified sender domain and authorized mailbox | |
-| Synthetic student sign-in, registration, ticket display, wallet restore | Pending | |
+| Synthetic student website sign-in, registration, ticket PDF download | Pending | |
 | Ticket transfer before finalization | Pending | |
 | Snapshot receipts and single-node authority activation | Pending | |
 | Staff pairing, session restore, and gate scoping | Pending | |
-| WAN disconnected; cached QR; preview then confirmed admission | Pending | |
+| WAN disconnected; downloaded PDF QR; preview then confirmed admission | Pending | |
 | Multi-gate anti-passback, exit, and re-entry policies | Pending | |
 | Guest, alumni, walk-in, capacity, and printed QR scan | Pending | |
 | WAN recovery, retry synchronization, and node restart | Pending | |
