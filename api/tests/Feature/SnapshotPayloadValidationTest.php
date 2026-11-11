@@ -151,6 +151,51 @@ class SnapshotPayloadValidationTest extends TestCase
         app(ValidateSnapshotPayload::class)->execute(json_encode($payload, JSON_THROW_ON_ERROR));
     }
 
+    public function test_schema_four_allows_guest_contact_email_to_match_a_student_account(): void
+    {
+        $payload = $this->payload();
+        $payload['schema_version'] = 4;
+        $payload['event']['re_entry_allowed'] = false;
+        $payload['event']['identity_verification_level'] = 'standard';
+        $payload['registrations'][0]['attendee'] = [
+            'id' => 3,
+            'name' => 'Student Attendee',
+            'email' => 'shared@example.test',
+            'student_id' => null,
+            'kind' => 'student',
+        ];
+        $guest = $payload['registrations'][0];
+        $guest['id'] = 2;
+        $guest['attendee'] = [
+            'id' => null,
+            'name' => 'Guest Attendee',
+            'email' => 'shared@example.test',
+            'student_id' => null,
+            'kind' => 'guest',
+        ];
+        $guest['ticket']['id'] = 2;
+        $guest['ticket']['public_id'] = 'ticket-2';
+        $guest['ticket']['qr_hash'] = str_repeat('b', 64);
+        $payload['registrations'][] = $guest;
+
+        $this->assertSame($payload, app(ValidateSnapshotPayload::class)->execute(json_encode($payload, JSON_THROW_ON_ERROR)));
+
+        $duplicateGuests = $payload;
+        $duplicateGuests['registrations'][0]['attendee'] = [
+            'id' => null,
+            'name' => 'First Guest',
+            'email' => 'shared@example.test',
+            'student_id' => null,
+            'kind' => 'guest',
+        ];
+        try {
+            app(ValidateSnapshotPayload::class)->execute(json_encode($duplicateGuests, JSON_THROW_ON_ERROR));
+            $this->fail('Two accountless attendees with the same event contact email were accepted.');
+        } catch (ValidationException) {
+            $this->assertTrue(true);
+        }
+    }
+
     public function test_authenticated_malformed_payload_is_not_staged_or_acknowledged(): void
     {
         $payload = $this->payload();

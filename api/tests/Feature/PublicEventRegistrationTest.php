@@ -142,6 +142,49 @@ class PublicEventRegistrationTest extends TestCase
         $this->assertSame(1, Ticket::count());
     }
 
+    public function test_guest_contact_email_does_not_block_verified_student_registration(): void
+    {
+        $guestCategory = $this->category($this->event, 'General Admission', isDefault: true);
+        $studentCategory = $this->category(
+            $this->event,
+            'Verified Student Admission',
+            eligibility: TicketCategory::ELIGIBILITY_STUDENT,
+        );
+        $student = User::factory()->create([
+            'role' => User::ROLE_STUDENT,
+            'email' => 'shared@student.mseuf.edu.ph',
+            'firebase_uid' => 'firebase-shared-contact',
+            'email_verified_at' => now(),
+        ]);
+
+        $this->post(route('public.events.register.store', $this->event->slug), [
+            'ticket_category_id' => $guestCategory->id,
+            'guest_name' => 'Accountless Guest',
+            'guest_email' => $student->email,
+        ])->assertRedirect();
+
+        $this->actingAs($student)
+            ->post(route('public.events.register.store', $this->event->slug), [
+                'ticket_category_id' => $studentCategory->id,
+            ])
+            ->assertRedirect();
+
+        $this->assertDatabaseHas('registrations', [
+            'event_id' => $this->event->id,
+            'user_id' => $student->id,
+            'attendee_type' => 'student',
+            'guest_email' => null,
+        ]);
+        $this->assertDatabaseHas('registrations', [
+            'event_id' => $this->event->id,
+            'user_id' => null,
+            'attendee_type' => 'guest',
+            'guest_email' => $student->email,
+        ]);
+        $this->assertSame(2, Registration::where('event_id', $this->event->id)->count());
+        $this->assertSame(2, Ticket::count());
+    }
+
     public function test_student_only_category_requires_a_verified_institutional_firebase_identity(): void
     {
         $category = $this->category($this->event, 'Student Admission', eligibility: 'student', isDefault: true);

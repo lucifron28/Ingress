@@ -172,6 +172,77 @@ class SimulatedCheckoutTest extends TestCase
         $this->get(route('public.checkout.show', $order->public_id))->assertNotFound();
     }
 
+    public function test_guest_contact_reservation_does_not_block_verified_student_registration_or_payment(): void
+    {
+        config(['services.firebase.student_email_domain' => 'student.mseuf.edu.ph']);
+        $sharedEmail = 'shared@student.mseuf.edu.ph';
+        $order = $this->startPaidCheckout($sharedEmail);
+        $attemptKey = (string) Str::uuid();
+        $this->post(route('public.checkout.attempt', $order->public_id), [
+            'payment_method' => PaymentAttempt::METHOD_WALLET,
+            'attempt_key' => $attemptKey,
+        ])->assertRedirect();
+
+        $student = User::factory()->create([
+            'role' => User::ROLE_STUDENT,
+            'email' => $sharedEmail,
+            'firebase_uid' => 'firebase-shared-paid-contact',
+            'email_verified_at' => now(),
+        ]);
+        $freeCategory = $this->category($this->event, 'Free General Admission', isDefault: true);
+        $freeCategory->update(['eligibility' => TicketCategory::ELIGIBILITY_STUDENT]);
+
+        $this->actingAs($student)
+            ->post(route('public.events.register.store', $this->event->slug), [
+                'ticket_category_id' => $freeCategory->id,
+            ])
+            ->assertRedirect();
+
+        $this->assertDatabaseHas('registrations', [
+            'event_id' => $this->event->id,
+            'user_id' => $student->id,
+            'attendee_type' => 'student',
+        ]);
+
+        $this->app->instance(SimulatedPaymentProcessor::class, new class extends SimulatedPaymentProcessor
+        {
+            public function process(PaymentAttempt $attempt): string
+            {
+                return PaymentAttempt::STATUS_SUCCESSFUL;
+            }
+        });
+
+        $result = app(ProcessSimulatedPayment::class)->execute($order->id, $attemptKey);
+
+        $this->assertSame(CheckoutOrder::STATUS_SUCCESSFUL, $result['status']);
+        $this->assertSame($sharedEmail, $result['registration']->guest_email);
+        $this->assertSame(2, Registration::where('event_id', $this->event->id)->count());
+        $this->assertSame(2, Ticket::count());
+    }
+
+    public function test_active_guest_reservation_blocks_a_second_checkout_with_the_same_contact_email(): void
+    {
+        $email = 'repeated-guest@example.test';
+        $firstOrder = $this->startPaidCheckout($email);
+        $category = TicketCategory::query()->where('event_id', $this->event->id)->where('name', 'Paid Admission')->firstOrFail();
+
+        $this->flushSession();
+        $idempotencyKey = $this->registrationFormKey();
+        $this->from(route('public.events.register', $this->event->slug))
+            ->post(route('public.events.register.store', $this->event->slug), [
+                'ticket_category_id' => $category->id,
+                'guest_name' => 'Second Guest',
+                'guest_email' => $email,
+                'idempotency_key' => $idempotencyKey,
+            ])
+            ->assertSessionHasErrors('registration');
+
+        $this->assertSame(1, CheckoutOrder::count());
+        $this->assertSame($firstOrder->id, CheckoutOrder::query()->sole()->id);
+        $this->assertSame(0, Registration::count());
+        $this->assertSame(0, Ticket::count());
+    }
+
     public function test_paid_checkout_clears_stale_student_registration_intent(): void
     {
         $this->event->update(['simulated_payments_enabled' => true]);

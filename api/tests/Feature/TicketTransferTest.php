@@ -258,9 +258,9 @@ class TicketTransferTest extends TestCase
         ]);
     }
 
-    public function test_guest_registration_with_recipient_email_blocks_transfer(): void
+    public function test_guest_contact_email_does_not_block_verified_student_transfer(): void
     {
-        Registration::create([
+        $guestRegistration = Registration::create([
             'event_id' => $this->event->id,
             'user_id' => null,
             'attendee_type' => 'guest',
@@ -271,8 +271,19 @@ class TicketTransferTest extends TestCase
 
         $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/tickets/{$this->ticket->id}/transfers", [
             'recipient' => $this->recipient->email,
-        ])->assertUnprocessable();
-        $this->assertDatabaseCount('ticket_transfers', 0);
+        ])->assertCreated();
+        $transferId = TicketTransfer::firstOrFail()->id;
+
+        $this->actingAs($this->recipient, 'sanctum')
+            ->postJson("/api/v1/ticket-transfers/{$transferId}/accept")
+            ->assertOk();
+
+        $this->assertSame($this->recipient->id, $this->ticket->registration()->firstOrFail()->fresh()->user_id);
+        $this->assertDatabaseHas('registrations', [
+            'id' => $guestRegistration->id,
+            'user_id' => null,
+            'guest_email' => $this->recipient->email,
+        ]);
     }
 
     public function test_registration_cutoff_does_not_close_transfers_but_snapshot_preparation_does(): void

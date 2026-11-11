@@ -64,28 +64,17 @@ class AttendeeRegistrationDetails
             ->when($ignoreCheckoutOrderId !== null, fn ($query) => $query->whereKeyNot($ignoreCheckoutOrderId));
 
         if ($user !== null) {
-            $email = Str::lower(trim($user->email));
-            $registered = $registrations->where(function ($query) use ($user, $email): void {
-                $query->where('user_id', $user->id)->orWhereRaw('LOWER(guest_email) = ?', [$email]);
-            })->exists();
-            $reserved = $orders->where(function ($query) use ($user, $email): void {
-                $query->where('user_id', $user->id)->orWhereRaw('LOWER(guest_email) = ?', [$email]);
-            })->exists();
+            $registered = $registrations->where('user_id', $user->id)->exists();
+            $reserved = $orders->where('user_id', $user->id)->exists();
         } else {
             $email = Str::lower(trim((string) $guestEmail));
-            $registered = $registrations->where(function ($query) use ($email): void {
-                $query->whereRaw('LOWER(guest_email) = ?', [$email])
-                    ->orWhereHas('user', fn ($users) => $users->whereRaw('LOWER(email) = ?', [$email]));
-            })->exists();
-            $reserved = $orders->where(function ($query) use ($email): void {
-                $query->whereRaw('LOWER(guest_email) = ?', [$email])
-                    ->orWhereHas('user', fn ($users) => $users->whereRaw('LOWER(email) = ?', [$email]));
-            })->exists();
+            $registered = $registrations->whereRaw('LOWER(guest_email) = ?', [$email])->exists();
+            $reserved = $orders->whereRaw('LOWER(guest_email) = ?', [$email])->exists();
         }
 
         if ($registered || $reserved) {
             throw ValidationException::withMessages([
-                'registration' => ['That email or student account already has a registration or active checkout for this event.'],
+                'registration' => ['That attendee already has a registration or active checkout for this event.'],
             ]);
         }
     }

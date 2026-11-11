@@ -60,8 +60,12 @@ class SnapshotTransferTest extends TestCase
         ];
     }
 
-    private function cloudEvent(bool $withStaff = false, bool $reEntryAllowed = false, bool $identityCheck = false): array
-    {
+    private function cloudEvent(
+        bool $withStaff = false,
+        bool $reEntryAllowed = false,
+        bool $identityCheck = false,
+        bool $shareGuestEmailWithStudent = false,
+    ): array {
         config(['ingress.mode' => 'cloud']);
         $this->useCloudOperatorDatabase();
         $owner = User::factory()->create(['role' => User::ROLE_ORGANIZER]);
@@ -91,12 +95,13 @@ class SnapshotTransferTest extends TestCase
         $secondQr = null;
         $guestQr = null;
         if ($withStaff) {
+            $guestEmail = $shareGuestEmailWithStudent ? $student->email : 'guest@example.test';
             $second = User::factory()->create(['name' => 'Second Attendee', 'role' => User::ROLE_STUDENT]);
             $secondQr = $this->actingAs($second)->postJson("/api/v1/events/{$event->id}/registration")->assertCreated()->json('qr_payload');
             $this->actingAs($owner)->post("/organizer/events/{$event->id}/guests", [
-                'guest_name' => 'Guest Attendee', 'guest_email' => 'guest@example.test', 'attendee_type' => 'guest',
+                'guest_name' => 'Guest Attendee', 'guest_email' => $guestEmail, 'attendee_type' => 'guest',
             ])->assertRedirect();
-            $guest = Registration::where('event_id', $event->id)->where('guest_email', 'guest@example.test')->firstOrFail();
+            $guest = Registration::where('event_id', $event->id)->where('guest_email', $guestEmail)->firstOrFail();
             $guestQr = $guest->ticket->getQrPayload();
             $this->assertNull($guest->user_id);
         }
@@ -289,7 +294,10 @@ class SnapshotTransferTest extends TestCase
 
     public function test_authority_grant_freezes_cloud_and_activates_only_the_imported_node(): void
     {
-        [$event, $owner, $qr, $secret, $cloudStaffId, $secondQr, $guestQr] = $this->cloudEvent(true, true, true);
+        [$event, $owner, $qr, $secret, $cloudStaffId, $secondQr, $guestQr] = $this->cloudEvent(true, true, true, true);
+        $guestRegistration = Registration::where('event_id', $event->id)->whereNull('user_id')->firstOrFail();
+        $studentRegistration = Registration::with('user')->where('event_id', $event->id)->whereNotNull('user_id')->firstOrFail();
+        $this->assertSame($studentRegistration->user->email, $guestRegistration->guest_email);
         $this->assertSame(4, (int) DB::table('event_snapshots')->where('event_id', $event->id)->value('schema_version'));
         $keypair = sodium_crypto_sign_keypair();
         config([
@@ -323,8 +331,12 @@ class SnapshotTransferTest extends TestCase
             $this->assertDatabaseHas('events', [
                 'id' => $localId, 're_entry_allowed' => true, 'identity_verification_level' => Event::IDENTITY_CHECK,
             ]);
-            $this->assertDatabaseHas('registrations', ['event_id' => $localId, 'guest_email' => 'guest@example.test', 'user_id' => null]);
-            $this->assertDatabaseMissing('users', ['email' => 'guest@example.test']);
+            $this->assertDatabaseHas('registrations', [
+                'event_id' => $localId,
+                'guest_email' => $guestRegistration->guest_email,
+                'user_id' => null,
+            ]);
+            $this->assertDatabaseHas('users', ['email' => $guestRegistration->guest_email]);
             $importReceipt = app(IssueImportReceipt::class)->execute($event->id);
             DB::setDefaultConnection($cloudConnection);
             Crypt::swap($cloudEncrypter);
@@ -502,7 +514,7 @@ class SnapshotTransferTest extends TestCase
                 ->assertJsonPath('stats.envergan_inside_count', 2)
                 ->assertJsonPath('stats.external_inside_count', 1);
             app('auth')->forgetGuards();
-            $this->assertTrue(Admission::whereHas('ticket.registration', fn ($query) => $query->where('guest_email', 'guest@example.test'))->exists());
+            $this->assertTrue(Admission::whereHas('ticket.registration', fn ($query) => $query->where('guest_email', $guestRegistration->guest_email))->exists());
             DB::setDefaultConnection('authority_node');
             Crypt::swap($nodeEncrypter);
             config(['ingress.mode' => 'node', 'ingress.node_id' => 'node-1', 'ingress.node_sync_key' => $secret]);
