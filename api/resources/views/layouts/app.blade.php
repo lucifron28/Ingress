@@ -10,35 +10,61 @@
 </head>
 <body class="app-body">
     <a class="skip-link" href="#main-content">Skip to main content</a>
+    @php($authenticatedUser = auth()->user())
 
-    @auth
-        <x-app-header :user="auth()->user()" />
-    @endauth
+    <div class="app-shell {{ $authenticatedUser ? '' : 'app-shell--guest' }}" data-app-shell>
+        @if ($authenticatedUser)
+            <x-app-sidebar :user="$authenticatedUser" />
+            <div class="app-sidebar-backdrop" data-sidebar-backdrop hidden aria-hidden="true"></div>
+        @endif
 
-    <main id="main-content" class="app-main">
-        <div class="app-container">
-            @if (session('success'))
-                <div class="flash-message flash-message--success" role="status">
-                    {{ session('success') }}
-                </div>
+        <div class="app-main-area" @if ($authenticatedUser) data-app-main-area @endif>
+            @if ($authenticatedUser)
+                <header class="app-mobile-header">
+                    <button
+                        class="app-mobile-header__menu"
+                        type="button"
+                        aria-controls="app-sidebar"
+                        aria-expanded="false"
+                        aria-label="Open navigation"
+                        title="Open navigation"
+                        data-sidebar-open
+                    >
+                        <x-icon name="menu" size="20" />
+                    </button>
+                    <a class="app-mobile-header__brand" href="{{ route('organizer.dashboard') }}">
+                        <img src="{{ asset('images/ingress-mark.png') }}" alt="" width="32" height="32">
+                        <span>Ingress</span>
+                    </a>
+                </header>
             @endif
 
-            @if (session('error'))
-                <div class="flash-message flash-message--error" role="alert">
-                    {{ session('error') }}
+            <main id="main-content" class="app-main">
+                <div class="app-container">
+                    @if (session('success'))
+                        <div class="flash-message flash-message--success" role="status">
+                            {{ session('success') }}
+                        </div>
+                    @endif
+
+                    @if (session('error'))
+                        <div class="flash-message flash-message--error" role="alert">
+                            {{ session('error') }}
+                        </div>
+                    @endif
+
+                    {{ $slot ?? '' }}
+                    @yield('content')
                 </div>
-            @endif
+            </main>
 
-            {{ $slot ?? '' }}
-            @yield('content')
+            <footer class="app-footer">
+                <div class="app-container app-footer__inner">
+                    <span>Manuel S. Enverga University Foundation</span>
+                    <span>Ingress Event Management</span>
+                </div>
+            </footer>
         </div>
-    </main>
-
-    <footer class="app-footer">
-        <div class="app-container app-footer__inner">
-            <span>Manuel S. Enverga University Foundation</span>
-            <span>Ingress Event Management</span>
-        </div>
-    </footer>
+    </div>
 </body>
 </html>

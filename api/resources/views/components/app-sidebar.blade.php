@@ -1,0 +1,72 @@
+@props(['user'])
+
+@php
+    $dashboardIsActive = request()->routeIs('organizer.dashboard');
+    $eventsAreActive = request()->routeIs('organizer.events.*') || request()->routeIs('organizer.attendance');
+@endphp
+
+<aside class="app-sidebar" id="app-sidebar" aria-label="Application sidebar" aria-hidden="false" tabindex="-1" data-app-sidebar>
+    <div class="app-sidebar__brand-row">
+        <a class="app-sidebar__brand" href="{{ route('organizer.dashboard') }}" aria-label="Ingress Dashboard">
+            <span class="app-sidebar__brand-mark">
+                <img src="{{ asset('images/ingress-mark.png') }}" alt="" width="32" height="32">
+            </span>
+            <span class="app-sidebar__brand-name">Ingress</span>
+        </a>
+
+        <button
+            class="app-sidebar__control app-sidebar__collapse"
+            type="button"
+            aria-controls="app-sidebar"
+            aria-expanded="true"
+            aria-label="Collapse sidebar"
+            title="Collapse sidebar"
+            data-sidebar-collapse
+        >
+            <x-icon name="chevron-left" size="18" />
+        </button>
+
+        <button
+            class="app-sidebar__control app-sidebar__close"
+            type="button"
+            aria-label="Close navigation"
+            title="Close navigation"
+            data-sidebar-close
+        >
+            <x-icon name="x" size="18" />
+        </button>
+    </div>
+
+    <nav class="app-sidebar__nav" aria-label="Primary navigation">
+        <x-sidebar-nav-item
+            :href="route('organizer.dashboard')"
+            icon="layout-dashboard"
+            label="Dashboard"
+            :active="$dashboardIsActive"
+        />
+        <x-sidebar-nav-item
+            :href="route('organizer.events.index')"
+            icon="calendar-days"
+            label="Events"
+            :active="$eventsAreActive"
+        />
+    </nav>
+
+    <div class="app-sidebar__footer">
+        <div class="app-sidebar__user">
+            <span class="app-sidebar__user-mark" aria-hidden="true">{{ mb_strtoupper(mb_substr($user->name, 0, 1)) }}</span>
+            <span class="app-sidebar__user-copy">
+                <span class="app-sidebar__user-name">{{ $user->name }}</span>
+                <span class="app-sidebar__user-role">{{ ucfirst($user->role) }}</span>
+            </span>
+        </div>
+
+        <form method="POST" action="{{ route('logout') }}">
+            @csrf
+            <button class="app-sidebar__logout" type="submit" aria-label="Sign out" title="Sign out">
+                <x-icon name="log-out" size="18" />
+                <span class="app-sidebar__logout-label">Sign Out</span>
+            </button>
+        </form>
+    </div>
+</aside>
