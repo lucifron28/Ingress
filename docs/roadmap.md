@@ -59,6 +59,16 @@ Each code phase starts from the latest verified main, adds focused automated cov
 
 Phase 1 adds Firebase-backed student web signup, verification, password recovery, and Cloud session exchange. Phase 2 adds event-specific manager assignment. Public registration adds ticket categories before PDF and payment work because eligibility and category capacity must be enforceable at checkout; paid categories remain unavailable until phase 6. Phase 8 removes the legacy attendee login and Cloud mobile client after the equivalent web flows are available. Firebase credentials and live email delivery must be configured and verified in the Firebase project after repository work; email verification alone does not prove enrollment.
 
+### Post-Phase-9 security audit
+
+| Finding | State | Scope |
+|---|---|---|
+| Paid guest checkout access after transfer | Complete — PR #75 | Checkout session authorization follows the current ticket owner; a previous successful checkout cannot retrieve credentials after a transfer. |
+| Mandatory Cloud Resend dependency | Complete — PR #76 | Cloud startup no longer requires Resend; secure mail configuration and Firebase student verification remain separate. |
+| Guest identity after transfer | Complete — PR #77 | Guest redemption updates current attendee details and rotates credentials atomically. |
+| Unverified guest email blocking student identities | In implementation — `fix/guest-registration-identity` | Cloud registrations, active guest checkout reservations, student ticket transfers, and schema-v4 snapshots distinguish account IDs from unverified guest contact emails. Guest-guest duplicate protection, student eligibility, and event capacity remain enforced. |
+| Predictable demo payment outcomes | Pending — `fix/deterministic-demo-payments` | Replace random simulator outcomes with explicitly authorized deterministic success and failure selections while keeping payment confirmation server-controlled. |
+
 ### Protected invariants
 
 - Event Node admission remains authoritative on the venue LAN and does not depend on Render, Neon, or Firebase.
