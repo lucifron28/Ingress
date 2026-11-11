@@ -1,7 +1,8 @@
 @extends('layouts.app')
 
 @section('content')
-<header class="page-header attendance-page-header">
+<header class="page-header page-header--editorial attendance-page-header">
+    <x-page-header-watermark />
         <div>
             <div class="attendance-page-header__title-row">
                 <h1 class="page-header__title">Event Attendance</h1>

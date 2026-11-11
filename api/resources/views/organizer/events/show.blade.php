@@ -6,7 +6,8 @@
         {{ $errors->first('event') ?: ($errors->first('registration') ?: ($errors->first('transfer') ?: ($errors->first('node_id') ?: $errors->first('receipt')))) }}
     </div>
 @endif
-<header id="event-overview" class="event-detail-header" tabindex="-1">
+<header id="event-overview" class="page-header page-header--editorial event-detail-header" tabindex="-1">
+    <x-page-header-watermark />
     <div class="event-detail-header__top">
         <div class="event-detail-header__identity">
             <div class="event-detail-header__title-row">
