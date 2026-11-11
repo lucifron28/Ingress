@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{{ $title ?? 'Ingress' }} - MSEUF Event Management</title>
-    <link rel="icon" type="image/png" href="{{ asset('images/ingress-favicon.png') }}">
+    <link rel="icon" type="image/png" href="{{ asset('images/ingress-gateway-symbol.png') }}">
+    <link rel="apple-touch-icon" href="{{ asset('images/ingress-app-icon.png') }}">
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="app-body">
@@ -33,8 +34,7 @@
                         <x-icon name="menu" size="20" />
                     </button>
                     <a class="app-mobile-header__brand" href="{{ route('organizer.dashboard') }}">
-                        <img src="{{ asset('images/ingress-mark.png') }}" alt="" width="32" height="32">
-                        <span>Ingress</span>
+                        <x-app-logo variant="horizontal" alt="Ingress Dashboard" class="app-mobile-header__logo" />
                     </a>
                 </header>
             @endif

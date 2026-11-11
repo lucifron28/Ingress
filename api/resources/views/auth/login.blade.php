@@ -1,11 +1,10 @@
 @extends('layouts.app')
 
 @section('content')
-<div style="max-width: 440px; margin: 3rem auto; background: #ffffff; border: 1px solid var(--neutral-border); border-top: 4px solid var(--mseuf-maroon); border-radius: 6px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); padding: 2rem;">
-    <div style="text-align: center; margin-bottom: 2rem;">
-        {{-- White card surface: the maroon lockup reads at ~10.5:1 contrast here. --}}
-        <img src="{{ asset('images/ingress-logo.png') }}" alt="Ingress" style="display: block; width: 200px; height: auto; margin: 0 auto 1rem;">
-        <h1 style="font-size: 1.5rem; font-weight: 700; color: var(--neutral-dark); margin-bottom: 0.25rem;">Ingress Organizer Portal</h1>
+<div class="login-card">
+    <div class="login-card__header">
+        <x-app-logo variant="horizontal" alt="Ingress" class="login-card__logo" />
+        <h1 class="login-card__title">Organizer portal</h1>
         <p style="font-size: 0.875rem; color: var(--neutral-muted);">Event Management &amp; Attendance Administration</p>
     </div>
 

@@ -8,10 +8,8 @@
 <aside class="app-sidebar" id="app-sidebar" aria-label="Application sidebar" aria-hidden="false" tabindex="-1" data-app-sidebar>
     <div class="app-sidebar__brand-row">
         <a class="app-sidebar__brand" href="{{ route('organizer.dashboard') }}" aria-label="Ingress Dashboard">
-            <span class="app-sidebar__brand-mark">
-                <img src="{{ asset('images/ingress-mark.png') }}" alt="" width="32" height="32">
-            </span>
-            <span class="app-sidebar__brand-name">Ingress</span>
+            <x-app-logo variant="horizontal" alt="" class="app-sidebar__logo app-sidebar__logo--horizontal" />
+            <x-app-logo variant="symbol" alt="" class="app-sidebar__logo app-sidebar__logo--symbol" />
         </a>
 
         <button
