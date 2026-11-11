@@ -21,7 +21,7 @@
                 <h2 id="attempt-history-title">Payment attempt history</h2>
                 <ol>
                     @foreach ($checkoutOrder->attempts->sortBy('attempt_number') as $attempt)
-                        <li>Test {{ ucfirst($attempt->payment_method) }} · {{ ucfirst($attempt->status) }} · {{ $attempt->created_at->format('M j, Y g:i A') }}</li>
+                        <li>Test {{ ucfirst($attempt->payment_method) }} · Simulated {{ $attempt->simulated_outcome }} · {{ ucfirst($attempt->status) }} · {{ $attempt->created_at->format('M j, Y g:i A') }}</li>
                     @endforeach
                 </ol>
             </section>
@@ -37,7 +37,7 @@
         @elseif (in_array($checkoutOrder->status, \App\Models\CheckoutOrder::ACTIVE_RESERVATION_STATUSES, true))
             @php $pendingAttempt = $checkoutOrder->attempts->firstWhere('status', \App\Models\PaymentAttempt::STATUS_PENDING); @endphp
             @if ($pendingAttempt)
-                <p>Test {{ ucfirst($pendingAttempt->payment_method) }} attempt is pending. Continue it after a page refresh or app restart.</p>
+                <p>Test {{ ucfirst($pendingAttempt->payment_method) }} attempt is pending with a simulated {{ $pendingAttempt->simulated_outcome }} result. Continue it after a page refresh or app restart.</p>
                 <form method="POST" action="{{ route('public.checkout.process', $checkoutOrder->public_id) }}">
                     @csrf
                     <input type="hidden" name="attempt_key" value="{{ $pendingAttempt->attempt_key }}">
@@ -50,6 +50,16 @@
                 <form method="POST" action="{{ route('public.checkout.attempt', $checkoutOrder->public_id) }}" style="display: flex; flex-wrap: wrap; gap: .75rem;">
                     @csrf
                     <input type="hidden" name="attempt_key" value="{{ $attemptKey }}">
+                    <label for="simulated_outcome">Demo outcome
+                        <select id="simulated_outcome" name="simulated_outcome" required>
+                            <option value="" selected disabled>Choose the result to simulate</option>
+                            <option value="success">Successful payment</option>
+                            <option value="failure">Failed payment</option>
+                        </select>
+                    </label>
+                    @error('simulated_outcome')
+                        <p role="alert">{{ $message }}</p>
+                    @enderror
                     <button class="button" type="submit" name="payment_method" value="wallet">Use Test Wallet</button>
                     <button class="button secondary" type="submit" name="payment_method" value="card">Use Test Card</button>
                 </form>

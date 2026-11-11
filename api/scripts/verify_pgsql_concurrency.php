@@ -8,6 +8,9 @@
  *
  *   Case A — Final seat race: two users register simultaneously for an event
  *            with capacity 1. Exactly one confirmed registration must exist.
+ *   Case A3 — Simulated payment race: two requests process one selected
+ *             successful attempt simultaneously. One registration and ticket
+ *             must be issued and both requests must resolve to that registration.
  *
  *   Case B — Same-ticket race: two gate scanners submit the same ticket at the
  *            same moment. Exactly one admission must exist.
@@ -15,7 +18,7 @@
  *   Case C — Guest-ticket race: two requests redeem the same private code at
  *            the same moment. Exactly one credential rotation must commit.
  *
- * Both cases release two child PHP processes through a two-way barrier so the
+ * Race cases release two child PHP processes through a two-way barrier so the
  * database transactions genuinely overlap.
  *
  * Usage (from the api/ directory):
@@ -28,6 +31,8 @@
 use App\Actions\ActivateEventAuthority;
 use App\Actions\AdmissionSyncEnvelope;
 use App\Actions\AuthorityGrant;
+use App\Actions\BeginSimulatedPaymentAttempt;
+use App\Actions\CreateSimulatedCheckout;
 use App\Actions\ImportReceivedSnapshot;
 use App\Actions\ManageNodeStaffCredential;
 use App\Actions\NodeStaffPairing;
@@ -44,6 +49,7 @@ use App\Models\Admission;
 use App\Models\CheckoutOrder;
 use App\Models\Event;
 use App\Models\EventStaff;
+use App\Models\PaymentAttempt;
 use App\Models\Registration;
 use App\Models\Ticket;
 use App\Models\TicketTransfer;
@@ -347,6 +353,57 @@ echo "  confirmed registrations: {$mixedSeatConfirmed}; active paid reservations
 $assert($mixedSeatSuccesses === 1, 'only one payment reservation or free registration won');
 $assert($mixedSeatConfirmed + $mixedSeatReserved === 1, 'confirmed registrations plus active reservations stay within capacity');
 $assert($mixedSeatTickets === $mixedSeatConfirmed, 'pending paid reservations issue no ticket');
+echo "\n";
+
+// CASE A3 — Concurrent processing of one selected simulator outcome is idempotent.
+echo "CASE A3: concurrent processing of one simulated payment attempt\n";
+config(['ingress.mode' => 'cloud', 'ingress.simulated_payments.enabled' => true]);
+$paymentRaceEvent = Event::create([
+    'organizer_id' => $organizer->id,
+    'venue_id' => $venue->id,
+    'title' => 'Payment Attempt Race',
+    'slug' => "payment-attempt-race-{$suffix}",
+    'capacity' => 2,
+    'registration_opens_at' => now()->subHour(),
+    'registration_closes_at' => now()->addDay(),
+    'starts_at' => now()->addDays(2),
+    'ends_at' => now()->addDays(2)->addHours(3),
+    'status' => Event::STATUS_PUBLISHED,
+    'simulated_payments_enabled' => true,
+]);
+$paymentRaceCategory = $paymentRaceEvent->ticketCategories()->create([
+    'name' => 'Paid Admission',
+    'price_minor' => 12500,
+    'currency' => 'PHP',
+    'capacity' => 2,
+    'eligibility' => 'public',
+    'is_active' => true,
+    'is_default' => false,
+]);
+$paymentRaceOrder = app(CreateSimulatedCheckout::class)->execute(
+    eventId: $paymentRaceEvent->id,
+    categoryId: $paymentRaceCategory->id,
+    user: null,
+    guestName: 'Payment Race Guest',
+    guestEmail: "payment.race.{$suffix}@example.test",
+    idempotencyKey: (string) Str::uuid(),
+);
+$paymentRaceAttemptKey = (string) Str::uuid();
+app(BeginSimulatedPaymentAttempt::class)->execute(
+    $paymentRaceOrder->id,
+    PaymentAttempt::METHOD_WALLET,
+    $paymentRaceAttemptKey,
+    PaymentAttempt::SIMULATED_OUTCOME_SUCCESS,
+);
+$paymentRaceResults = $runConcurrently([
+    ['paid_checkout_process', ['order_id' => $paymentRaceOrder->id, 'attempt_key' => $paymentRaceAttemptKey]],
+    ['paid_checkout_process', ['order_id' => $paymentRaceOrder->id, 'attempt_key' => $paymentRaceAttemptKey]],
+], $childScript, $testDatabase);
+$paymentRaceRegistrationIds = array_values(array_unique(array_filter(array_column($paymentRaceResults, 'registration_id'))));
+$assert(count(array_filter($paymentRaceResults, fn ($result) => ($result['ok'] ?? false) === true)) === 2, 'both payment confirmations resolved successfully');
+$assert(count($paymentRaceRegistrationIds) === 1, 'both confirmations resolved to the same registration');
+$assert(Registration::where('event_id', $paymentRaceEvent->id)->count() === 1, 'one registration was issued');
+$assert(Ticket::whereHas('registration', fn ($query) => $query->where('event_id', $paymentRaceEvent->id))->count() === 1, 'one ticket was issued');
 echo "\n";
 
 // =============================================================================

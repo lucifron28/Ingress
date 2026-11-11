@@ -22,6 +22,7 @@ use App\Actions\NodeStaffAccess;
 use App\Actions\NodeStaffPairing;
 use App\Actions\PrepareAdmissionBatch;
 use App\Actions\PrepareEventSnapshot;
+use App\Actions\ProcessSimulatedPayment;
 use App\Actions\ReceiveAdmissionBatch;
 use App\Actions\ReceiveSnapshot;
 use App\Actions\ReceiveWalkIn;
@@ -34,6 +35,7 @@ use App\Http\Controllers\Api\V1\TicketTransferController;
 use App\Http\Controllers\Web\OrganizerEventController;
 use App\Http\Middleware\EnsureRuntimeDatabase;
 use App\Models\AccessPoint;
+use App\Models\CheckoutOrder;
 use App\Models\Event;
 use App\Models\TicketTransfer;
 use App\Models\User;
@@ -132,6 +134,14 @@ try {
             idempotencyKey: $payload['idempotency_key'],
         );
         $emit(['ok' => true, 'order_id' => $order->id]);
+    } elseif ($mode === 'paid_checkout_process') {
+        config(['ingress.mode' => 'cloud', 'ingress.simulated_payments.enabled' => true]);
+        $result = app(ProcessSimulatedPayment::class)->execute($payload['order_id'], $payload['attempt_key']);
+        $emit([
+            'ok' => $result['status'] === CheckoutOrder::STATUS_SUCCESSFUL,
+            'status' => $result['status'],
+            'registration_id' => $result['registration']?->id,
+        ]);
     } elseif ($mode === 'scan') {
         $result = (new AdmitTicket)->execute(
             staff: User::find($payload['staff_user_id']),

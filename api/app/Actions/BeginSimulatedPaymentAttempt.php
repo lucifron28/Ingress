@@ -7,14 +7,19 @@ use App\Models\Event;
 use App\Models\PaymentAttempt;
 use App\Models\TicketCategory;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class BeginSimulatedPaymentAttempt
 {
     public function __construct(private ExpireCheckoutReservations $expiration) {}
 
-    public function execute(int $orderId, string $method, string $attemptKey): ?PaymentAttempt
+    public function execute(int $orderId, string $method, string $attemptKey, string $simulatedOutcome): ?PaymentAttempt
     {
-        return DB::transaction(function () use ($orderId, $method, $attemptKey): ?PaymentAttempt {
+        if (! in_array($simulatedOutcome, [PaymentAttempt::SIMULATED_OUTCOME_SUCCESS, PaymentAttempt::SIMULATED_OUTCOME_FAILURE], true)) {
+            throw ValidationException::withMessages(['simulated_outcome' => ['Choose a simulated success or failure outcome.']]);
+        }
+
+        return DB::transaction(function () use ($orderId, $method, $attemptKey, $simulatedOutcome): ?PaymentAttempt {
             $eventId = CheckoutOrder::query()->whereKey($orderId)->value('event_id');
             $event = $eventId === null ? null : Event::query()->whereKey($eventId)->lockForUpdate()->first();
             if (! $event) {
@@ -60,6 +65,7 @@ class BeginSimulatedPaymentAttempt
                 'attempt_number' => $attemptNumber,
                 'attempt_key' => $attemptKey,
                 'payment_method' => $method,
+                'simulated_outcome' => $simulatedOutcome,
                 'status' => PaymentAttempt::STATUS_PENDING,
             ]);
             $order->update(['status' => CheckoutOrder::STATUS_PENDING]);

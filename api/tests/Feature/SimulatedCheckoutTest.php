@@ -12,7 +12,6 @@ use App\Models\Ticket;
 use App\Models\TicketCategory;
 use App\Models\User;
 use App\Models\Venue;
-use App\Services\Checkout\SimulatedPaymentProcessor;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
@@ -127,6 +126,24 @@ class SimulatedCheckoutTest extends TestCase
         $this->assertSame(0, Ticket::count());
     }
 
+    public function test_global_simulator_switch_cancels_checkout_before_a_selected_success_can_run(): void
+    {
+        $order = $this->startPaidCheckout();
+        $attemptKey = (string) Str::uuid();
+        config(['ingress.simulated_payments.enabled' => false]);
+
+        $this->post(route('public.checkout.attempt', $order->public_id), [
+            'payment_method' => PaymentAttempt::METHOD_CARD,
+            'attempt_key' => $attemptKey,
+            'simulated_outcome' => PaymentAttempt::SIMULATED_OUTCOME_SUCCESS,
+        ])->assertRedirect(route('public.checkout.show', $order->public_id));
+
+        $this->assertSame(CheckoutOrder::STATUS_CANCELLED, $order->fresh()->status);
+        $this->assertSame(0, PaymentAttempt::count());
+        $this->assertSame(0, Registration::count());
+        $this->assertSame(0, Ticket::count());
+    }
+
     public function test_paid_guest_checkout_holds_capacity_without_issuing_a_ticket_and_can_be_resumed(): void
     {
         $this->event->update(['capacity' => 1, 'simulated_payments_enabled' => true]);
@@ -155,6 +172,9 @@ class SimulatedCheckoutTest extends TestCase
             ->assertOk()
             ->assertSee('SIMULATED PAYMENT')
             ->assertSee('NO REAL MONEY IS CHARGED')
+            ->assertSee('Demo outcome')
+            ->assertSee('Successful payment')
+            ->assertSee('Failed payment')
             ->assertSee('Test Wallet')
             ->assertDontSee('card_number')
             ->assertDontSee('security_code');
@@ -181,6 +201,7 @@ class SimulatedCheckoutTest extends TestCase
         $this->post(route('public.checkout.attempt', $order->public_id), [
             'payment_method' => PaymentAttempt::METHOD_WALLET,
             'attempt_key' => $attemptKey,
+            'simulated_outcome' => PaymentAttempt::SIMULATED_OUTCOME_SUCCESS,
         ])->assertRedirect();
 
         $student = User::factory()->create([
@@ -203,14 +224,6 @@ class SimulatedCheckoutTest extends TestCase
             'user_id' => $student->id,
             'attendee_type' => 'student',
         ]);
-
-        $this->app->instance(SimulatedPaymentProcessor::class, new class extends SimulatedPaymentProcessor
-        {
-            public function process(PaymentAttempt $attempt): string
-            {
-                return PaymentAttempt::STATUS_SUCCESSFUL;
-            }
-        });
 
         $result = app(ProcessSimulatedPayment::class)->execute($order->id, $attemptKey);
 
@@ -271,15 +284,8 @@ class SimulatedCheckoutTest extends TestCase
         $this->post(route('public.checkout.attempt', $order->public_id), [
             'payment_method' => PaymentAttempt::METHOD_CARD,
             'attempt_key' => $attemptKey,
+            'simulated_outcome' => PaymentAttempt::SIMULATED_OUTCOME_FAILURE,
         ])->assertRedirect(route('public.checkout.show', $order->public_id));
-
-        $this->app->instance(SimulatedPaymentProcessor::class, new class extends SimulatedPaymentProcessor
-        {
-            public function process(PaymentAttempt $attempt): string
-            {
-                return PaymentAttempt::STATUS_FAILED;
-            }
-        });
 
         $this->post(route('public.checkout.process', $order->public_id), [
             'attempt_key' => $attemptKey,
@@ -292,6 +298,44 @@ class SimulatedCheckoutTest extends TestCase
         $this->assertSame(0, Ticket::count());
     }
 
+    public function test_selected_simulated_outcome_is_persisted_on_the_payment_attempt(): void
+    {
+        $order = $this->startPaidCheckout();
+        $attemptKey = (string) Str::uuid();
+
+        $this->post(route('public.checkout.attempt', $order->public_id), [
+            'payment_method' => PaymentAttempt::METHOD_CARD,
+            'attempt_key' => $attemptKey,
+            'simulated_outcome' => PaymentAttempt::SIMULATED_OUTCOME_FAILURE,
+        ])->assertRedirect(route('public.checkout.show', $order->public_id));
+
+        $this->assertDatabaseHas('payment_attempts', [
+            'checkout_order_id' => $order->id,
+            'attempt_key' => $attemptKey,
+            'simulated_outcome' => PaymentAttempt::SIMULATED_OUTCOME_FAILURE,
+        ]);
+
+        $this->get(route('public.checkout.show', $order->public_id))
+            ->assertOk()
+            ->assertSee('simulated failure result');
+    }
+
+    public function test_arbitrary_simulated_outcomes_are_rejected(): void
+    {
+        $order = $this->startPaidCheckout();
+
+        $this->post(route('public.checkout.attempt', $order->public_id), [
+            'payment_method' => PaymentAttempt::METHOD_CARD,
+            'attempt_key' => (string) Str::uuid(),
+            'simulated_outcome' => 'approved',
+        ])->assertSessionHasErrors('simulated_outcome');
+
+        $this->assertSame(0, PaymentAttempt::count());
+        $this->assertSame(CheckoutOrder::STATUS_PENDING, $order->fresh()->status);
+        $this->assertSame(0, Registration::count());
+        $this->assertSame(0, Ticket::count());
+    }
+
     public function test_simulator_approval_issues_one_paid_ticket_and_confirmation_is_idempotent(): void
     {
         $order = $this->startPaidCheckout();
@@ -299,15 +343,17 @@ class SimulatedCheckoutTest extends TestCase
         $this->post(route('public.checkout.attempt', $order->public_id), [
             'payment_method' => PaymentAttempt::METHOD_WALLET,
             'attempt_key' => $attemptKey,
+            'simulated_outcome' => PaymentAttempt::SIMULATED_OUTCOME_SUCCESS,
         ])->assertRedirect(route('public.checkout.show', $order->public_id));
-
-        $this->app->instance(SimulatedPaymentProcessor::class, new class extends SimulatedPaymentProcessor
-        {
-            public function process(PaymentAttempt $attempt): string
-            {
-                return PaymentAttempt::STATUS_SUCCESSFUL;
-            }
-        });
+        $this->post(route('public.checkout.attempt', $order->public_id), [
+            'payment_method' => PaymentAttempt::METHOD_WALLET,
+            'attempt_key' => $attemptKey,
+            'simulated_outcome' => PaymentAttempt::SIMULATED_OUTCOME_FAILURE,
+        ])->assertRedirect(route('public.checkout.show', $order->public_id));
+        $this->assertDatabaseHas('payment_attempts', [
+            'attempt_key' => $attemptKey,
+            'simulated_outcome' => PaymentAttempt::SIMULATED_OUTCOME_SUCCESS,
+        ]);
 
         $confirmation = [
             'attempt_key' => $attemptKey,
@@ -339,14 +385,8 @@ class SimulatedCheckoutTest extends TestCase
         $this->post(route('public.checkout.attempt', $order->public_id), [
             'payment_method' => PaymentAttempt::METHOD_WALLET,
             'attempt_key' => $attemptKey,
+            'simulated_outcome' => PaymentAttempt::SIMULATED_OUTCOME_SUCCESS,
         ]);
-        $this->app->instance(SimulatedPaymentProcessor::class, new class extends SimulatedPaymentProcessor
-        {
-            public function process(PaymentAttempt $attempt): string
-            {
-                return PaymentAttempt::STATUS_SUCCESSFUL;
-            }
-        });
 
         $result = app(ProcessSimulatedPayment::class)->execute($order->id, $attemptKey);
         $redemptionCode = $result['redemption_code'];
@@ -382,15 +422,8 @@ class SimulatedCheckoutTest extends TestCase
         $this->post(route('public.checkout.attempt', $order->public_id), [
             'payment_method' => PaymentAttempt::METHOD_WALLET,
             'attempt_key' => $attemptKey,
+            'simulated_outcome' => PaymentAttempt::SIMULATED_OUTCOME_SUCCESS,
         ]);
-
-        $this->app->instance(SimulatedPaymentProcessor::class, new class extends SimulatedPaymentProcessor
-        {
-            public function process(PaymentAttempt $attempt): string
-            {
-                return PaymentAttempt::STATUS_SUCCESSFUL;
-            }
-        });
 
         $this->post(route('public.checkout.process', $order->public_id), [
             'attempt_key' => $attemptKey,
@@ -454,14 +487,8 @@ class SimulatedCheckoutTest extends TestCase
         $this->post(route('public.checkout.attempt', $order->public_id), [
             'payment_method' => PaymentAttempt::METHOD_WALLET,
             'attempt_key' => $attemptKey,
+            'simulated_outcome' => PaymentAttempt::SIMULATED_OUTCOME_SUCCESS,
         ]);
-        $this->app->instance(SimulatedPaymentProcessor::class, new class extends SimulatedPaymentProcessor
-        {
-            public function process(PaymentAttempt $attempt): string
-            {
-                return PaymentAttempt::STATUS_SUCCESSFUL;
-            }
-        });
         $result = app(ProcessSimulatedPayment::class)->execute($order->id, $attemptKey);
         $this->assertIsString($result['redemption_code']);
         $order->forceFill(['redemption_code_expires_at' => now()->subSecond()])->save();
@@ -499,20 +526,13 @@ class SimulatedCheckoutTest extends TestCase
         $this->post(route('public.checkout.attempt', $order->public_id), [
             'payment_method' => PaymentAttempt::METHOD_WALLET,
             'attempt_key' => $attemptKey,
+            'simulated_outcome' => PaymentAttempt::SIMULATED_OUTCOME_SUCCESS,
         ]);
 
         DB::table('users')->where('id', $student->id)->update([
             'firebase_uid' => null,
             'email_verified_at' => null,
         ]);
-        $this->app->instance(SimulatedPaymentProcessor::class, new class extends SimulatedPaymentProcessor
-        {
-            public function process(PaymentAttempt $attempt): string
-            {
-                return PaymentAttempt::STATUS_SUCCESSFUL;
-            }
-        });
-
         $this->post(route('public.checkout.process', $order->public_id), ['attempt_key' => $attemptKey])
             ->assertRedirect(route('public.checkout.show', $order->public_id));
 
@@ -535,6 +555,7 @@ class SimulatedCheckoutTest extends TestCase
             $this->post(route('public.checkout.attempt', $order->public_id), [
                 'payment_method' => PaymentAttempt::METHOD_WALLET,
                 'attempt_key' => $attemptKey,
+                'simulated_outcome' => PaymentAttempt::SIMULATED_OUTCOME_SUCCESS,
             ]);
 
             Carbon::setTestNow($start->copy()->addMinutes(11));
@@ -566,6 +587,7 @@ class SimulatedCheckoutTest extends TestCase
         $this->post(route('public.checkout.attempt', $order->public_id), [
             'payment_method' => PaymentAttempt::METHOD_WALLET,
             'attempt_key' => $attemptKey,
+            'simulated_outcome' => PaymentAttempt::SIMULATED_OUTCOME_SUCCESS,
         ]);
 
         $manager = User::factory()->create(['role' => User::ROLE_EVENT_MANAGER]);
@@ -694,15 +716,9 @@ class SimulatedCheckoutTest extends TestCase
         $this->post(route('public.checkout.attempt', $order->public_id), [
             'payment_method' => PaymentAttempt::METHOD_WALLET,
             'attempt_key' => $firstAttemptKey,
+            'simulated_outcome' => PaymentAttempt::SIMULATED_OUTCOME_FAILURE,
         ]);
 
-        $this->app->instance(SimulatedPaymentProcessor::class, new class extends SimulatedPaymentProcessor
-        {
-            public function process(PaymentAttempt $attempt): string
-            {
-                return PaymentAttempt::STATUS_FAILED;
-            }
-        });
         $this->post(route('public.checkout.process', $order->public_id), ['attempt_key' => $firstAttemptKey]);
 
         $freeCategory = $this->category($this->event, 'Free General Admission');
@@ -719,14 +735,8 @@ class SimulatedCheckoutTest extends TestCase
         $this->post(route('public.checkout.attempt', $order->public_id), [
             'payment_method' => PaymentAttempt::METHOD_CARD,
             'attempt_key' => $secondAttemptKey,
+            'simulated_outcome' => PaymentAttempt::SIMULATED_OUTCOME_SUCCESS,
         ]);
-        $this->app->instance(SimulatedPaymentProcessor::class, new class extends SimulatedPaymentProcessor
-        {
-            public function process(PaymentAttempt $attempt): string
-            {
-                return PaymentAttempt::STATUS_SUCCESSFUL;
-            }
-        });
         $this->post(route('public.checkout.process', $order->public_id), ['attempt_key' => $secondAttemptKey]);
 
         $this->assertSame(CheckoutOrder::STATUS_SUCCESSFUL, $order->fresh()->status);
@@ -746,6 +756,7 @@ class SimulatedCheckoutTest extends TestCase
         $this->post(route('public.checkout.attempt', $order->public_id), [
             'payment_method' => PaymentAttempt::METHOD_WALLET,
             'attempt_key' => $attemptKey,
+            'simulated_outcome' => PaymentAttempt::SIMULATED_OUTCOME_FAILURE,
         ]);
 
         $this->post(route('public.checkout.cancel', $order->public_id))
