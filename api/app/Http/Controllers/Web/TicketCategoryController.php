@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers\Web;
 
+use App\Actions\ExpireCheckoutReservations;
 use App\Http\Controllers\Controller;
+use App\Models\CheckoutOrder;
 use App\Models\Event;
 use App\Models\Registration;
 use App\Models\TicketCategory;
@@ -46,11 +48,15 @@ class TicketCategoryController extends Controller
         }
 
         return redirect()->route('organizer.events.show', $event)
-            ->with('success', 'Ticket category added. Paid checkout remains unavailable until the simulated payment phase is enabled.');
+            ->with('success', 'Ticket category added.');
     }
 
-    public function update(Request $request, Event $event, TicketCategory $ticketCategory): RedirectResponse
-    {
+    public function update(
+        Request $request,
+        Event $event,
+        TicketCategory $ticketCategory,
+        ExpireCheckoutReservations $expiration,
+    ): RedirectResponse {
         Gate::authorize('update', $event);
         abort_unless(config('ingress.mode') === 'cloud', 404);
         $event->assertSnapshotNotPrepared();
@@ -59,18 +65,22 @@ class TicketCategoryController extends Controller
         $data = $this->validatedCategory($request, $event, $ticketCategory);
 
         try {
-            DB::transaction(function () use ($event, $ticketCategory, $data): void {
+            DB::transaction(function () use ($event, $ticketCategory, $data, $expiration): void {
                 $lockedEvent = Event::query()->whereKey($event->id)->lockForUpdate()->firstOrFail();
                 $lockedEvent->assertSnapshotNotPrepared();
+                $expiration->forLockedEvent($lockedEvent);
                 $lockedCategory = TicketCategory::query()
                     ->where('event_id', $lockedEvent->id)
                     ->whereKey($ticketCategory->id)
                     ->lockForUpdate()
                     ->firstOrFail();
 
-                if (Registration::query()->where('ticket_category_id', $lockedCategory->id)->exists()) {
+                $hasIssuedRegistration = Registration::query()->where('ticket_category_id', $lockedCategory->id)->exists();
+                $hasActiveCheckout = CheckoutOrder::query()->where('ticket_category_id', $lockedCategory->id)
+                    ->activeReservation()->exists();
+                if ($hasIssuedRegistration || $hasActiveCheckout) {
                     throw ValidationException::withMessages([
-                        'category' => ['A category cannot be changed after a registration has been issued. Add a new category instead.'],
+                        'category' => ['A category cannot be changed after a registration or active checkout has been issued. Add a new category instead.'],
                     ]);
                 }
 

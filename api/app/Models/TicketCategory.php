@@ -44,6 +44,11 @@ class TicketCategory extends Model
         return $this->hasMany(Registration::class);
     }
 
+    public function checkoutOrders(): HasMany
+    {
+        return $this->hasMany(CheckoutOrder::class);
+    }
+
     public function scopeActive(Builder $query): Builder
     {
         return $query->where('is_active', true);
@@ -57,7 +62,9 @@ class TicketCategory extends Model
 
         $confirmed = $this->confirmed_registrations_count
             ?? $this->registrations()->where('status', Registration::STATUS_CONFIRMED)->count();
+        $reserved = $this->active_checkout_orders_count
+            ?? CheckoutOrder::query()->where('ticket_category_id', $this->id)->activeReservation()->count();
 
-        return max(0, $this->capacity - $confirmed);
+        return max(0, $this->capacity - $confirmed - $reserved);
     }
 }

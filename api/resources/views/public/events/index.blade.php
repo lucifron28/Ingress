@@ -10,8 +10,8 @@
     <div class="grid">
         @forelse ($events as $event)
             @php
-                $remaining = max(0, $event->capacity - (int) $event->confirmed_registrations_count);
-                $hasAvailableCategory = $event->ticketCategories->contains(fn ($category) => $category->price_minor === 0 && $category->remainingCapacity() !== 0);
+                $remaining = max(0, $event->capacity - (int) $event->confirmed_registrations_count - (int) $event->active_checkout_orders_count);
+                $hasAvailableCategory = $event->ticketCategories->contains(fn ($category) => ($category->price_minor === 0 || $event->canOfferSimulatedPayments()) && $category->remainingCapacity() !== 0);
                 $registrationOpen = $event->isRegistrationOpen() && $remaining > 0 && $hasAvailableCategory;
             @endphp
             <article class="card stack">

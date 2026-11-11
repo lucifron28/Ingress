@@ -39,6 +39,7 @@ class Event extends Model
         'description',
         'capacity',
         'registration_eligibility',
+        'simulated_payments_enabled',
         'registration_opens_at',
         'registration_closes_at',
         'registration_closed_at',
@@ -55,6 +56,7 @@ class Event extends Model
     {
         return [
             'capacity' => 'integer',
+            'simulated_payments_enabled' => 'boolean',
             'registration_opens_at' => 'datetime',
             'registration_closes_at' => 'datetime',
             'registration_closed_at' => 'datetime',
@@ -117,6 +119,11 @@ class Event extends Model
         return $this->hasMany(EventResponsibilityAudit::class);
     }
 
+    public function simulatedPaymentAudits(): HasMany
+    {
+        return $this->hasMany(EventSimulatedPaymentAudit::class);
+    }
+
     public function staffUsers(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'event_staff')
@@ -127,6 +134,11 @@ class Event extends Model
     public function registrations(): HasMany
     {
         return $this->hasMany(Registration::class);
+    }
+
+    public function checkoutOrders(): HasMany
+    {
+        return $this->hasMany(CheckoutOrder::class);
     }
 
     public function ticketCategories(): HasMany
@@ -170,6 +182,13 @@ class Event extends Model
     {
         return $this->isPublished() && $this->ticket_transfers_allowed && $this->snapshot_prepared_at === null
             && $this->ends_at !== null && Carbon::now()->lt($this->ends_at);
+    }
+
+    public function canOfferSimulatedPayments(): bool
+    {
+        return config('ingress.mode') === 'cloud'
+            && (bool) config('ingress.simulated_payments.enabled')
+            && $this->simulated_payments_enabled;
     }
 
     public function assertSnapshotNotPrepared(): void

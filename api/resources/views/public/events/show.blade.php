@@ -23,7 +23,9 @@
                     <strong>{{ $category->name }}</strong>
                     <p class="meta" style="margin: .2rem 0;">{{ $category->price_minor === 0 ? 'Free' : '₱'.number_format($category->price_minor / 100, 2) }} · {{ $category->eligibility === \App\Models\TicketCategory::ELIGIBILITY_STUDENT ? 'Verified students only' : 'Public' }}</p>
                     @if ($categoryRemaining !== null)<p class="meta" style="margin: .2rem 0;">{{ $categoryRemaining }} category {{ \Illuminate\Support\Str::plural('place', $categoryRemaining) }} remaining</p>@endif
-                    @if ($category->price_minor > 0)<p class="meta">Paid checkout is not available yet.</p>@endif
+                    @if ($category->price_minor > 0)
+                        <p class="meta">{{ $event->canOfferSimulatedPayments() ? 'Simulated payment · No real money is charged.' : 'Paid checkout is not available.' }}</p>
+                    @endif
                 </div>
             @empty
                 <p class="meta">No ticket categories are available.</p>
@@ -32,7 +34,7 @@
             @if ($event->isCancelled())
                 <p class="notice">This event has been cancelled. Registration is unavailable.</p>
             @elseif (! $hasAvailableCategory)
-                <p class="notice">All free categories are sold out or only paid categories remain. Paid checkout is not available yet.</p>
+                <p class="notice">No ticket categories are available. Sold-out categories cannot be checked out.</p>
             @elseif (! $registrationOpen)
                 <p class="notice">Registration is not open, has closed, or the event is full.</p>
             @elseif ($event->ticketCategories->isNotEmpty())

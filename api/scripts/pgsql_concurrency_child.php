@@ -12,6 +12,7 @@
 
 use App\Actions\ActivateEventAuthority;
 use App\Actions\AdmitTicket;
+use App\Actions\CreateSimulatedCheckout;
 use App\Actions\ExportSnapshot;
 use App\Actions\ImportReceivedSnapshot;
 use App\Actions\IssueGuestTicket;
@@ -115,6 +116,17 @@ try {
             'ok' => true,
             'registration_id' => $result['registration']->id,
         ]);
+    } elseif ($mode === 'paid_checkout_start') {
+        config(['ingress.mode' => 'cloud', 'ingress.simulated_payments.enabled' => true]);
+        $order = app(CreateSimulatedCheckout::class)->execute(
+            eventId: $payload['event_id'],
+            categoryId: $payload['category_id'],
+            user: null,
+            guestName: $payload['guest_name'],
+            guestEmail: $payload['email'],
+            idempotencyKey: $payload['idempotency_key'],
+        );
+        $emit(['ok' => true, 'order_id' => $order->id]);
     } elseif ($mode === 'scan') {
         $result = (new AdmitTicket)->execute(
             staff: User::find($payload['staff_user_id']),

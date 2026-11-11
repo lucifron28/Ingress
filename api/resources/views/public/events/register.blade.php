@@ -15,28 +15,30 @@
         @elseif (! $event->isRegistrationOpen())
             <div class="notice">Registration is not open, has closed, or this event has been finalized.</div>
         @elseif (! $hasAvailableCategory)
-            <div class="notice">No free ticket categories are available. Paid checkout is not available yet.</div>
+            <div class="notice">No ticket categories are currently available for checkout.</div>
         @elseif ($categories->isEmpty())
             <div class="notice">No ticket categories are available for registration.</div>
         @else
             @if ($event->registration_eligibility === \App\Models\Event::ELIGIBILITY_STUDENT)
                 <div class="notice">A verified MSEUF student account is required. Guests cannot register for this event.</div>
             @else
-                <div class="notice">Public free tickets use guest checkout. No account is required. Student-only categories require verified student sign-in.</div>
+                <div class="notice">Public tickets use guest checkout. No account is required. Student-only categories require verified student sign-in. @if ($event->canOfferSimulatedPayments()) Paid checkout is simulated; no real money is charged and no card details are collected. @endif</div>
             @endif
 
             <form method="POST" action="{{ route('public.events.register.store', $event->slug) }}" autocomplete="on">
                 @csrf
+                <input type="hidden" name="idempotency_key" value="{{ old('idempotency_key', $idempotencyKey) }}">
                 <div class="field">
                     <label for="ticket_category_id">Ticket category</label>
                     <select id="ticket_category_id" name="ticket_category_id" required>
                         @foreach ($categories as $category)
                             @php
                                 $categoryRemaining = $category->remainingCapacity();
-                                $unavailable = $category->price_minor > 0 || $categoryRemaining === 0;
+                                $unavailable = ($category->price_minor > 0 && ! $event->canOfferSimulatedPayments()) || $categoryRemaining === 0;
                                 $categoryLabel = $category->name.' · '.($category->price_minor === 0 ? 'Free' : '₱'.number_format($category->price_minor / 100, 2));
                                 if ($category->eligibility === \App\Models\TicketCategory::ELIGIBILITY_STUDENT) $categoryLabel .= ' · Verified students';
                                 if ($categoryRemaining === 0) $categoryLabel .= ' · Sold out';
+                                elseif ($category->price_minor > 0 && $event->canOfferSimulatedPayments()) $categoryLabel .= ' · Simulated checkout';
                                 elseif ($category->price_minor > 0) $categoryLabel .= ' · Payment unavailable';
                             @endphp
                             <option value="{{ $category->id }}" {{ (string) old('ticket_category_id', $selectedCategoryId) === (string) $category->id ? 'selected' : '' }} {{ $unavailable ? 'disabled' : '' }}>{{ $categoryLabel }}</option>

@@ -15,4 +15,8 @@ return [
     'authority_private_key' => env('INGRESS_AUTHORITY_PRIVATE_KEY'),
     'authority_public_key' => env('INGRESS_AUTHORITY_PUBLIC_KEY'),
     'mail_test_recipient' => env('INGRESS_MAIL_TEST_RECIPIENT'),
+    'simulated_payments' => [
+        'enabled' => env('INGRESS_SIMULATED_PAYMENTS_ENABLED', false),
+        'reservation_minutes' => 10,
+    ],
 ];

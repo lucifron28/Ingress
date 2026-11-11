@@ -254,7 +254,7 @@ class PublicEventRegistrationTest extends TestCase
 
         $this->get(route('public.events.register', $this->event->slug))
             ->assertOk()
-            ->assertSee('No free ticket categories are available.')
+            ->assertSee('No ticket categories are currently available for checkout.')
             ->assertDontSee('name="guest_email"', false);
 
         $this->from(route('public.events.register', $this->event->slug))

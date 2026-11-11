@@ -2,6 +2,7 @@
 
 namespace App\Services\Tickets;
 
+use App\Models\CheckoutOrder;
 use App\Models\Registration;
 use App\Models\Ticket;
 use Illuminate\Http\Request;
@@ -79,10 +80,20 @@ class TicketSessionAccess
         }
 
         try {
-            return Crypt::decryptString($handoff['ciphertext']);
+            $redemptionCode = Crypt::decryptString($handoff['ciphertext']);
         } catch (\Throwable) {
             return null;
         }
+
+        CheckoutOrder::query()->where('registration_id', $registration->id)
+            ->whereNotNull('redemption_code_ciphertext')
+            ->update([
+                'redemption_code_ciphertext' => null,
+                'redemption_code_expires_at' => null,
+                'updated_at' => now(),
+            ]);
+
+        return $redemptionCode;
     }
 
     public function canView(Request $request, Registration $registration, Ticket $ticket): bool
