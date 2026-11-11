@@ -875,34 +875,41 @@ tbody tr:hover > th[scope='row'] {
 .stat-card {
     display: grid;
     min-width: 0;
-    min-height: 142px;
-    grid-template-columns: minmax(0, 1fr) 44px;
+    min-height: 128px;
+    grid-template-columns: minmax(0, 1fr) 40px;
     grid-template-rows: auto 1fr;
     align-content: space-between;
     align-items: start;
-    gap: 16px 12px;
-    padding: 18px 20px;
+    gap: 12px;
+    padding: 16px 18px;
     background: var(--surface-white);
     border: 1px solid var(--neutral-border);
     border-radius: var(--radius-card);
 }
 
 .stat-card__icon {
-    display: grid;
-    width: 44px;
-    height: 44px;
+    display: flex;
+    width: 36px;
+    height: 36px;
     grid-column: 2;
     grid-row: 1;
-    place-items: center;
-    color: #475569;
-    background: #f1f5f9;
-    border-radius: var(--radius-control);
+    align-items: center;
+    justify-content: center;
+    color: var(--mseuf-maroon);
+    background: transparent;
+    border: 0;
+    box-shadow: none;
 }
 
-.stat-card--slate .stat-card__icon { color: #566476; background: #eef2f6; }
-.stat-card--sage .stat-card__icon { color: #55705b; background: #edf4ee; }
-.stat-card--amber .stat-card__icon { color: #8a7040; background: #f7f1e6; }
-.stat-card--lavender .stat-card__icon { color: #636b8a; background: #eff0f7; }
+.stat-card--slate .stat-card__icon,
+.stat-card--sage .stat-card__icon,
+.stat-card--amber .stat-card__icon,
+.stat-card--lavender .stat-card__icon { color: var(--mseuf-maroon); }
+
+.stat-card__icon .icon {
+    width: 34px;
+    height: 34px;
+}
 
 .stat-card__label {
     grid-column: 1;
@@ -2729,18 +2736,13 @@ tbody tr:hover > th[scope='row'] {
     }
 
     .stat-card {
-        min-height: 132px;
-        padding: 16px;
+        min-height: 122px;
+        padding: 15px 16px;
     }
 
     .stat-card__icon {
-        width: 38px;
-        height: 38px;
-    }
-
-    .stat-card__icon .icon {
-        width: 27px;
-        height: 27px;
+        width: 36px;
+        height: 36px;
     }
 
     .dashboard-events__header {
