@@ -1,7 +1,7 @@
 # Ingress architecture and operating limits
 
 **Status:** The cloud and Event Node architecture is implemented. The mobile app is now a staff-only Event Node scanner; student accounts, registration, ticket access, and transfers use the website. Safe authority recovery, automatic snapshot delivery, data-retention automation, and real payment-provider integration remain unimplemented. Paid checkout is simulated. Device and venue verification is deferred to the project owner.
-**Current implementation:** Cloud accounts, web registration and ticket transfers, organizer reporting, snapshot transfer, Event Node admission, guest and alumni passes, node walk-ins, entry and exit tracking, and retryable admission synchronization are implemented. Students with a verified institutional email can transfer eligible tickets before the event ends and before snapshot preparation. Email activation verifies control of the institutional address, not current enrollment. Attendees can download ticket PDFs from the website; a saved PDF can display its static QR without internet. Admission requires the venue LAN and Event Node, but not public internet.
+**Current implementation:** Cloud accounts, web registration and ticket transfers, organizer reporting, snapshot transfer, Event Node admission, guest and alumni passes, node walk-ins, entry and exit tracking, and retryable admission synchronization are implemented. Students with a verified institutional email can transfer eligible tickets before the event ends and before snapshot preparation. Accountless guest and alumni ticket holders can use a one-use redemption code to transfer an eligible public ticket while those same event limits allow it. Email activation verifies control of the institutional address, not current enrollment. Attendees can download ticket PDFs from the website; a saved PDF can display its static QR without internet. Admission requires the venue LAN and Event Node, but not public internet.
 
 The native app contains no student sign-in, event discovery, ticket wallet, or Cloud API client. Its EAS `preview` and `production` profiles use Android system certificate trust. The separate `lanDemo` profile trusts one supplied public CA for one exact Event Node hostname or IPv4 address and still requires HTTPS. See [Staff scanner build instructions](../mobile/README.md).
 
@@ -309,7 +309,7 @@ Walk-in ticket creation and admission are separate operations by default so regi
 
 ## 11. Ticket transfer
 
-The cloud supports ticket transfer only before the event end and before snapshot preparation. Events opt in; new events default to disabled. Only student accounts with a verified institutional email can send or receive a transfer. The email check does not prove current enrollment. Guest, alumni, and node walk-in tickets are excluded. Closing registration alone does not close transfers.
+The cloud supports ticket transfer only before the event end and before snapshot preparation. Events opt in; new events default to disabled. Student-account transfers require verified institutional email and recipient acceptance. The email check does not prove current enrollment. Closing registration alone does not close transfers.
 
 A transfer changes ownership. It is not QR forwarding.
 
@@ -346,6 +346,12 @@ A request appears in the recipient's web account ticket list. The sender can can
 The organizer event page paginates transfer history at 100 requests per page and shows sender, recipient, ticket reference, status, and transition timestamps. Scanner staff see only the current ticket owner.
 
 Walk-in passes do not need self-service transfer support.
+
+### Accountless guest and alumni redemption
+
+An eligible guest or alumni ticket can be transferred without creating an account. The recipient submits the private redemption code, their name, and a contact email at `/tickets/redeem`. The flow is limited to confirmed accountless registrations in public events and public ticket categories, with transfers enabled, before event end and snapshot preparation, and before admission. Student-restricted tickets and node walk-ins are rejected.
+
+The cloud locks the event, ticket, registration, and category, validates the current code and transfer eligibility, replaces the attendee name and contact email, then rotates the admission and redemption credentials in one transaction. A failed rotation rolls back the identity change. The old credentials stop working after commit. The rotation audit records the redemption and credential-version transition without retaining the submitted contact details. Pass and PDF views use the current registration identity. Snapshot serialization uses the same current attendee details, and scanner preview shows the current attendee. Under an event's identity-check policy, staff compare that name with an approved photo ID before admission; the system does not verify the redeemer's identity or store ID documents. Code possession establishes ticket control only. The recipient email is contact information, not verified identity. No student number or account is collected.
 
 ## 12. Synchronization model
 
@@ -454,7 +460,7 @@ See [the roadmap](roadmap.md) for the dependency order and current status.
 
 ## 18. Accountless guest and alumni passes
 
-Organizers can issue guest and alumni passes before registration closes. The attendee needs no MSEUF account. The organizer prints or securely delivers the pass from its protected page. The app does not verify the email address or send the pass automatically.
+Organizers can issue guest and alumni passes before registration closes. The attendee needs no MSEUF account. The organizer prints or securely delivers the pass from its protected page. The app does not verify the email address or send the pass automatically. Eligible public guest and alumni tickets can later be transferred through the accountless redemption flow described in section 11. Each recipient replaces the current name and contact email while the service rotates both ticket credentials.
 
 The attendee type is stored with the registration, so the organizer report can distinguish student accounts, guests, and alumni without inferring identity from an email domain. Guest and alumni tickets use the same opaque credential and Event Node validation pipeline as student tickets.
 
