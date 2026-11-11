@@ -1,4 +1,4 @@
-import { router } from 'expo-router';
+import { Redirect, router } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -9,10 +9,8 @@ import {
   Text,
   View,
 } from 'react-native';
-import { useAuth } from '../../src/context/AuthContext';
-import { useNodeStaff } from '../../src/context/NodeStaffContext';
-import { nodeRequest } from '../../src/services/node-session';
-import { apiRequest } from '../../src/services/api-client';
+import { useNodeStaff } from '../../context/NodeStaffContext';
+import { nodeRequest } from '../../services/node-session';
 
 interface AssignedEvent {
   id: number;
@@ -23,33 +21,36 @@ interface AssignedEvent {
   };
   starts_at: string;
   ends_at: string;
-  access_points: Array<{
+  access_points: {
     id: number;
     name: string;
     code: string;
-  }>;
+  }[];
 }
 
 export default function StaffEventsScreen() {
-  const cloud = useAuth();
   const node = useNodeStaff();
-  const user = node.active ? node.session?.user : cloud.user;
-  const request = node.active ? nodeRequest : apiRequest;
-  const sessionIdentity = node.active && node.session
-    ? `node:${node.session.url}:${node.session.token}`
-    : `cloud:${cloud.token ?? ''}`;
+  if (!node.active || !node.session) return <Redirect href="/node-staff-login" />;
+  const sessionIdentity = `${node.session.url}:${node.session.user.id}`;
+
+  return <AssignedEvents key={sessionIdentity} userName={node.session.user.name} />;
+}
+
+function AssignedEvents({ userName }: { userName: string }) {
   const requestGeneration = useRef(0);
+  const mounted = useRef(true);
   const [events, setEvents] = useState<AssignedEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const fetchAssignedEvents = useCallback(async (generation: number) => {
-    const isCurrent = () => generation === requestGeneration.current;
+  const fetchAssignedEvents = useCallback(async () => {
+    const generation = ++requestGeneration.current;
+    const isCurrent = () => mounted.current && generation === requestGeneration.current;
     try {
-      setErrorMessage(null);
-      const res = await request<{ events: AssignedEvent[] }>('/staff/events');
+      const res = await nodeRequest<{ events: AssignedEvent[] }>('/staff/events');
       if (!isCurrent()) return;
+      setErrorMessage(null);
       setEvents(res.events || []);
     } catch (err: unknown) {
       if (!isCurrent()) return;
@@ -61,18 +62,15 @@ export default function StaffEventsScreen() {
         setIsRefreshing(false);
       }
     }
-  }, [request]);
+  }, []);
 
   useEffect(() => {
-    const generation = ++requestGeneration.current;
-    setEvents([]);
-    setErrorMessage(null);
-    setIsLoading(true);
-    void fetchAssignedEvents(generation);
-    return () => {
-      if (requestGeneration.current === generation) requestGeneration.current++;
-    };
-  }, [sessionIdentity, fetchAssignedEvents]);
+    mounted.current = true;
+    // nodeRequest awaits SecureStore and the Event Node before the fetch can update state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchAssignedEvents();
+    return () => { mounted.current = false; };
+  }, [fetchAssignedEvents]);
 
   const handleSelectGate = (event: AssignedEvent, gateId: number, gateName: string) => {
     router.push({
@@ -91,13 +89,11 @@ export default function StaffEventsScreen() {
       <Text style={styles.venueBadge}>{item.venue?.name || 'MSEUF Campus'}</Text>
       <Text style={styles.title}>{item.title}</Text>
 
-      {node.active && (
-        <Pressable style={styles.walkInButton} onPress={() => router.push({
-          pathname: '/(staff)/walk-in', params: { eventId: item.id.toString(), eventTitle: item.title },
-        })}>
-          <Text style={styles.walkInText}>Register walk-in</Text>
-        </Pressable>
-      )}
+      <Pressable style={styles.walkInButton} onPress={() => router.push({
+        pathname: '/(staff)/walk-in', params: { eventId: item.id.toString(), eventTitle: item.title },
+      })}>
+        <Text style={styles.walkInText}>Register walk-in</Text>
+      </Pressable>
 
       <View style={styles.gateSection}>
         <Text style={styles.gateHeading}>Select Gate to Begin Scanning</Text>
@@ -136,7 +132,7 @@ export default function StaffEventsScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.staffHeader}>
-        <Text style={styles.greeting}>Welcome, {user?.name}</Text>
+        <Text style={styles.greeting}>Welcome, {userName}</Text>
         <Text style={styles.instructions}>
           Select your assigned entrance gate to validate attendee QR tickets against the local Ingress server.
         </Text>
@@ -158,7 +154,7 @@ export default function StaffEventsScreen() {
             refreshing={isRefreshing}
             onRefresh={() => {
               setIsRefreshing(true);
-              void fetchAssignedEvents(requestGeneration.current);
+              void fetchAssignedEvents();
             }}
             colors={['#800000']}
           />

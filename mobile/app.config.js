@@ -1,63 +1,42 @@
-function validateReleaseApiUrl(value) {
-  const message = 'Set EXPO_PUBLIC_API_URL to the deployed cloud HTTPS API URL ending in /api/v1 for EAS release builds.';
-
-  if (!value?.trim()) {
-    throw new Error(message);
-  }
-
-  let apiUrl;
-  try {
-    apiUrl = new URL(value);
-  } catch {
-    throw new Error(message);
-  }
-
-  if (apiUrl.protocol !== 'https:'
-    || !apiUrl.hostname
-    || apiUrl.username
-    || apiUrl.password
-    || apiUrl.search
-    || apiUrl.hash
-    || !apiUrl.pathname.replace(/\/+$/, '').endsWith('/api/v1')
-    || apiUrl.hostname === 'cloud.example.edu') {
-    throw new Error(message);
-  }
-}
+const { validateLanDemoCa, validateLanDemoHost } = require('./plugins/ingress-network-security');
 
 module.exports = ({ config }) => {
   const releaseBuild = process.env.INGRESS_RELEASE_BUILD === 'true';
+  const lanDemoValue = process.env.INGRESS_LAN_DEMO;
 
-  if (releaseBuild) {
-    validateReleaseApiUrl(process.env.EXPO_PUBLIC_API_URL);
-
-    if (process.env.EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE !== 'false'
-      || process.env.EXPO_PUBLIC_INGRESS_DEMO_MODE !== 'false') {
-      throw new Error('EAS release profiles must disable local HTTP and demo credentials.');
-    }
+  if (releaseBuild && lanDemoValue !== 'true' && lanDemoValue !== 'false') {
+    throw new Error('Set INGRESS_LAN_DEMO to true or false for every release build.');
+  }
+  if (!releaseBuild && lanDemoValue === 'true') {
+    throw new Error('INGRESS_LAN_DEMO requires INGRESS_RELEASE_BUILD=true so demo trust stays in its isolated APK profile.');
   }
 
-  const allowLocalHttp = !releaseBuild && process.env.EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE === 'true';
-  const androidConfig = { ...config.android };
-  const blockedPermissions = new Set(androidConfig.blockedPermissions ?? []);
+  const lanDemo = releaseBuild && lanDemoValue === 'true';
+  let nodeHost = null;
 
-  if (releaseBuild) {
-    blockedPermissions.add('android.permission.SYSTEM_ALERT_WINDOW');
+  if (lanDemo) {
+    validateLanDemoCa(process.env.INGRESS_LAN_DEMO_CA_CERT);
+    nodeHost = validateLanDemoHost(process.env.INGRESS_LAN_DEMO_NODE_HOST);
   }
 
-  androidConfig.blockedPermissions = [...blockedPermissions];
+  const android = { ...config.android };
+  const blockedPermissions = new Set(android.blockedPermissions ?? []);
+  if (releaseBuild) blockedPermissions.add('android.permission.SYSTEM_ALERT_WINDOW');
+  android.blockedPermissions = [...blockedPermissions];
 
   return {
     ...config,
-    android: androidConfig,
+    android,
     plugins: [
       ...(config.plugins ?? []),
-      ['expo-build-properties', { android: { usesCleartextTraffic: allowLocalHttp } }],
+      ['expo-build-properties', { android: { usesCleartextTraffic: false } }],
+      ['./plugins/with-ingress-lan-demo-ca.js', lanDemo ? { lanDemo, nodeHost } : { lanDemo }],
     ],
     ios: {
       ...config.ios,
       infoPlist: {
         ...config.ios?.infoPlist,
-        NSAppTransportSecurity: allowLocalHttp ? { NSAllowsLocalNetworking: true } : {},
+        NSAppTransportSecurity: {},
       },
     },
   };

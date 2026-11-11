@@ -2,15 +2,12 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { router } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { useNodeStaff } from '../src/context/NodeStaffContext';
-import { useAuth } from '../src/context/AuthContext';
-import { canUseStaffEntry } from '../src/services/staff-access';
-import { getNodeSession, parseNodePairingCode } from '../src/services/node-session';
-import type { NodePairingCode, NodeSession } from '../src/services/node-session';
+import { useNodeStaff } from '../context/NodeStaffContext';
+import { getNodeSession, parseNodePairingCode } from '../services/node-session';
+import type { NodePairingCode, NodeSession } from '../services/node-session';
 
 export default function NodeStaffLoginScreen() {
   const node = useNodeStaff();
-  const { user, isLoading } = useAuth();
   const [saved, setSaved] = useState<NodeSession | null>(null);
   const [url, setUrl] = useState('');
   const [email, setEmail] = useState('');
@@ -90,11 +87,6 @@ export default function NodeStaffLoginScreen() {
       setError((err as { message?: string })?.message || 'Could not restore the staff session.');
     } finally { setBusy(false); }
   };
-
-  if (isLoading) return <View style={styles.page}><ActivityIndicator size="large" color="#800000" /></View>;
-  if (!canUseStaffEntry(user)) {
-    return <View style={styles.content}><Text style={styles.body}>Staff scanner access is available to assigned staff.</Text><Pressable accessibilityRole="button" onPress={() => router.back()}><Text style={styles.secondaryText}>Back</Text></Pressable></View>;
-  }
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.page}>

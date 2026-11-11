@@ -12,9 +12,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { ApiError, apiRequest } from '../../src/services/api-client';
-import { nodeRequest } from '../../src/services/node-session';
-import { useNodeStaff } from '../../src/context/NodeStaffContext';
+import { NodeApiError, nodeRequest } from '../../services/node-session';
 
 interface ScanFeedback {
   type: 'valid' | 'duplicate' | 'conflict' | 'invalid' | 'unavailable';
@@ -37,8 +35,6 @@ interface PendingPreview {
   identityVerificationLevel: 'standard' | 'id_check';
 }
 export default function ScannerScreen() {
-  const node = useNodeStaff();
-  const request = node.active ? nodeRequest : apiRequest;
   const { eventId, eventTitle, accessPointId, accessPointName } = useLocalSearchParams<{
     eventId: string;
     eventTitle: string;
@@ -60,7 +56,7 @@ export default function ScannerScreen() {
   const isCooldownRef = useRef(false);
 
   const handleApiError = (err: unknown) => {
-    if (err instanceof ApiError) {
+    if (err instanceof NodeApiError) {
       const status = err.status;
       const domainStatus = err.domainStatus;
       const detail = err.detail;
@@ -193,7 +189,7 @@ export default function ScannerScreen() {
 
     try {
       // Step 1: Read-only preview validation. Does NOT consume the ticket or create an Admission.
-      const res = await request<{
+      const res = await nodeRequest<{
         status: string;
         message: string;
         detail: string;
@@ -255,7 +251,7 @@ export default function ScannerScreen() {
 
     try {
       // Step 2: Confirmed admission transaction. Atomically validates under lock and creates Admission.
-      const res = await request<{
+      const res = await nodeRequest<{
         status: string;
         message: string;
         detail: string;
@@ -288,12 +284,12 @@ export default function ScannerScreen() {
       }
     } catch (err: unknown) {
       // Differentiate ambiguous network/transport failure from definitive server rejection
-      const isAmbiguous = (err instanceof ApiError && (err.status === 0 || err.domainStatus === 'unavailable' || err.status >= 500))
-        || (!(err instanceof ApiError) && err instanceof Error);
+      const isAmbiguous = (err instanceof NodeApiError && (err.status === 0 || err.domainStatus === 'unavailable' || err.status >= 500))
+        || (!(err instanceof NodeApiError) && err instanceof Error);
 
       if (isAmbiguous) {
         // Preserve pendingPreview (including clientScanId and qrPayload) so operator can retry with SAME clientScanId
-        const detailMessage = err instanceof ApiError ? err.message : (err instanceof Error ? err.message : 'Server unavailable');
+        const detailMessage = err instanceof NodeApiError ? err.message : (err instanceof Error ? err.message : 'Server unavailable');
         setConfirmError(detailMessage || 'Network unavailable. Press CONFIRM ADMISSION to retry.');
       } else {
         // Definitive response from server (already admitted, invalid ticket, unauthorized staff, etc.): clear pending preview
