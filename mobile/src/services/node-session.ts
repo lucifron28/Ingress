@@ -1,39 +1,61 @@
 import { fetch as expoFetch } from 'expo/fetch';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
-import { ApiError } from './api-client';
-import type { ApiErrorData } from './api-client';
-import type { UserProfile } from '../context/AuthContext';
+
+export interface NodeStaffUser {
+  id: number;
+  name: string;
+  email: string;
+  student_id?: string | null;
+}
+
+export interface NodeApiErrorData {
+  status?: string;
+  message?: string;
+  detail?: string;
+  errors?: Record<string, string[]>;
+  previous_admission?: {
+    admitted_at: string;
+    access_point: string;
+    scanned_by?: string;
+  };
+  ticket?: {
+    public_id: string;
+    attendee_name: string;
+    student_id?: string | null;
+  };
+  [key: string]: unknown;
+}
+
+export class NodeApiError extends Error {
+  readonly status: number;
+  readonly domainStatus?: string;
+  readonly detail?: string;
+  readonly errors?: Record<string, string[]>;
+  readonly data?: NodeApiErrorData;
+
+  constructor(message: string, status: number, data?: NodeApiErrorData) {
+    super(message);
+    this.name = 'NodeApiError';
+    this.status = status;
+    this.data = data;
+    this.domainStatus = data?.status;
+    this.detail = data?.detail;
+    this.errors = data?.errors;
+    Object.setPrototypeOf(this, NodeApiError.prototype);
+  }
+}
 
 export interface NodeSession {
   url: string;
   token: string;
-  user: UserProfile;
+  user: NodeStaffUser;
 }
 
 const NODE_SESSION_KEY = 'ingress_node_staff_session_v1';
 const NODE_OPTIONS = { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY };
 let nodeQueue: Promise<void> = Promise.resolve();
 let onUnauthorized: ((token: string) => void) | null = null;
-
-function isPrivateNodeHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
-
-  if (host === 'localhost' || host.endsWith('.localhost') || host === '::1' || /^(fc|fd)[0-9a-f:]+$/.test(host) || /^fe[89ab][0-9a-f:]+$/.test(host)) {
-    return true;
-  }
-
-  const octets = host.split('.').map(Number);
-  if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) {
-    return false;
-  }
-
-  const [first, second] = octets;
-  return first === 10 || first === 127 ||
-    (first === 169 && second === 254) ||
-    (first === 172 && second >= 16 && second <= 31) ||
-    (first === 192 && second === 168);
-}
 
 function serialize<T>(operation: () => Promise<T>): Promise<T> {
   const result = nodeQueue.then(operation, operation);
@@ -43,9 +65,8 @@ function serialize<T>(operation: () => Promise<T>): Promise<T> {
 
 export function normalizeNodeUrl(input: string): string {
   const url = new URL(input.trim());
-  const allowLocalHttp = process.env.EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE === 'true' && isPrivateNodeHost(url.hostname);
-  if ((url.protocol !== 'https:' && !(url.protocol === 'http:' && allowLocalHttp)) || !url.hostname || url.username || url.password || url.search || url.hash || input.length > 512 || !/^(?:\/[A-Za-z0-9_-]+)*\/api\/v1\/?$/.test(url.pathname)) {
-    throw new Error('Enter the HTTPS Event Node API address ending in /api/v1. Local HTTP is limited to development builds.');
+  if (url.protocol !== 'https:' || !url.hostname || url.username || url.password || url.search || url.hash || input.length > 512 || !/^(?:\/[A-Za-z0-9_-]+)*\/api\/v1\/?$/.test(url.pathname)) {
+    throw new Error('Enter the HTTPS Event Node API address ending in /api/v1.');
   }
   return url.toString().replace(/\/+$/, '');
 }
@@ -64,10 +85,13 @@ function validSession(value: unknown): value is NodeSession {
 async function readUnsafe(): Promise<NodeSession | null> {
   if (Platform.OS === 'web') return null;
   const raw = await SecureStore.getItemAsync(NODE_SESSION_KEY, NODE_OPTIONS);
+  if (!raw) return null;
   try {
-    const session: unknown = raw ? JSON.parse(raw) : null;
-    return validSession(session) ? session : null;
-  } catch { return null; }
+    const session: unknown = JSON.parse(raw);
+    if (validSession(session)) return session;
+  } catch { /* Discard malformed persisted data below. */ }
+  await SecureStore.deleteItemAsync(NODE_SESSION_KEY, NODE_OPTIONS);
+  return null;
 }
 
 export function getNodeSession(): Promise<NodeSession | null> {
@@ -112,13 +136,13 @@ async function request<T>(url: string, path: string, token: string | null, optio
       if (response.status === 401 && token) {
         try { if (await clearIfToken(token)) onUnauthorized?.(token); } catch { onUnauthorized?.(token); }
       }
-      const body = data && typeof data === 'object' ? data as ApiErrorData : undefined;
-      throw new ApiError(body?.message || `Request failed with status ${response.status}`, response.status, body, body?.errors);
+      const body = data && typeof data === 'object' ? data as NodeApiErrorData : undefined;
+      throw new NodeApiError(body?.message || `Request failed with status ${response.status}`, response.status, body);
     }
     return data as T;
   } catch (error: unknown) {
-    if (error instanceof ApiError) throw error;
-    throw new ApiError('Cannot reach the Event Node. Check the venue network and certificate.', 0);
+    if (error instanceof NodeApiError) throw error;
+    throw new NodeApiError('Cannot reach the Event Node. Check the venue network and certificate.', 0);
   } finally {
     clearTimeout(timeout);
   }
@@ -149,7 +173,7 @@ export function parseNodePairingCode(raw: string): NodePairingCode {
   }
 }
 
-async function saveNodeSession(baseUrl: string, response: { token: string; user: UserProfile; node_staff: boolean }, previous: NodeSession | null): Promise<NodeSession> {
+async function saveNodeSession(baseUrl: string, response: { token: string; user: NodeStaffUser; node_staff: boolean }, previous: NodeSession | null): Promise<NodeSession> {
   const session = { url: baseUrl, token: response.token, user: response.user };
   if (response.node_staff !== true || !validSession(session)) throw new Error('The Event Node returned an invalid session.');
   try {
@@ -168,7 +192,7 @@ export async function pairNodeStaff(code: NodePairingCode): Promise<NodeSession>
   if (Platform.OS === 'web') throw new Error('Node staff pairing is available in the mobile app.');
   const parsed = parseNodePairingCode(JSON.stringify(code));
   const previous = await getNodeSession();
-  const response = await request<{ token: string; user: UserProfile; node_staff: boolean; node_id: string }>(parsed.url, '/auth/node-staff/pair', null, {
+  const response = await request<{ token: string; user: NodeStaffUser; node_staff: boolean; node_id: string }>(parsed.url, '/auth/node-staff/pair', null, {
     method: 'POST', body: JSON.stringify({ node_id: parsed.node, token: parsed.token, device_name: 'Ingress-Scanner' }),
   });
   if (response?.node_id !== parsed.node) {
@@ -184,7 +208,7 @@ export async function loginNodeStaff(url: string, email: string, password: strin
   if (Platform.OS === 'web') throw new Error('Node staff sign-in is available in the mobile app.');
   const baseUrl = normalizeNodeUrl(url);
   const previous = await getNodeSession();
-  const response = await request<{ token: string; user: UserProfile; node_staff: boolean }>(baseUrl, '/auth/node-staff/login', null, {
+  const response = await request<{ token: string; user: NodeStaffUser; node_staff: boolean }>(baseUrl, '/auth/node-staff/login', null, {
     method: 'POST', body: JSON.stringify({ email: email.trim(), password, device_name: 'Ingress-Scanner' }),
   });
   return saveNodeSession(baseUrl, response, previous);
@@ -192,7 +216,7 @@ export async function loginNodeStaff(url: string, email: string, password: strin
 
 export async function nodeRequest<T = unknown>(path: string, options: RequestInit = {}): Promise<T> {
   const session = await getNodeSession();
-  if (!session) throw new ApiError('Sign in to the Event Node first.', 401);
+  if (!session) throw new NodeApiError('Sign in to the Event Node first.', 401);
   return request<T>(session.url, path, session.token, options);
 }
 

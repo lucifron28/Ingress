@@ -27,8 +27,8 @@ Node tokens support `GET /me`, `POST /auth/logout`, and the `/staff` event, gate
 
 `POST /auth/node-staff/pair` is available only on an Event Node over HTTPS outside local and testing environments. It accepts `node_id`, a 64-character one-use `token`, and an optional `device_name`. The operator issues the token for one assigned staff member through the local pairing command. The node checks the target identity, three-minute expiry, current assignment, and local credential. Successful redemption consumes the token and returns a 12-hour `node:staff` session with `node_id`. Invalid, expired, already used, or revoked codes return a generic validation error. Requests are rate-limited by IP.
 
-### 1.1 Mobile Login
-Issues a personal access token for mobile attendees and event staff.
+### 1.1 Legacy password login
+Issues a personal access token on cloud and legacy runtimes. The current native scanner does not use this endpoint; staff authenticate directly with the Event Node using the login or pairing endpoints above. Student website sessions use the Laravel web and Firebase flows.
 
 - **Method**: `POST`
 - **Endpoint**: `/auth/login`

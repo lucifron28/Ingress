@@ -2,12 +2,12 @@
   <img src="ingress_logo.png" alt="Ingress" width="320">
 </p>
 
-# Ingress: LAN-Enabled Web & Mobile Event Ticketing System
+# Ingress: Web Ticketing and LAN Admission Platform
 
 **Manuel S. Enverga University Foundation (MSEUF)**  
 *Event Ticketing, Admission, and Attendance Management System*
 
-Ingress is a LAN-operable event platform for campus events at MSEUF. It combines a Laravel 13 web management console for organizers with an Expo React Native mobile app for student ticketing and multi-gate admission scanning.
+Ingress is a LAN-operable event platform for campus events at MSEUF. Laravel 13 serves the Cloud website for students and organizers. The Expo React Native app is a staff-only scanner for the separate Event Node.
 
 A key feature is **LAN-enabled event operation**: multiple gate staff phones connect to a local Ingress event server and validate tickets against one shared source of truth without requiring an active internet connection.
 
@@ -17,14 +17,14 @@ A key feature is **LAN-enabled event operation**: multiple gate staff phones con
 
 Ingress separates online ticketing from event admission. The cloud handles student account activation, event discovery, registration, ticket transfers, organizer tools, and attendance reporting. Each Event Node has a separate PostgreSQL database and becomes the admission authority for its event after it imports a verified snapshot and activates the signed authority grant.
 
-Staff scanners connect to the Event Node over the venue LAN. Public internet is not required to admit attendees, but the Event Node and venue LAN must be available. The mobile app keeps student cloud sessions and Event Node staff sessions separate. Students can display tickets cached after an earlier successful online sync; that cache does not grant registration or admission authority.
+Staff scanners connect to the Event Node over the venue LAN. Public internet is not required to admit attendees, but the Event Node and venue LAN must be available. The mobile app stores only its Event Node staff session. Students use the website for accounts, registration, ticket access, and transfers. They can save a ticket PDF before the event and display its QR offline; the Event Node still makes the admission decision.
 
 ```text
-Student app --HTTPS--> Cloud runtime --organizer tools and ticketing
+Student website --HTTPS--> Cloud runtime --organizer tools and ticketing
                              |
                              | encrypted snapshot, receipts, authority grant
                              v
-Staff scanners --venue LAN--> Event Node --local PostgreSQL
+Staff-only scanner app --venue LAN--> Event Node --local PostgreSQL
                                   |
                                   | authenticated retryable sync after reconnect
                                   v
@@ -45,7 +45,7 @@ Staff scanners --venue LAN--> Event Node --local PostgreSQL
 
 ### Remaining limits
 
-Snapshot delivery is a manual operator workflow. Safe recovery or authority transfer after a node grant is not implemented. Snapshot and imported roster deletion need an institution-approved retention policy and an operator procedure. Existing single-runtime databases do not have a safe migration path to the cloud/node split. Organizers deliver guest and alumni passes manually through an approved private channel; email delivery and online payments are not implemented. Real-device, venue-network, printer, and end-to-end verification remains with the project owner. Follow the [physical-device and venue test plan](docs/physical-device-test-plan.md) for the staging run.
+Snapshot delivery is a manual operator workflow. Safe recovery or authority transfer after a node grant is not implemented. Snapshot and imported roster deletion need an institution-approved retention policy and an operator procedure. Existing single-runtime databases do not have a safe migration path to the cloud/node split. Organizers deliver guest and alumni passes manually through an approved private channel; automated pass email and real payment-provider integration are not implemented. Paid checkout is simulated and charges no money. Real-device, venue-network, printer, and end-to-end verification remains with the project owner. Follow the [physical-device and venue test plan](docs/physical-device-test-plan.md) for the staging run.
 
 See [the current architecture](docs/second-half-architecture.md), [deployment guide](docs/deployment.md), [API reference](docs/api.md), and [implementation roadmap](docs/roadmap.md) for operational details and remaining work.
 
@@ -65,7 +65,7 @@ See [the current architecture](docs/second-half-architecture.md), [deployment gu
 | **Secure Token Storage**| `expo-secure-store` | `58.0.2` | Native secure storage for mobile credentials. |
 | **Camera Barcode Scan**| `expo-camera` | `58.0.14` | Native QR code scanning. |
 | **QR Code Generation** | `react-native-qrcode-svg` | `6.3.26` | Maintained pure vector SVG QR code generation without remote image dependencies. |
-| **Vector Primitives** | `react-native-svg` | `15.15.5` | Native SVG rendering engine backing the QR component. |
+| **Vector Primitives** | `react-native-svg` | `15.16.0` | Native SVG rendering engine backing the QR component. |
 | **Concurrency Verification** | `php scripts/verify_pgsql_concurrency.php` | — | Two-process barrier harness proving final-seat and same-ticket races on real PostgreSQL. |
 
 ---
@@ -90,17 +90,13 @@ ingress/
 │   ├── resources/views/  # Organizer Blade layouts & attendance command center
 │   ├── public/images/    # Generated Ingress brand assets (lockup, mark, favicon)
 │   └── tests/Feature/    # Laravel feature tests for backend behavior
-├── mobile/               # Expo React Native Mobile Application
-│   ├── app/              # Expo Router file-based pages
-│   │   ├── (attendee)/   # Discover catalog, Event detail, Ticket wallet, QR view, Profile
-│   │   ├── (staff)/      # Assigned events, Multi-gate viewfinder, Scanner feedback
-│   │   ├── login.tsx     # MSEUF-inspired login with demo switcher
-│   │   └── server-settings.tsx # In-app LAN server configurator & connection tester
+├── mobile/               # Expo React Native staff scanner
+│   ├── src/app/          # Expo Router staff login, events, scan, and walk-in routes
+│   ├── plugins/          # Isolated host-scoped Android LAN-demo CA config
+│   ├── tests/            # Node session, route, and build security checks
 │   ├── assets/           # Generated app icon, adaptive icon layers, favicon
-│   ├── tests/            # Node-run session checks (no JS test runner in the app)
-│   └── src/
-│       ├── context/      # AuthContext session management
-│       └── services/     # api-client (dynamic LAN resolution) & auth-storage (SecureStore)
+│   ├── context/          # Node staff session management
+│   └── services/         # HTTPS Event Node requests and secure session storage
 ├── docs/                 # In-depth architectural & operational specifications
 │   ├── architecture.md   # Topology, schemas, concurrency, and security pipelines
 │   ├── api.md            # Complete REST API reference with schemas and status codes
@@ -117,7 +113,7 @@ Demo mode is for local development only. The `.env.example` opt-in creates predi
 
 Do not create cloud administrators with Tinker or public registration. From a trusted Windows checkout, use `api\scripts\create_render_admin.ps1` for the first administrator. Use `api\scripts\provision_render_staging_account.ps1` for synthetic organizer, staff, or student accounts and reference venues. Use `api\scripts\register_render_node.ps1` to register an Event Node. Each script requires the cloud HTTPS origin, Neon direct URL with verified TLS, and a local trusted CA bundle; passwords and database secrets are prompted locally. Follow [Deployment and Operations](docs/deployment.md) and run these scripts only against the designated staging database.
 
-> **Transport security**: the LAN procedure in this README and in `docs/lan-demo.md` permits plain HTTP only for local development and demo builds. Production cloud and Event Node traffic must use trusted HTTPS certificates. Do not send passwords, bearer tokens, QR credentials, or identity data over production cleartext connections. See ADR 009 in `docs/design-decisions.md`.
+> **Transport security**: the legacy web demo can use HTTP on an isolated development LAN. The current mobile scanner requires HTTPS in every build. Production Cloud and Event Node traffic must use trusted HTTPS certificates. Do not send passwords, bearer tokens, QR credentials, or identity data over cleartext connections. See ADR 009 and ADR 020 in `docs/design-decisions.md`.
 
 ---
 
@@ -130,11 +126,11 @@ PowerShell automation scripts are provided in the `scripts/` directory for conve
 | **`start-all.ps1`** | **Master Launcher**: Starts PostgreSQL, launches Laravel Web API and Expo Mobile Bundler in separate console windows, and opens the organizer portal | `powershell -ExecutionPolicy Bypass -File scripts\start-all.ps1` |
 | **`start-web.ps1`** | Starts PostgreSQL and launches Laravel Web/API on `0.0.0.0:8000` | `powershell -ExecutionPolicy Bypass -File scripts\start-web.ps1` |
 | **`start-mobile.ps1`** | Starts the Expo React Native mobile bundler | `powershell -ExecutionPolicy Bypass -File scripts\start-mobile.ps1` |
-| **`test-all.ps1`** | Runs all 4 test suites (Backend, Concurrency, Mobile Session, TypeScript) | `powershell -ExecutionPolicy Bypass -File scripts\test-all.ps1` |
+| **`test-all.ps1`** | Runs backend, PostgreSQL concurrency and recovery, mobile session/route/build checks, lint, and TypeScript | `powershell -ExecutionPolicy Bypass -File scripts\test-all.ps1` |
 | **`setup.ps1`** | One-time environment setup wizard (Composer, npm, .env, migrations) | `powershell -ExecutionPolicy Bypass -File scripts\setup.ps1` |
 | **`start-db.ps1`** | Starts the local PostgreSQL 18 database cluster on port `5433` | `powershell -ExecutionPolicy Bypass -File scripts\start-db.ps1` |
 | **`stop-db.ps1`** | Gracefully stops the PostgreSQL 18 database | `powershell -ExecutionPolicy Bypass -File scripts\stop-db.ps1` |
-| **`find-ip.ps1`** | Detects active Wi-Fi IPv4 address and displays mobile base URL | `powershell -ExecutionPolicy Bypass -File scripts\find-ip.ps1` |
+| **`find-ip.ps1`** | Detects the active Wi-Fi IPv4 address for local web development | `powershell -ExecutionPolicy Bypass -File scripts\find-ip.ps1` |
 
 Keep these files ASCII-only. Windows PowerShell 5.1 reads BOM-less files as ANSI, so a UTF-8 character such as an em dash is decoded into bytes that include a `"`, which closes a string literal early and breaks parsing.
 
@@ -223,49 +219,46 @@ The script provisions its own `ingress_concurrency` database (created only when 
 so demonstration data is never touched, and exits non-zero if any invariant is
 violated. Set `INGRESS_CONCURRENCY_DB` to an unused database name for each run. The verifier refuses to reset an existing database. It explicitly uses PostgreSQL with the `DB_HOST`, `DB_PORT`, `DB_USERNAME`, and `DB_PASSWORD` settings and ignores `DB_URL`.
 
-#### Mobile session checks
+#### Mobile checks
 
-The mobile app has no JavaScript test runner, so its session rules are checked by a
-small dependency-free script that runs the real service modules under Node with the
-two native packages stubbed:
+Run the mobile lint, type, session, scanner-route, and build-configuration checks from the app directory:
 
 ```bash
 cd mobile
+npx expo lint
+npx tsc --noEmit
 node tests/session.test.mjs
+node --test tests/scanner-only.test.mjs tests/build-config.test.mjs
 ```
 
-### 4. Mobile app (Expo React Native)
+### 4. Staff scanner app (Expo React Native)
 
 ```bash
 cd mobile
-npm install
-cp .env.example .env
+npm ci
 npx expo start
 ```
-- Set `EXPO_PUBLIC_API_URL` to the cloud API base URL for student sign in, event discovery, registration, and ticket refresh.
-- Staff sign in separately to an Event Node using its one use pairing QR code or its HTTPS API address. The scanner requires the venue LAN and the node.
-- For local synthetic demo accounts, set `EXPO_PUBLIC_INGRESS_DEMO_MODE=true` and enable them on the backend. For a local HTTP legacy server, point `EXPO_PUBLIC_API_URL` to its HTTP address and set `EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE=true` before building. Use the same opt-in for a local HTTP Event Node. The node client accepts HTTP only for localhost or private LAN addresses. Android's native cleartext switch applies to the whole development build, so keep this flag false for production builds, where cloud and staff connections require HTTPS.
+- The app contains only Event Node staff login, pairing, assigned events and gates, scan preview and confirmation, and walk-in flows. It requires HTTPS and the venue LAN.
+- `preview` and `production` use Android system certificate trust. For an isolated venue demo with a private certificate, configure the exact Node host and public CA for the separate `lanDemo` profile. See [Staff scanner build instructions](mobile/README.md).
 
 ---
 
 ### 5. Standalone Android APK build (EAS)
 
-To produce an installable standalone APK for physical Android devices that runs independently without Expo Go or the Metro development server, set the EAS `preview` environment to the current staging API URL first:
+To produce an installable standalone APK for physical Android devices that runs independently without Expo Go or the Metro development server:
 
 ```bash
 cd mobile
 npx eas-cli@latest login
-npx eas-cli@latest env:set --name EXPO_PUBLIC_API_URL --value https://ingress-pp2u.onrender.com/api/v1 --environment preview --visibility plaintext
-npx eas-cli@latest env:list --environment preview
 npx eas-cli@latest build --platform android --profile preview
 ```
 
 **Important Operational Notes:**
 - **Build Creation**: EAS Build compiles the native Android package in the cloud, so an internet connection is required while generating and downloading the APK.
 - **No Expo Go or Metro Dependency**: The resulting `.apk` embeds the JavaScript bundle. Once installed, it launches directly on Android without requiring Expo Go or a running Metro bundler.
-- **Attendee API**: The preview build targets `https://ingress-pp2u.onrender.com/api/v1`. The release profile rejects a missing, placeholder, or non-HTTPS API URL. The attendee wallet can display tickets cached before the venue loses internet.
-- **Event Node access**: Staff pair with the local Event Node over venue Wi-Fi. The node must use HTTPS with a certificate trusted by the phone for production.
-- **Local HTTP development**: Set `EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE=true` before a local development build that connects to an HTTP node. The app accepts this only for localhost or private LAN addresses. Android applies its native cleartext allowance to the whole development build. Production builds must keep this flag false and use HTTPS.
+- **Cloud API**: The staff scanner has no Cloud API URL or attendee account session.
+- **Event Node access**: Staff pair with the local Event Node over venue Wi-Fi. The node must use a certificate trusted by the selected Android profile. Use the separate `lanDemo` profile for a custom CA scoped to one exact Node host.
+- **Transport**: HTTP is disabled in every build. The scanner rejects non-HTTPS Event Node addresses.
 
 ---
 ## Documentation

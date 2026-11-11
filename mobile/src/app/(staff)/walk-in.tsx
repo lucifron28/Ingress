@@ -1,12 +1,13 @@
 import * as Crypto from 'expo-crypto';
 import * as Print from 'expo-print';
 import * as SecureStore from 'expo-secure-store';
-import { useLocalSearchParams } from 'expo-router';
+import { Redirect, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
-import { useNodeStaff } from '../../src/context/NodeStaffContext';
-import { nodeRequest } from '../../src/services/node-session';
+import { useNodeStaff } from '../../context/NodeStaffContext';
+import { nodeRequest } from '../../services/node-session';
+import type { NodeSession } from '../../services/node-session';
 
 type Kind = 'student' | 'guest' | 'alumni';
 type RecoveryReason = 'lost' | 'damaged' | 'not_received';
@@ -26,6 +27,17 @@ const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (c) => htmlEntit
 export default function WalkInScreen() {
   const { eventId, eventTitle } = useLocalSearchParams<{ eventId: string; eventTitle: string }>();
   const node = useNodeStaff();
+  const session = node.active ? node.session : null;
+
+  if (!session) return <Redirect href="/node-staff-login" />;
+  if (!/^[1-9][0-9]*$/.test(eventId ?? '')) {
+    return <View style={styles.page}><Text>This event selection is invalid.</Text></View>;
+  }
+
+  return <WalkInForm key={`${session.url}:${session.user.id}:${eventId}`} eventId={eventId} eventTitle={eventTitle} session={session} />;
+}
+
+function WalkInForm({ eventId, eventTitle, session }: { eventId: string; eventTitle?: string; session: NodeSession }) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [studentId, setStudentId] = useState('');
@@ -40,18 +52,10 @@ export default function WalkInScreen() {
   const [error, setError] = useState<string | null>(null);
   const qr = useRef<QrRef | null>(null);
   const submitting = useRef(false);
-  const session = node.active ? node.session : null;
 
   useEffect(() => {
     let live = true;
-    setStorageKey(null);
-    setPending(null);
-    setPass(null);
-    setRecovering(false);
-    setIdentityVerified(false);
-    setRecoveryReason(null);
     async function restore() {
-      if (!session || !/^[1-9][0-9]*$/.test(eventId ?? '')) return;
       try {
         const hash = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, `${session.url}:${session.user.id}:${eventId}`);
         const key = `ingress_walkin_${hash}`;
@@ -72,7 +76,7 @@ export default function WalkInScreen() {
     }
     restore();
     return () => { live = false; };
-  }, [eventId, session?.url, session?.user.id]);
+  }, [eventId, session]);
 
   const submit = async () => {
     if (!storageKey || !session || submitting.current) return;
@@ -155,7 +159,6 @@ export default function WalkInScreen() {
     finally { setBusy(false); }
   };
 
-  if (!session) return <View style={styles.page}><Text>Connect to the Event Node to register walk-ins.</Text></View>;
   return (
     <ScrollView contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
       <Text style={styles.heading}>{eventTitle}</Text>

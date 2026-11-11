@@ -1,5 +1,5 @@
 # Ingress - Host LAN IP Discovery Helper
-# Discovers the active Wi-Fi IPv4 address on this machine for phone connection.
+# Discovers the active Wi-Fi IPv4 address on this machine for local web development.
 
 $ErrorActionPreference = "SilentlyContinue"
 
@@ -27,8 +27,9 @@ if ($wifi) {
     Write-Host "$($wifi.InterfaceAlias)" -ForegroundColor Cyan
     Write-Host "Host LAN IP:    " -NoNewline
     Write-Host "$ip" -ForegroundColor Green
-    Write-Host "`nMobile App Base URL to enter in phone settings:" -ForegroundColor Yellow
-    Write-Host "http://$($ip):8000/api/v1`n" -ForegroundColor White -BackgroundColor DarkRed
+    Write-Host "`nLocal web portal URL:" -ForegroundColor Yellow
+    Write-Host "http://$($ip):8000/login" -ForegroundColor White -BackgroundColor DarkRed
+    Write-Host "The Android staff scanner requires a separate HTTPS Event Node address.`n" -ForegroundColor Gray
 } else {
     Write-Host "Could not automatically determine Wi-Fi IP address." -ForegroundColor Yellow
     Write-Host "Run 'ipconfig' manually to find your IPv4 address.`n" -ForegroundColor Gray

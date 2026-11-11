@@ -165,9 +165,17 @@ jobs:
         working-directory: mobile
         run: npm audit
 
-      - name: Run Mobile Session & Storage Tests
+      - name: Lint Mobile App
+        working-directory: mobile
+        run: npx expo lint
+
+      - name: Run Mobile Node Session Security Tests
         working-directory: mobile
         run: node tests/session.test.mjs
+
+      - name: Run Mobile Scanner-Only Tests
+        working-directory: mobile
+        run: node --test tests/scanner-only.test.mjs
 
       - name: Verify Mobile Build Configuration
         working-directory: mobile

@@ -2,8 +2,7 @@ import { router } from 'expo-router';
 import React, { createContext, useContext, useEffect, useReducer, useRef } from 'react';
 import { getNodeSession, loginNodeStaff, logoutNodeStaff, nodeRequest, pairNodeStaff, setNodeUnauthorizedHandler } from '../services/node-session';
 import { INITIAL_NODE_STAFF_STATE, nodeStaffReducer } from '../services/node-staff-state';
-import type { NodePairingCode, NodeSession } from '../services/node-session';
-import type { UserProfile } from './AuthContext';
+import type { NodePairingCode, NodeSession, NodeStaffUser } from '../services/node-session';
 
 interface NodeStaffContextValue {
   session: NodeSession | null;
@@ -46,7 +45,7 @@ export function NodeStaffProvider({ children }: { children: React.ReactNode }) {
   const resume = async () => {
     const saved = await getNodeSession();
     if (!saved) throw new Error('No saved Event Node session. Sign in again.');
-    const response = await nodeRequest<{ user: UserProfile }>('/me');
+    const response = await nodeRequest<{ user: NodeStaffUser }>('/me');
     if (response.user?.id !== saved.user.id) {
       await logoutNodeStaff();
       throw new Error('The Event Node session does not match the saved staff account.');
