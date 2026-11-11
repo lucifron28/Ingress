@@ -94,7 +94,7 @@ EOF
 compose config --quiet
 compose build ingress-node
 
-docker run --rm --entrypoint php ingress-node:compose -r '
+docker run --rm --entrypoint php "$image_tag" -r '
     $required = ["mbstring", "pdo_pgsql", "pcntl", "sodium", "xmlwriter"];
     $missing = array_diff($required, get_loaded_extensions());
     if ($missing || ! extension_loaded("Zend OPcache")) {
