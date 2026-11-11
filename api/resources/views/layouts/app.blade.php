@@ -206,6 +206,9 @@
                 <nav style="display: flex; gap: 1rem; font-size: 0.875rem;">
                     <a href="{{ route('organizer.dashboard') }}" style="color: {{ request()->routeIs('organizer.dashboard') ? '#ffffff' : '#fca5a5' }}; text-decoration: none; font-weight: {{ request()->routeIs('organizer.dashboard') ? '600' : '400' }};">Dashboard</a>
                     <a href="{{ route('organizer.events.index') }}" style="color: {{ request()->routeIs('organizer.events.*') ? '#ffffff' : '#fca5a5' }}; text-decoration: none; font-weight: {{ request()->routeIs('organizer.events.*') ? '600' : '400' }};">Events</a>
+                    @if (Auth::user()->isAdmin() && config('ingress.mode') === 'cloud')
+                        <a href="{{ route('organizer.venues.index') }}" style="color: {{ request()->routeIs('organizer.venues.*') ? '#ffffff' : '#fca5a5' }}; text-decoration: none; font-weight: {{ request()->routeIs('organizer.venues.*') ? '600' : '400' }};">Venues</a>
+                    @endif
                 </nav>
             </div>
             <div style="display: flex; align-items: center; gap: 1rem; font-size: 0.875rem;">

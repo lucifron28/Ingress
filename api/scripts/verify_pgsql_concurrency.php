@@ -2042,6 +2042,55 @@ $assert(DB::table('node_walk_in_recoveries')->whereNotNull('sync_package_ciphert
 echo "\n";
 
 // =============================================================================
+// CASE AL - Gate deactivation cannot race with scanner assignment
+// =============================================================================
+echo "CASE AL: gate deactivation races with scanner assignment\n";
+$gateRaceEvent = Event::create([
+    'organizer_id' => $organizer->id,
+    'venue_id' => $venue->id,
+    'title' => 'Gate Assignment Race',
+    'slug' => "gate-assignment-race-{$suffix}",
+    'capacity' => 20,
+    'registration_opens_at' => now()->subHour(),
+    'registration_closes_at' => now()->addDay(),
+    'starts_at' => now()->addDays(2),
+    'ends_at' => now()->addDays(2)->addHours(3),
+    'status' => Event::STATUS_DRAFT,
+]);
+$gateRaceGate = AccessPoint::create([
+    'event_id' => $gateRaceEvent->id,
+    'name' => 'Race Gate',
+    'code' => 'RACE-GATE',
+    'is_active' => true,
+]);
+$gateRaceStaff = User::create([
+    'name' => 'Gate Race Scanner',
+    'email' => "gate-race-scanner-{$suffix}@example.test",
+    'role' => User::ROLE_STUDENT,
+    'password' => Hash::make('password'),
+]);
+$gateRaceResults = $runConcurrently([
+    ['deactivate_gate', [
+        'actor_id' => $organizer->id,
+        'event_id' => $gateRaceEvent->id,
+        'access_point_id' => $gateRaceGate->id,
+    ]],
+    ['assign_gate_staff', [
+        'actor_id' => $organizer->id,
+        'event_id' => $gateRaceEvent->id,
+        'access_point_id' => $gateRaceGate->id,
+        'staff_id' => $gateRaceStaff->id,
+    ]],
+], $childScript, $testDatabase);
+$gateRaceWinners = count(array_filter($gateRaceResults, fn (array $result): bool => ($result['ok'] ?? false) === true));
+$gateRaceInvariantHolds = $gateRaceGate->fresh()->is_active
+    || ! EventStaff::query()->where('event_id', $gateRaceEvent->id)
+        ->where('access_point_id', $gateRaceGate->id)->exists();
+$assert($gateRaceWinners === 1, 'exactly one conflicting operation succeeds');
+$assert($gateRaceInvariantHolds, 'a scanner is never assigned to a deactivated gate');
+echo "\n";
+
+// =============================================================================
 // Summary
 // =============================================================================
 if ($failures === []) {

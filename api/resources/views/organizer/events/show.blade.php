@@ -336,21 +336,46 @@
         <p style="font-size: 0.8rem; color: var(--neutral-muted); margin-bottom: 1rem;">
             Entrance turnstiles and gates where staff scan attendee tickets.
         </p>
+        @if ($errors->hasAny(['access_point', 'code']))
+            <p role="alert" style="color: #991b1b; margin-bottom: 1rem;">
+                {{ $errors->first('access_point') ?: $errors->first('code') }}
+            </p>
+        @endif
 
         <div class="table-container" style="margin-bottom: 1.25rem;">
             <table>
                 <thead>
                     <tr>
-                        <th>Gate Name</th>
-                        <th>Code</th>
-                        <th>Status</th>
+                        <th>Gate details</th>
+                        <th>Current status</th>
                     </tr>
                 </thead>
                 <tbody>
                     @forelse ($event->accessPoints as $ap)
                         <tr>
-                            <td><strong>{{ $ap->name }}</strong></td>
-                            <td class="mono">{{ $ap->code }}</td>
+                            <td>
+                                @if (! $event->snapshot_prepared_at)
+                                    <form method="POST" action="{{ route('organizer.events.access-points.update', [$event, $ap]) }}" id="gate-{{ $ap->id }}" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)); gap: .5rem; align-items: end;">
+                                        @csrf
+                                        @method('PUT')
+                                        <label for="gate-name-{{ $ap->id }}">Name
+                                            <input id="gate-name-{{ $ap->id }}" class="form-input" name="name" maxlength="100" required value="{{ $ap->name }}">
+                                        </label>
+                                        <label for="gate-code-{{ $ap->id }}">Code
+                                            <input id="gate-code-{{ $ap->id }}" class="form-input mono" name="code" maxlength="32" pattern="[A-Za-z0-9_-]+" required value="{{ $ap->code }}">
+                                        </label>
+                                        <label for="gate-active-{{ $ap->id }}">Status
+                                            <select id="gate-active-{{ $ap->id }}" class="form-select" name="is_active">
+                                                <option value="1" {{ $ap->is_active ? 'selected' : '' }}>Active</option>
+                                                <option value="0" {{ ! $ap->is_active ? 'selected' : '' }}>Inactive</option>
+                                            </select>
+                                        </label>
+                                        <button class="btn-secondary" type="submit">Save gate</button>
+                                    </form>
+                                @else
+                                    <strong>{{ $ap->name }}</strong> <span class="mono">{{ $ap->code }}</span>
+                                @endif
+                            </td>
                             <td>
                                 <span class="badge {{ $ap->is_active ? 'badge-success' : 'badge-neutral' }}">
                                     {{ $ap->is_active ? 'Active' : 'Inactive' }}
@@ -441,7 +466,7 @@
                 @error('staff_email') <p role="alert">{{ $message }}</p> @enderror
                 <select name="access_point_id" class="form-select" style="flex: 1;">
                     <option value="">-- Any Gate (All Gates) --</option>
-                    @foreach ($event->accessPoints as $ap)
+                    @foreach ($event->accessPoints->where('is_active', true) as $ap)
                         <option value="{{ $ap->id }}">{{ $ap->name }} ({{ $ap->code }})</option>
                     @endforeach
                 </select>
