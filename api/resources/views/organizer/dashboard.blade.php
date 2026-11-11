@@ -13,10 +13,10 @@
 <section class="dashboard-stats-section" aria-labelledby="dashboard-stats-title">
     <h2 id="dashboard-stats-title" class="visually-hidden">Event statistics</h2>
     <dl class="dashboard-stats-grid">
-        <x-stat-card icon="calendar-days" label="Total Events" :value="$stats['total_events']" />
-        <x-stat-card icon="check-circle-2" label="Published Events" :value="$stats['published_events']" />
-        <x-stat-card icon="file-pen-line" label="Draft Events" :value="$stats['draft_events']" />
-        <x-stat-card icon="users" label="Total Capacity" :value="number_format($stats['total_capacity'])" />
+        <x-stat-card icon="calendar-days" label="Total Events" :value="$stats['total_events']" tone="slate" />
+        <x-stat-card icon="check-circle-2" label="Published Events" :value="$stats['published_events']" tone="sage" />
+        <x-stat-card icon="file-pen-line" label="Draft Events" :value="$stats['draft_events']" tone="amber" />
+        <x-stat-card icon="users" label="Total Capacity" :value="number_format($stats['total_capacity'])" tone="lavender" />
     </dl>
 </section>
 
