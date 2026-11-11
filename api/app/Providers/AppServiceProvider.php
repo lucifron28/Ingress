@@ -69,16 +69,6 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(30)->by('node-operator-action:'.($operatorId ?? 'unknown').'|'.$peerKey);
         });
 
-        RateLimiter::for('student-email', function (Request $request) {
-            $email = $request->input('email');
-            $normalized = is_string($email) ? Str::lower(trim($email)) : '';
-
-            return [
-                Limit::perMinutes(10, 3)->by('student-email:'.hash('sha256', $normalized)),
-                Limit::perMinute(20)->by('student-email-ip:'.$request->ip()),
-            ];
-        });
-        RateLimiter::for('student-complete', fn (Request $request) => Limit::perMinute(10)->by('student-complete:'.$request->ip()));
         RateLimiter::for('student-firebase-session', fn (Request $request) => Limit::perMinute(10)->by('student-firebase-session:'.$request->ip()));
         RateLimiter::for('manager-invitation', fn (Request $request) => Limit::perMinute(30)->by('manager-invitation:'.$request->ip()));
 

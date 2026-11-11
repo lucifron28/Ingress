@@ -159,7 +159,7 @@ php artisan serve --host=0.0.0.0 --port=8000
 ```
 Organizer portal available at: `http://localhost:8000/login`
 
-For cloud student signup, set `INGRESS_RUNTIME=cloud`, use a public HTTPS `APP_URL`, and configure Resend's HTTPS API with a verified sender domain. The shared `onboarding@resend.dev` sender can test static delivery only to the Resend account owner's inbox; it cannot activate student accounts. Outside local and testing, signup rejects HTTP and log or array mailers. Students request a single-use link and complete their account in a browser. The email proves address control; the student number is self-reported. See [the deployment guide](docs/deployment.md) and [architecture notes](docs/second-half-architecture.md#institutional-student-account-activation).
+Student web sign-in uses Firebase Authentication at `/student/auth`, which also handles email verification and password recovery. Laravel verifies Firebase ID tokens and accepts only verified `@student.mseuf.edu.ph` identities. Configure the Firebase web settings and authorized Render domain as described in [the deployment guide](docs/deployment.md). Resend is optional and is used for event-manager invitations; unsafe or missing mail settings make invitation requests fail closed.
 
 ### 3. Run Backend Integration Tests
 The fast backend suite runs on in-memory SQLite:
@@ -177,8 +177,8 @@ php artisan test --filter=RegistrationTest
 
 #### PostgreSQL concurrency verification (separate)
 
-Twenty-two scenarios are checked against the real PostgreSQL server using genuinely overlapping
-transactions released through a two-process barrier:
+The PostgreSQL verifier checks concurrency guarantees against the real server using genuinely overlapping
+transactions released through a two-process barrier. Core cases include:
 
 1. two simultaneous registrations competing for the final seat
 2. two simultaneous gates scanning the same unused ticket
@@ -203,11 +203,9 @@ transactions released through a two-process barrier:
 15. concurrent exports bind a snapshot to only one target node
 16. reuse of one snapshot ID across events produces one staged record and a handled conflict
 17. concurrent imports of one snapshot produce one node event
-18. concurrent use of one student verification link creates one account
-19. concurrent claims of one student number create one account
-20. concurrent snapshot refreshes retain one node event
-21. a refresh waits for an in-flight admission and preserves it
-22. a staff login waits for credential rotation and rejects the old password
+18. concurrent snapshot refreshes retain one node event
+19. a refresh waits for an in-flight admission and preserves it
+20. a staff login waits for credential rotation and rejects the old password
 ```bash
 cd api
 php scripts/verify_pgsql_concurrency.php

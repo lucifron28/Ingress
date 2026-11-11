@@ -3,7 +3,6 @@
 use App\Http\Controllers\NodeOperatorConsoleController;
 use App\Http\Controllers\NodeOperatorHandoffController;
 use App\Http\Controllers\NodeOperatorStaffController;
-use App\Http\Controllers\StudentEmailVerificationController;
 use App\Http\Controllers\Web\AuthController;
 use App\Http\Controllers\Web\CheckoutController;
 use App\Http\Controllers\Web\EventManagerController;
@@ -67,9 +66,6 @@ Route::middleware(['auth', 'runtime:cloud'])->group(function (): void {
     Route::get('/student/dashboard', [StudentAuthController::class, 'dashboard'])->name('student.dashboard');
     Route::post('/student/logout', [StudentAuthController::class, 'logout'])->name('student.logout');
 });
-
-Route::get('/student/complete', [StudentEmailVerificationController::class, 'show'])->middleware('runtime:cloud');
-Route::post('/student/complete', [StudentEmailVerificationController::class, 'complete'])->middleware(['runtime:cloud', 'throttle:student-complete']);
 
 Route::get('/event-manager-invitation', [EventManagerInvitationController::class, 'show'])
     ->middleware('runtime:cloud')->name('event-manager-invitation.show');

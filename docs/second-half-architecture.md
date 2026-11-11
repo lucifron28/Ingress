@@ -132,13 +132,13 @@ This rule prevents split-brain cases where the cloud says a ticket is valid but 
 
 Student authentication is internet/cloud based.
 
-### Institutional student account activation
+### Firebase student authentication
 
-Normal self-service accounts are intended for MSEUF students. The cloud sends a single-use verification link to an `@student.mseuf.edu.ph` address and completes the account only after the recipient proves control of that address. The server assigns the student role; public users never choose a privileged role. Directory ingestion is not required for this flow. Email control does not by itself prove that a student number belongs to the account holder or that enrollment is current; those claims require a separate institutional source.
+Normal self-service accounts are intended for MSEUF students. Students use Firebase Email/Password at `/student/auth`; Firebase sends verification and password-reset messages. The browser exchanges a Firebase ID token through `/student/session`. Laravel verifies the token with Firebase Identity Toolkit, checks that the email is verified and ends in `@student.mseuf.edu.ph`, and assigns the student role. Public users cannot choose a privileged role. Directory imports are not required. Email control does not by itself prove that enrollment is current.
 
-The website signup form requests a link. Opening the email link shows a web form; submitting it consumes the token and creates the account. Links expire after 30 minutes, and a new request invalidates the previous link. The link token is in the URL fragment rather than the server request path. Only its hash is stored in the database. The form uses a CSRF-protected POST; opening the link alone does not create an account.
+Firebase owns the verification and reset links. The Laravel application does not issue student email-verification links or create accounts through the retired `/api/v1/auth/student-verification` and `/student/complete` routes. Firebase's authorized-domain list must include the deployed Cloud host. The operator-only staging command can create synthetic `@example.test` students, but leaves them unverified.
 
-For the Render cloud deployment, set `APP_URL` to the public HTTPS origin, configure Laravel's official Resend HTTPS transport with `MAIL_MAILER=resend`, `RESEND_API_KEY`, and a valid sender address, apply migrations, and configure trusted TLS proxies if applicable. Outside local and testing environments, account verification refuses HTTP, a non-HTTPS `APP_URL`, and log or array mail transports. Delivery failures are logged without the email address or link; the request response remains generic. The shared Resend development sender is limited to static account-owner tests; real activation mail requires a verified sender domain and an authorized institutional test mailbox. The operator-only staging command can create synthetic `@example.test` students, but leaves them unverified. Configure mail monitoring and retention for expired verification records. Existing directory imports are not required for signup.
+Render startup does not require a mail provider. Resend is optional for event-manager invitations. When configured, the invitation route requires a safe, configured transport and an HTTPS application origin; missing credentials, logging transports, and plaintext SMTP fail closed. See the [deployment guide](deployment.md#optional-resend-mail-for-event-manager-invitations) for the Render settings.
 
 This keeps the recurring student experience account-based while preserving the MSEUF-first scope of the system. Faculty, staff, and organizers who need privileged access are provisioned through authorized administrative workflows rather than public signup.
 
@@ -462,7 +462,7 @@ Node staff can issue student, guest, or alumni walk-in passes after authority ac
 
 Assigned staff can recover an active walk-in pass on the Event Node while the venue LAN is available, including when public internet is down. Staff must verify the attendee in person under the event's approved identity procedure, then select `lost`, `damaged or unreadable`, or `pass not received`. The recovery stores the staff member, time, attestation, and reason on the node and syncs them to the organizer history when cloud connectivity returns. The returned QR is a bearer credential, so staff must hand it directly to the attendee. Do not collect identity document numbers or copies. If identity cannot be verified, do not recover the pass. Recovery does not admit the attendee; admission still requires the normal scan and confirmation.
 
-Paid ticket flows, automatic guest email delivery, and photo collection are not implemented. Email verification for student signup proves control of the institutional address, not student number ownership or current enrollment.
+Paid ticket flows, automatic guest email delivery, and photo collection are not implemented. Firebase email verification proves control of the institutional address, not student number ownership or current enrollment.
 
 ## 19. Entry, exit, and re-entry tracking
 

@@ -137,7 +137,7 @@ class EventManagerController extends Controller
             return back()->withErrors(['email' => 'Create the account on the Cloud runtime before assigning it.']);
         }
 
-        if (! SensitiveMailTransport::canSendWithoutLogging()) {
+        if (! SensitiveMailTransport::canSendSafely()) {
             return back()->withErrors(['email' => 'Invitation delivery is unavailable. Contact the platform administrator.']);
         }
 
