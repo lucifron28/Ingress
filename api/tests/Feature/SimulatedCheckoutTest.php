@@ -342,8 +342,12 @@ class SimulatedCheckoutTest extends TestCase
         $passB = $this->withCookie($sessionCookie, $sessionB)
             ->post(route('public.tickets.redeem.store'), [
                 'redemption_code' => $redemptionCodeA,
+                'guest_name' => 'Second Ticket Holder',
+                'guest_email' => 'second-holder@example.test',
             ]);
         $passB->assertRedirect($ticketUrl);
+        $this->assertSame('Second Ticket Holder', $registration->fresh()->guest_name);
+        $this->assertSame('second-holder@example.test', $registration->fresh()->guest_email);
         $sessionB = $passB->getCookie($sessionCookie)->getValue();
         $this->assertNotSame($sessionA, $sessionB);
         $this->assertTrue(ctype_alnum($sessionB));

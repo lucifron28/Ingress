@@ -391,13 +391,13 @@ A transfer:
 
 Until the recipient accepts, the original owner keeps the ticket. Scanner staff see the current owner, not the full transfer history.
 
-Events default to transfers disabled and may enable them in event settings. Transfers require student accounts with verified institutional email addresses; this check does not prove enrollment. This version has no transfer-count limit or organizer approval step. New transfer requests and acceptance close at the event end or snapshot preparation; closing registration alone does not close transfers. A pending request after event end remains cancellable by its sender or declinable by its recipient. Pending requests expire when the event disables transfers or prepares its snapshot. Guest, alumni, and walk-in passes do not support self-service transfer.
+Events default to transfers disabled and may enable them in event settings. Student-account transfers require verified institutional email addresses; this check does not prove enrollment. These transfers use recipient acceptance and retain their existing history and eligibility rules. Accountless guest and alumni tickets use a separate redemption-code flow. The recipient supplies a name and contact email; redemption updates those details and rotates both ticket credentials atomically. It does not create an account or collect a student number. Possession of the code proves ticket control, not identity. Student-restricted tickets and node walk-ins cannot use this flow. Another event registration or active checkout that already uses the submitted email blocks redemption. There is no transfer-count limit or organizer approval step. All transfers remain closed at event end or snapshot preparation; closing registration alone does not close transfers. A pending student transfer after event end remains cancellable by its sender or declinable by its recipient. Pending student requests expire when the event disables transfers or prepares its snapshot.
 ---
 
 ## ADR 018: Student accounts with accountless guest and alumni passes
 
 ### Status
-Implemented for single use student email activation, organizer issued guest and alumni passes, and node walk ins. Paid guest tickets and email delivery are not implemented.
+Implemented for single-use student email activation, organizer-issued guest and alumni passes, accountless guest and alumni redemption-code transfers, and node walk-ins. Paid guest tickets and email delivery are not implemented.
 
 ### Context
 Ingress is primarily for MSEUF events. Students who control an institutional email address can use a persistent account, ticket wallet, registration history, and transfers. Alumni and external guests are occasional attendees and should not be forced through the same account-activation flow.
@@ -407,9 +407,9 @@ A single email-only model for everyone would make students repeatedly verify ide
 ### Decision
 Keep normal self-service accounts focused on MSEUF students. Signup verifies control of an `@student.mseuf.edu.ph` address through a single-use email link before account completion. Directory ingestion is not required. Email verification alone does not establish ownership of a student number or current enrollment.
 
-External attendees may receive organizer issued tickets or node walk in passes without creating a MSEUF account. Paid guest tickets and automatic email delivery are not implemented.
+External attendees may receive organizer-issued tickets or node walk-in passes without creating an MSEUF account. Eligible public guest and alumni tickets can change hands through a one-use redemption code. The recipient enters a current name and contact email, and the system replaces the previous guest details while rotating admission and redemption credentials. The contact email is not verified, and code possession does not verify identity. Student-restricted tickets and node walk-ins cannot use this transfer path. Paid guest tickets and automatic email delivery are not implemented.
 
-Guest and alumni tickets do not require a MSEUF account. The organizer can issue a printable pass, and event staff can register a walk in. Both use the same opaque credential and validation path as student tickets. Email delivery is not implemented.
+Guest and alumni tickets do not require an MSEUF account. An organizer can issue a printable pass, a public registration can issue an eligible ticket, and event staff can register a walk-in. These tickets use the same opaque credential and validation path as student tickets. Email delivery is not implemented.
 
 The roster distinguishes student, guest, alumni, and walk in attendee records. Reporting can distinguish student accounts from guest and alumni attendees. Email verification proves control of the institutional address, not student number ownership or current enrollment.
 

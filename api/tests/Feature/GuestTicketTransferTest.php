@@ -2,15 +2,18 @@
 
 namespace Tests\Feature;
 
+use App\Actions\AdmitTicket;
 use App\Models\AccessPoint;
 use App\Models\Admission;
 use App\Models\Event;
 use App\Models\EventManagerAssignment;
+use App\Models\EventStaff;
 use App\Models\Registration;
 use App\Models\Ticket;
 use App\Models\TicketCategory;
 use App\Models\User;
 use App\Models\Venue;
+use App\Services\Tickets\TicketPdfGenerator;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -101,6 +104,8 @@ class GuestTicketTransferTest extends TestCase
         $this->get(route('public.tickets.redeem'))
             ->assertOk()
             ->assertDontSee($redemptionCode)
+            ->assertSee('name="guest_name"', false)
+            ->assertSee('name="guest_email"', false)
             ->assertHeader('Cache-Control', 'no-store, private')
             ->assertHeader('Referrer-Policy', 'no-referrer');
     }
@@ -112,10 +117,24 @@ class GuestTicketTransferTest extends TestCase
         $secretA = explode(':', $qrA)[3];
 
         $this->flushSession();
-        $this->post(route('public.tickets.redeem.store'), ['redemption_code' => $codeA])
+        $this->post(route('public.tickets.redeem.store'), [
+            'redemption_code' => $codeA,
+            'guest_name' => 'Second Ticket Holder',
+            'guest_email' => 'second-holder@example.test',
+        ])
             ->assertRedirect(route('public.tickets.show', $registration));
         $passB = $this->get(route('public.tickets.show', $registration))->assertOk();
         $codeB = $this->redemptionCodeFrom($passB->getContent());
+        $passB->assertSee('Second Ticket Holder')->assertDontSee('Original Ticket Holder');
+        $registrationB = $registration->fresh();
+        $this->assertSame('Second Ticket Holder', $registrationB->guest_name);
+        $this->assertSame('second-holder@example.test', $registrationB->guest_email);
+
+        $pdfB = $this->get(route('public.tickets.pdf', $registration))->assertOk();
+        $this->assertStringContainsString('Second Ticket Holder', app(TicketPdfGenerator::class)->renderHtml(
+            $registrationB->load(['event.venue', 'ticketCategory', 'ticket']),
+            $ticket->fresh()->getQrPayload(),
+        ));
 
         $ticketB = $ticket->fresh();
         $qrB = $ticketB->getQrPayload();
@@ -134,17 +153,34 @@ class GuestTicketTransferTest extends TestCase
         $this->get(route('public.tickets.pdf', $registration))->assertOk();
 
         $this->flushSession();
-        $this->post(route('public.tickets.redeem.store'), ['redemption_code' => $codeA])
+        $this->post(route('public.tickets.redeem.store'), [
+            'redemption_code' => $codeA,
+            'guest_name' => 'Unauthorized Reuse',
+            'guest_email' => 'reuse@example.test',
+        ])
             ->assertRedirect(route('public.tickets.redeem'))
             ->assertSessionHasErrors('redemption_code')
             ->assertSessionMissing('_old_input');
         $this->assertSame(2, $ticket->fresh()->credential_version);
 
         $this->flushSession();
-        $this->post(route('public.tickets.redeem.store'), ['redemption_code' => $codeB])
+        $this->post(route('public.tickets.redeem.store'), [
+            'redemption_code' => $codeB,
+            'guest_name' => 'Third Ticket Holder',
+            'guest_email' => 'third-holder@example.test',
+        ])
             ->assertRedirect(route('public.tickets.show', $registration));
         $passC = $this->get(route('public.tickets.show', $registration))->assertOk();
         $codeC = $this->redemptionCodeFrom($passC->getContent());
+        $passC->assertSee('Third Ticket Holder')->assertDontSee('Second Ticket Holder');
+        $registrationC = $registration->fresh();
+        $this->assertSame('Third Ticket Holder', $registrationC->guest_name);
+        $this->assertSame('third-holder@example.test', $registrationC->guest_email);
+        $this->get(route('public.tickets.pdf', $registration))->assertOk();
+        $this->assertStringContainsString('Third Ticket Holder', app(TicketPdfGenerator::class)->renderHtml(
+            $registrationC->load(['event.venue', 'ticketCategory', 'ticket']),
+            $ticket->fresh()->getQrPayload(),
+        ));
 
         $ticketC = $ticket->fresh();
         $this->assertSame(3, $ticketC->credential_version);
@@ -152,11 +188,87 @@ class GuestTicketTransferTest extends TestCase
         $this->assertNotSame($codeB, $codeC);
         $this->assertSame(hash('sha256', $codeC), $ticketC->redemption_hash);
         $this->assertDatabaseCount('guest_ticket_credential_rotations', 3);
+
+        $this->event->update(['identity_verification_level' => Event::IDENTITY_CHECK]);
+        $gate = AccessPoint::create([
+            'event_id' => $this->event->id,
+            'name' => 'North Gate',
+            'code' => 'NORTH',
+            'is_active' => true,
+        ]);
+        $scanner = User::factory()->create(['role' => User::ROLE_STAFF]);
+        EventStaff::create([
+            'event_id' => $this->event->id,
+            'user_id' => $scanner->id,
+            'access_point_id' => $gate->id,
+        ]);
+        config(['ingress.mode' => 'legacy']);
+
+        $preview = app(AdmitTicket::class)->preview(
+            $scanner,
+            $this->event->id,
+            $gate->id,
+            $ticketC->getQrPayload(),
+        );
+        $this->assertSame(200, $preview['http_code']);
+        $this->assertSame('Third Ticket Holder', $preview['ticket']['attendee_name']);
+        $this->assertNull($preview['ticket']['student_id']);
+        $this->assertSame(Event::IDENTITY_CHECK, $preview['ticket']['identity_verification_level']);
+        $this->assertSame('Compare the attendee with an approved photo ID before confirming.', $preview['detail']);
+    }
+
+    public function test_guest_redemption_rejects_invalid_attendee_details_without_flashing_the_code(): void
+    {
+        [$registration, $ticket, $code] = $this->checkoutGuest('invalid-details@example.test');
+        $this->flushSession();
+
+        $this->post(route('public.tickets.redeem.store'), [
+            'redemption_code' => $code,
+            'guest_name' => "\0",
+            'guest_email' => 'not-an-email',
+        ])
+            ->assertRedirect(route('public.tickets.redeem'))
+            ->assertSessionHasErrors(['guest_name', 'guest_email'])
+            ->assertSessionMissing('_old_input');
+
+        $this->assertSame('Original Ticket Holder', $registration->fresh()->guest_name);
+        $this->assertSame('invalid-details@example.test', $registration->fresh()->guest_email);
+        $this->assertSame(1, $ticket->fresh()->credential_version);
+        $this->assertSame(hash('sha256', $code), $ticket->fresh()->redemption_hash);
+        $this->assertDatabaseCount('guest_ticket_credential_rotations', 1);
+    }
+
+    public function test_guest_redemption_rejects_an_email_already_used_for_another_event_registration(): void
+    {
+        [$registration, $ticket, $code] = $this->checkoutGuest('first-holder@example.test');
+        $this->checkoutGuest('second-holder@example.test');
+        $this->flushSession();
+
+        $this->post(route('public.tickets.redeem.store'), [
+            'redemption_code' => $code,
+            'guest_name' => 'Second Ticket Holder',
+            'guest_email' => 'SECOND-HOLDER@example.test',
+        ])
+            ->assertRedirect(route('public.tickets.redeem'))
+            ->assertSessionHasErrors('redemption_code')
+            ->assertSessionMissing('_old_input');
+
+        $this->assertSame('Original Ticket Holder', $registration->fresh()->guest_name);
+        $this->assertSame('first-holder@example.test', $registration->fresh()->guest_email);
+        $this->assertSame(1, $ticket->fresh()->credential_version);
+        $this->assertSame(hash('sha256', $code), $ticket->fresh()->redemption_hash);
     }
 
     public function test_snapshot_exports_the_current_qr_hash_without_the_guest_redemption_hash(): void
     {
         [$registration, $ticket, $redemptionCode] = $this->checkoutGuest('snapshot-holder@example.test');
+
+        $this->flushSession();
+        $this->post(route('public.tickets.redeem.store'), [
+            'redemption_code' => $redemptionCode,
+            'guest_name' => 'Snapshot Ticket Holder',
+            'guest_email' => 'snapshot-recipient@example.test',
+        ])->assertRedirect(route('public.tickets.show', $registration));
 
         $this->actingAs($this->organizer, 'web')
             ->post(route('organizer.events.registration.close', $this->event))
@@ -168,10 +280,13 @@ class GuestTicketTransferTest extends TestCase
         $payload = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
         $snapshotTicket = $payload['registrations'][0]['ticket'];
 
-        $this->assertSame($ticket->qr_hash, $snapshotTicket['qr_hash']);
+        $this->assertSame($ticket->fresh()->qr_hash, $snapshotTicket['qr_hash']);
+        $this->assertNotSame($ticket->qr_hash, $snapshotTicket['qr_hash']);
         $this->assertArrayNotHasKey('redemption_hash', $snapshotTicket);
         $this->assertStringNotContainsString($redemptionCode, $json);
         $this->assertSame($registration->id, $payload['registrations'][0]['id']);
+        $this->assertSame('Snapshot Ticket Holder', $payload['registrations'][0]['attendee']['name']);
+        $this->assertSame('snapshot-recipient@example.test', $payload['registrations'][0]['attendee']['email']);
     }
 
     public function test_student_restricted_tickets_do_not_receive_guest_redemption_codes(): void
@@ -375,7 +490,7 @@ class GuestTicketTransferTest extends TestCase
         $category = $this->event->ticketCategories()->firstOrFail();
         $this->post(route('public.events.register.store', $this->event->slug), [
             'ticket_category_id' => $category->id,
-            'guest_name' => 'Ticket Holder',
+            'guest_name' => 'Original Ticket Holder',
             'guest_email' => $email,
         ])->assertRedirect();
 
@@ -397,7 +512,11 @@ class GuestTicketTransferTest extends TestCase
     private function assertRedemptionRejected(string $code): void
     {
         $this->flushSession();
-        $this->post(route('public.tickets.redeem.store'), ['redemption_code' => $code])
+        $this->post(route('public.tickets.redeem.store'), [
+            'redemption_code' => $code,
+            'guest_name' => 'Attempted Holder',
+            'guest_email' => 'attempted-holder@example.test',
+        ])
             ->assertRedirect(route('public.tickets.redeem'))
             ->assertSessionHasErrors('redemption_code');
     }

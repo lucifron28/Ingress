@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Services\Tickets\GuestTicketTransfer;
 use App\Services\Tickets\TicketSessionAccess;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -32,14 +33,31 @@ class GuestTicketRedemptionController extends Controller
         TicketSessionAccess $ticketAccess,
     ): Response {
         $this->requireSecureRequest($request);
-        $redemptionCode = $request->input('redemption_code');
+        $validator = Validator::make($request->only(['redemption_code', 'guest_name', 'guest_email']), [
+            'redemption_code' => ['required', 'string', 'regex:/\A[a-fA-F0-9]{64}\z/'],
+            'guest_name' => ['required', 'string', 'max:255', 'not_regex:/\x00/'],
+            'guest_email' => ['required', 'email', 'max:255'],
+        ]);
 
-        if (! is_string($redemptionCode) || ! preg_match('/\A[a-fA-F0-9]{64}\z/', $redemptionCode)) {
-            return $this->reject($request);
+        if ($validator->fails()) {
+            $request->session()->forget('_old_input');
+
+            return response()->redirectToRoute('public.tickets.redeem')
+                ->withErrors($validator)
+                ->withHeaders([
+                    'Cache-Control' => 'no-store, private',
+                    'Referrer-Policy' => 'no-referrer',
+                ]);
         }
 
+        $validated = $validator->validated();
+
         try {
-            $result = $guestTicketTransfer->redeem(strtolower($redemptionCode));
+            $result = $guestTicketTransfer->redeem(
+                strtolower($validated['redemption_code']),
+                $validated['guest_name'],
+                $validated['guest_email'],
+            );
         } catch (ValidationException) {
             return $this->reject($request);
         }

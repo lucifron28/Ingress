@@ -1189,8 +1189,10 @@ DB::table('events')->where('id', $guestRedemptionEvent->id)->lockForUpdate()->fi
 ], $testDatabase, $childScript);
 $guestRedemptionReadyA = trim((string) fgets($guestRedemptionPipesA[1])) === 'READY';
 $guestRedemptionReadyB = trim((string) fgets($guestRedemptionPipesB[1])) === 'READY';
-foreach ([$guestRedemptionPipesA, $guestRedemptionPipesB] as $guestRedemptionPipes) {
-    fwrite($guestRedemptionPipes[0], 'GO'.PHP_EOL.$guestRedemptionCode.PHP_EOL);
+foreach ([[$guestRedemptionPipesA, 'A'], [$guestRedemptionPipesB, 'B']] as [$guestRedemptionPipes, $holder]) {
+    fwrite($guestRedemptionPipes[0], 'GO'.PHP_EOL.$guestRedemptionCode.PHP_EOL
+        .'Redemption Holder '.$holder.PHP_EOL
+        .'redemption-holder-'.$holder.'-'.$suffix.'@example.test'.PHP_EOL);
     fflush($guestRedemptionPipes[0]);
 }
 $guestRedemptionDeadline = microtime(true) + 20.0;
@@ -1210,6 +1212,10 @@ $guestRedemptionResults = [
 echo '  workers: '.json_encode($guestRedemptionResults).PHP_EOL;
 $guestRedemptionOutput = json_encode($guestRedemptionResults, JSON_THROW_ON_ERROR);
 $guestRedemptionTicketAfterRace = $guestRedemptionTicket->fresh();
+$guestRedemptionIdentity = [
+    $guestRedemptionTicketAfterRace->registration->guest_name,
+    $guestRedemptionTicketAfterRace->registration->guest_email,
+];
 $guestRotationCount = DB::table('guest_ticket_credential_rotations')
     ->where('ticket_id', $guestRedemptionTicket->id)->where('kind', 'redeemed')->count();
 $successfulGuestRedemptions = count(array_filter($guestRedemptionResults, fn (array $result): bool => ($result['ok'] ?? false) === true));
@@ -1218,6 +1224,10 @@ $assert($guestRedemptionReadyA && $guestRedemptionReadyB, 'both redemption worke
 $assert($guestRedemptionBlocked >= 2, 'both redemption attempts waited on the same event lock');
 $assert(! str_contains($guestRedemptionOutput, $guestRedemptionCode), 'worker output never includes the redemption code');
 $assert($successfulGuestRedemptions === 1 && $rejectedGuestRedemptions === 1, 'one redemption succeeds and one replay is rejected');
+$assert(in_array($guestRedemptionIdentity, [
+    ['Redemption Holder A', 'redemption-holder-a-'.$suffix.'@example.test'],
+    ['Redemption Holder B', 'redemption-holder-b-'.$suffix.'@example.test'],
+], true), 'the registration identity matches the only successful redemption');
 $assert((int) $guestRedemptionTicketAfterRace->credential_version === 2, 'the ticket credential version increments only once');
 $assert($guestRedemptionTicketAfterRace->qr_hash !== $guestOldQrHash
     && ! $guestRedemptionTicketAfterRace->verifySecret($guestOldSecret), 'the old QR is invalid after the winning redemption');
