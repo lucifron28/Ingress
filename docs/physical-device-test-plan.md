@@ -140,8 +140,8 @@ Mark each row only after it has been run on the named devices. Record date, test
 | PostgreSQL volume persistence, encrypted backup, and isolated restore | Pending | |
 | Docker Event Node and scheduler resume after Windows reboot | Pending | |
 | APK installed; camera-only scanner permission | Pending | |
-| Resend static test message reaches authorized account-owner inbox | Pending | |
-| Institutional email signup and activation | Pending until verified sender domain and authorized mailbox | |
+| Optional Resend event-manager invitation email | Pending if enabled; otherwise N/A | |
+| Firebase student email verification and password recovery | Pending until tested with an authorized institutional mailbox | |
 | Synthetic student website sign-in, registration, ticket PDF download | Pending | |
 | Ticket transfer before finalization | Pending | |
 | Accountless guest transfer from A to B to C; prior redemption codes rejected | Pending | |
