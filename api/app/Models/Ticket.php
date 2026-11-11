@@ -13,6 +13,8 @@ class Ticket extends Model
 {
     use HasFactory;
 
+    public const INITIAL_CREDENTIAL_VERSION = 1;
+
     public const STATUS_ACTIVE = 'active';
 
     public const STATUS_REVOKED = 'revoked';

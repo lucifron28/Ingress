@@ -10,6 +10,7 @@ use App\Http\Controllers\Controller;
 use App\Models\CheckoutOrder;
 use App\Models\Event;
 use App\Models\PaymentAttempt;
+use App\Models\Ticket;
 use App\Services\Tickets\TicketSessionAccess;
 use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Http\RedirectResponse;
@@ -51,11 +52,13 @@ class CheckoutController extends Controller
         if ($checkoutOrder->status === CheckoutOrder::STATUS_SUCCESSFUL
             && $checkoutOrder->registration?->user_id === null) {
             $ticket = $checkoutOrder->registration->ticket()->firstOrFail();
-            $ticketAccess->grantGuest($request, $checkoutOrder->registration, $ticket);
+            if ($ticket->credential_version === Ticket::INITIAL_CREDENTIAL_VERSION) {
+                $ticketAccess->grantGuest($request, $checkoutOrder->registration, $ticket);
 
-            $redemptionCode = $this->recoverRedemptionCode($checkoutOrder);
-            if ($redemptionCode !== null) {
-                $ticketAccess->grantRedemptionCode($request, $checkoutOrder->registration, $redemptionCode);
+                $redemptionCode = $this->recoverRedemptionCode($checkoutOrder);
+                if ($redemptionCode !== null) {
+                    $ticketAccess->grantRedemptionCode($request, $checkoutOrder->registration, $redemptionCode);
+                }
             }
         }
         $attemptKey = (string) Str::uuid();
@@ -98,7 +101,8 @@ class CheckoutController extends Controller
         if ($result['status'] === CheckoutOrder::STATUS_SUCCESSFUL && $result['registration'] !== null) {
             $registration = $result['registration'];
             $ticket = $registration->ticket()->firstOrFail();
-            if ($registration->user_id === null) {
+            if ($registration->user_id === null
+                && $ticket->credential_version === Ticket::INITIAL_CREDENTIAL_VERSION) {
                 $ticketAccess->grantGuest($request, $registration, $ticket);
                 $redemptionCode = $result['redemption_code'] ?? $this->recoverRedemptionCode($result['order']);
                 if ($redemptionCode !== null) {

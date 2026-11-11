@@ -39,7 +39,7 @@ class IssueRegistrationTicket
             'qr_hash' => hash('sha256', $secret),
             'encrypted_secret' => Crypt::encryptString($secret),
             'status' => Ticket::STATUS_ACTIVE,
-            'credential_version' => 1,
+            'credential_version' => Ticket::INITIAL_CREDENTIAL_VERSION,
             'issued_at' => Carbon::now(),
         ]);
         $redemptionCode = $user === null
