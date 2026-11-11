@@ -297,6 +297,81 @@ class SimulatedCheckoutTest extends TestCase
         $this->assertNull($order->fresh()->redemption_code_ciphertext);
     }
 
+    public function test_paid_checkout_session_cannot_view_guest_ticket_after_another_session_transfers_it(): void
+    {
+        $this->event->update(['ticket_transfers_allowed' => true]);
+        $sessionCookie = config('session.cookie');
+        $sessionA = Str::random(40);
+        $sessionB = Str::random(40);
+        $this->assertNotSame($sessionA, $sessionB);
+
+        $this->withCookie($sessionCookie, $sessionA);
+        $order = $this->startPaidCheckout('first-holder@example.test');
+        $attemptKey = (string) Str::uuid();
+        $this->post(route('public.checkout.attempt', $order->public_id), [
+            'payment_method' => PaymentAttempt::METHOD_WALLET,
+            'attempt_key' => $attemptKey,
+        ]);
+
+        $this->app->instance(SimulatedPaymentProcessor::class, new class extends SimulatedPaymentProcessor
+        {
+            public function process(PaymentAttempt $attempt): string
+            {
+                return PaymentAttempt::STATUS_SUCCESSFUL;
+            }
+        });
+
+        $this->post(route('public.checkout.process', $order->public_id), [
+            'attempt_key' => $attemptKey,
+            'status' => 'failed',
+        ])->assertRedirect();
+
+        $registration = Registration::query()->sole();
+        $checkoutUrl = route('public.checkout.show', $order->public_id);
+        $ticketUrl = route('public.tickets.show', $registration);
+        $pdfUrl = route('public.tickets.pdf', $registration);
+        $this->get($checkoutUrl)->assertOk();
+        $this->assertSame($sessionA, $this->app['session.store']->getId());
+        $passA = $this->get($ticketUrl)->assertOk();
+        preg_match('/id="redemption-code">([a-f0-9]{64})<\/code>/', $passA->getContent(), $matches);
+        $this->assertArrayHasKey(1, $matches);
+        $redemptionCodeA = $matches[1];
+        $this->assertSame(hash('sha256', $redemptionCodeA), $registration->ticket->redemption_hash);
+        $this->get($pdfUrl)->assertOk();
+
+        $passB = $this->withCookie($sessionCookie, $sessionB)
+            ->post(route('public.tickets.redeem.store'), [
+                'redemption_code' => $redemptionCodeA,
+            ]);
+        $passB->assertRedirect($ticketUrl);
+        $sessionB = $passB->getCookie($sessionCookie)->getValue();
+        $this->assertNotSame($sessionA, $sessionB);
+        $this->assertTrue(ctype_alnum($sessionB));
+        $this->assertSame(40, strlen($sessionB));
+        $passBPage = $this->withCookie($sessionCookie, $sessionB)
+            ->get($ticketUrl)
+            ->assertOk();
+        preg_match('/id="redemption-code">([a-f0-9]{64})<\/code>/', $passBPage->getContent(), $matches);
+        $this->assertArrayHasKey(1, $matches);
+        $this->assertNotSame($redemptionCodeA, $matches[1]);
+        $this->get($pdfUrl)->assertOk();
+        $this->assertSame(2, $registration->ticket->fresh()->credential_version);
+
+        $this->withCookie($sessionCookie, $sessionA)
+            ->get($checkoutUrl)
+            ->assertOk();
+        $this->assertSame($sessionA, $this->app['session.store']->getId());
+        $this->get($ticketUrl)->assertNotFound();
+        $this->get($pdfUrl)->assertNotFound();
+
+        $this->post(route('public.checkout.process', $order->public_id), [
+            'attempt_key' => $attemptKey,
+            'status' => 'failed',
+        ])->assertRedirect();
+        $this->get($ticketUrl)->assertNotFound();
+        $this->get($pdfUrl)->assertNotFound();
+    }
+
     public function test_expired_interrupted_checkout_handoff_does_not_restore_the_redemption_code(): void
     {
         $order = $this->startPaidCheckout();
