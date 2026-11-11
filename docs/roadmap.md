@@ -67,7 +67,7 @@ Phase 1 adds Firebase-backed student web signup, verification, password recovery
 | Mandatory Cloud Resend dependency | Complete — PR #76 | Cloud startup no longer requires Resend; secure mail configuration and Firebase student verification remain separate. |
 | Guest identity after transfer | Complete — PR #77 | Guest redemption updates current attendee details and rotates credentials atomically. |
 | Unverified guest email blocking student identities | Complete — PR #78 | Cloud registrations, active guest checkout reservations, student ticket transfers, and schema-v4 snapshots distinguish account IDs from unverified guest contact emails. Guest-guest duplicate protection, student eligibility, and event capacity remain enforced. |
-| Predictable demo payment outcomes | In implementation — `fix/deterministic-demo-payments` | Persist an explicitly selected demo success or failure per attempt; keep payment confirmation server-controlled and require both simulator authorization switches. |
+| Predictable demo payment outcomes | Complete — PR #79 | Each attempt persists an explicit demo success or failure; confirmation reads only that saved selection, rejects invalid values, preserves both simulator authorization switches, and issues one ticket under concurrent retries. |
 
 ### Protected invariants
 
