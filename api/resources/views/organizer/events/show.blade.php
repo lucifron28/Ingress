@@ -6,11 +6,11 @@
         {{ $errors->first('event') ?: ($errors->first('registration') ?: ($errors->first('transfer') ?: ($errors->first('node_id') ?: $errors->first('receipt')))) }}
     </div>
 @endif
-<div id="event-overview" class="event-detail-header" tabindex="-1" style="margin-bottom: 2rem;">
-    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem;">
-        <div>
-            <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
-                <h1 style="font-size: 1.75rem; font-weight: 700; color: var(--neutral-dark);">{{ $event->title }}</h1>
+<header id="event-overview" class="event-detail-header" tabindex="-1">
+    <div class="event-detail-header__top">
+        <div class="event-detail-header__identity">
+            <div class="event-detail-header__title-row">
+                <h1 class="event-detail-header__title">{{ $event->title }}</h1>
                 @if ($event->isPublished())
                     <span class="badge badge-success">Published</span>
                 @elseif ($event->isDraft())
@@ -21,18 +21,18 @@
                     <span class="badge badge-neutral">{{ ucfirst($event->status) }}</span>
                 @endif
             </div>
-            <p style="color: var(--neutral-muted); font-size: 0.875rem;">Venue: <strong>{{ $event->venue->name }}</strong> &bull; Capacity: <strong class="mono">{{ $event->capacity }}</strong></p>
+            <dl class="event-detail-header__meta">
+                <div><dt><x-icon name="map-pin" size="16" />Venue</dt><dd>{{ $event->venue->name }}</dd></div>
+                <div><dt><x-icon name="users" size="16" />Capacity</dt><dd class="mono">{{ number_format($event->capacity) }}</dd></div>
+            </dl>
         </div>
 
-        <div style="display: flex; gap: 0.5rem; align-items: center;">
-            <a href="{{ route('organizer.attendance', $event) }}" class="btn-primary" style="background-color: #1e293b; border-color: #0f172a;">
-                Attendance View
-            </a>
-
+        <div class="event-detail-header__actions">
             @if ($event->isDraft())
                 <form method="POST" action="{{ route('organizer.events.publish', $event) }}" onsubmit="return confirm('Publish this event to make it visible to students?');">
                     @csrf
-                    <button type="submit" class="btn-primary" style="background-color: var(--state-success); border-color: #15803d;">
+                    <button type="submit" class="btn-primary">
+                        <x-icon name="check-circle-2" size="17" />
                         Publish Event
                     </button>
                 </form>
@@ -42,12 +42,12 @@
                 @if ($event->snapshot_prepared_at && ! $authority)
                     <form method="POST" action="{{ route('organizer.events.snapshot.discard', $event) }}" onsubmit="return confirm('Discard this snapshot to change event details?');">
                         @csrf
-                        <button type="submit" class="btn-secondary">Discard Snapshot</button>
+                    <button type="submit" class="btn-secondary"><x-icon name="x-circle" size="17" />Discard Snapshot</button>
                     </form>
                 @elseif (! $event->snapshot_prepared_at)
                     <form method="POST" action="{{ route('organizer.events.snapshot.prepare', $event) }}">
                         @csrf
-                        <button type="submit" class="btn-secondary">Prepare Snapshot</button>
+                    <button type="submit" class="btn-secondary"><x-icon name="download" size="17" />Prepare Snapshot</button>
                     </form>
                 @endif
             @endif
@@ -55,7 +55,7 @@
             @if ($event->isPublished() && ! $event->registration_closed_at && ! $event->snapshot_prepared_at)
                 <form method="POST" action="{{ route('organizer.events.registration.close', $event) }}" onsubmit="return confirm('Close registration? It cannot be reopened.');">
                     @csrf
-                    <button type="submit" class="btn-secondary">Close Registration</button>
+                    <button type="submit" class="btn-secondary"><x-icon name="x-circle" size="17" />Close Registration</button>
                 </form>
             @endif
 
@@ -63,6 +63,7 @@
                 <form method="POST" action="{{ route('organizer.events.cancel', $event) }}" onsubmit="return confirm('Are you sure you want to cancel this event?');">
                     @csrf
                     <button type="submit" class="btn-danger">
+                        <x-icon name="x-circle" size="17" />
                         Cancel Event
                     </button>
                 </form>
@@ -70,12 +71,13 @@
 
             @if (! $event->snapshot_prepared_at)
                 <a href="{{ route('organizer.events.edit', $event) }}" class="btn-secondary">
+                    <x-icon name="pencil" size="17" />
                     Edit Details
                 </a>
             @endif
         </div>
     </div>
-</div>
+</header>
 
 <x-event-island-nav :event="$event" active="overview" :track-sections="true" />
 
@@ -233,27 +235,27 @@
     </section>
 
     <!-- Quick Stats Card -->
-    <div class="card">
-        <h2 style="font-size: 1.1rem; font-weight: 600; color: var(--neutral-dark); margin-bottom: 1rem; border-bottom: 1px solid var(--neutral-border); padding-bottom: 0.5rem;">
-            Capacity Summary
-        </h2>
-        <div style="margin-bottom: 1rem;">
-            <div style="font-size: 0.8rem; color: var(--neutral-muted);">Max Capacity</div>
-            <div style="font-size: 1.75rem; font-weight: 700; color: var(--neutral-dark);" class="mono">{{ $event->capacity }}</div>
-        </div>
-        <div style="margin-bottom: 1rem;">
-            <div style="font-size: 0.8rem; color: var(--neutral-muted);">Registered Attendees</div>
-            <div style="font-size: 1.75rem; font-weight: 700; color: var(--mseuf-maroon);" class="mono">
-                {{ $event->registrations()->where('status', \App\Models\Registration::STATUS_CONFIRMED)->count() }}
+    <section class="card event-capacity-summary" aria-labelledby="event-capacity-title">
+        <h2 id="event-capacity-title" class="event-section-title">Capacity Summary</h2>
+        <div class="event-capacity-summary__metrics">
+            <div class="event-capacity-metric">
+                <div class="event-capacity-metric__label">Max Capacity</div>
+                <div class="event-capacity-metric__value mono">{{ number_format($event->capacity) }}</div>
+            </div>
+            <div class="event-capacity-metric">
+                <div class="event-capacity-metric__label">Registered Attendees</div>
+                <div class="event-capacity-metric__value mono">
+                    {{ $event->registrations()->where('status', \App\Models\Registration::STATUS_CONFIRMED)->count() }}
+                </div>
+            </div>
+            <div class="event-capacity-metric">
+                <div class="event-capacity-metric__label">Admitted / Checked In</div>
+                <div class="event-capacity-metric__value mono">
+                    {{ \App\Models\Admission::forCurrentCredential()->whereHas('ticket.registration', fn($q) => $q->where('event_id', $event->id))->count() }}
+                </div>
             </div>
         </div>
-        <div>
-            <div style="font-size: 0.8rem; color: var(--neutral-muted);">Admitted / Checked In</div>
-            <div style="font-size: 1.75rem; font-weight: 700; color: var(--state-success);" class="mono">
-                {{ \App\Models\Admission::forCurrentCredential()->whereHas('ticket.registration', fn($q) => $q->where('event_id', $event->id))->count() }}
-            </div>
-        </div>
-    </div>
+    </section>
 </div>
 
 <div class="event-management-grid">
@@ -265,13 +267,14 @@
             Entrance turnstiles and gates where staff scan attendee tickets.
         </p>
 
-        <div class="table-container" style="margin-bottom: 1.25rem;">
+        <div class="table-container event-management-table" role="region" aria-label="Gate access points" tabindex="0">
             <table>
+                <caption class="visually-hidden">Configured gate access points and statuses</caption>
                 <thead>
                     <tr>
-                        <th>Gate Name</th>
-                        <th>Code</th>
-                        <th>Status</th>
+                        <th scope="col">Gate Name</th>
+                        <th scope="col">Code</th>
+                        <th scope="col">Status</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -295,12 +298,14 @@
         </div>
 
         @if (! $event->snapshot_prepared_at)
-        <form method="POST" action="{{ route('organizer.events.access-points.store', $event) }}" style="background: #f8fafc; padding: 1rem; border-radius: 4px; border: 1px solid var(--neutral-border);">
+        <form method="POST" action="{{ route('organizer.events.access-points.store', $event) }}" class="event-management-form">
             @csrf
-            <div style="font-size: 0.8rem; font-weight: 600; margin-bottom: 0.75rem; color: var(--neutral-dark);">Add Custom Access Point</div>
-            <div style="display: flex; gap: 0.5rem;">
-                <input type="text" name="name" required class="form-input" placeholder="e.g. VIP Entrance" style="flex: 2;">
-                <input type="text" name="code" required class="form-input mono" placeholder="VIP" style="flex: 1;">
+            <h3 class="event-management-form__title">Add Custom Access Point</h3>
+            <div class="event-management-form__fields event-management-form__fields--gate">
+                <label class="visually-hidden" for="new-gate-name">Gate name</label>
+                <input id="new-gate-name" type="text" name="name" required class="form-input" placeholder="e.g. VIP Entrance">
+                <label class="visually-hidden" for="new-gate-code">Gate code</label>
+                <input id="new-gate-code" type="text" name="code" required class="form-input mono" placeholder="VIP">
                 <button type="submit" class="btn-primary" style="white-space: nowrap;">Add Gate</button>
             </div>
         </form>
@@ -315,12 +320,13 @@
             Authorized staff members permitted to scan tickets for this event.
         </p>
 
-        <div class="table-container" style="margin-bottom: 1.25rem;">
+        <div class="table-container event-management-table" role="region" aria-label="Event staff assignments" tabindex="0">
             <table>
+                <caption class="visually-hidden">Event staff members and their assigned gates</caption>
                 <thead>
                     <tr>
-                        <th>Staff Member</th>
-                        <th>Assigned Gate</th>
+                        <th scope="col">Staff Member</th>
+                        <th scope="col">Assigned Gate</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -348,24 +354,26 @@
         </div>
 
         @if (! $event->snapshot_prepared_at)
-        <form method="POST" action="{{ route('organizer.events.staff.assign', $event) }}" style="background: #f8fafc; padding: 1rem; border-radius: 4px; border: 1px solid var(--neutral-border);">
+        <form method="POST" action="{{ route('organizer.events.staff.assign', $event) }}" class="event-management-form">
             @csrf
-            <div style="font-size: 0.8rem; font-weight: 600; margin-bottom: 0.75rem; color: var(--neutral-dark);">Assign Staff Member</div>
-            <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem;">
-                <select name="user_id" required class="form-select" style="flex: 1;">
+            <h3 class="event-management-form__title">Assign Staff Member</h3>
+            <div class="event-management-form__fields">
+                <label class="visually-hidden" for="staff-user">Staff member</label>
+                <select id="staff-user" name="user_id" required class="form-select">
                     <option value="">-- Select Staff User --</option>
                     @foreach ($staffUsers as $staff)
                         <option value="{{ $staff->id }}">{{ $staff->name }} ({{ $staff->email }})</option>
                     @endforeach
                 </select>
-                <select name="access_point_id" class="form-select" style="flex: 1;">
+                <label class="visually-hidden" for="staff-gate">Assigned gate</label>
+                <select id="staff-gate" name="access_point_id" class="form-select">
                     <option value="">-- Any Gate (All Gates) --</option>
                     @foreach ($event->accessPoints as $ap)
                         <option value="{{ $ap->id }}">{{ $ap->name }} ({{ $ap->code }})</option>
                     @endforeach
                 </select>
             </div>
-            <button type="submit" class="btn-primary" style="width: 100%; justify-content: center;">Assign to Event</button>
+            <button type="submit" class="btn-primary event-management-form__submit">Assign to Event</button>
         </form>
         @endif
     </section>

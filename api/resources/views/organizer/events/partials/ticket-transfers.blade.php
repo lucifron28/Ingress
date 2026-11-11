@@ -7,11 +7,7 @@
             <div>
                 <h2 id="event-transfers-title" class="event-section-title">Ticket Transfers</h2>
                 @if ($event->snapshot_prepared_at)
-                    <p class="event-transfers__description">Transfers are disabled after the event snapshot was prepared.</p>
-                @elseif ($event->ticket_transfers_allowed)
-                    <p class="event-transfers__description">Ticket transfers are enabled in event settings.</p>
-                @else
-                    <p class="event-transfers__description">Ticket transfers are disabled in event settings.</p>
+                    <p class="event-transfers__description">Transfer activity is locked after the event snapshot was prepared.</p>
                 @endif
             </div>
             <span class="badge badge-neutral">{{ $ticketTransfersEnabled ? 'Enabled' : 'Disabled' }}</span>
