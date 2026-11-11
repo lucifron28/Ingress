@@ -10,8 +10,6 @@
     </x-slot:actions>
 </x-page-header>
 
-<x-event-island-nav :event="$event" active="overview" />
-
 @if ($errors->any())
     <div class="form-error-summary" role="alert" aria-labelledby="event-errors-title">
         <h2 id="event-errors-title">Please review the following fields</h2>

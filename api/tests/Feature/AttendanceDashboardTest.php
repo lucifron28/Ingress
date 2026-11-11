@@ -196,6 +196,7 @@ class AttendanceDashboardTest extends TestCase
             ->get("/organizer/events/{$this->event->id}/attendance");
 
         $response->assertStatus(200);
+        $response->assertDontSee('data-event-island', false);
 
         // Verify the manual 'Refresh Feed' button with onclick handler exists
         $response->assertSee('Refresh Feed');

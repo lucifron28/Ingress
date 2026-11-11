@@ -305,6 +305,8 @@ class TicketTransferTest extends TestCase
 
         $this->actingAs($this->organizer)->get("/organizer/events/{$this->event->id}")
             ->assertOk()
+            ->assertSee('data-event-island', false)
+            ->assertSee('data-island-target="event-gates"', false)
             ->assertSee('Ticket transfer history')
             ->assertSee('Sender Student')
             ->assertSee('Recipient Student')

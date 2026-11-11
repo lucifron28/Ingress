@@ -77,6 +77,34 @@ class EventManagementTest extends TestCase
         $this->assertTrue($event->accessPoints()->where('code', 'GATE-B')->exists());
     }
 
+    public function test_event_island_is_limited_to_the_event_overview_page(): void
+    {
+        $event = Event::create([
+            'organizer_id' => $this->organizerA->id,
+            'venue_id' => $this->venue->id,
+            'title' => 'Island Navigation Test',
+            'slug' => 'island-navigation-test',
+            'capacity' => 100,
+            'registration_opens_at' => Carbon::now()->subDay(),
+            'registration_closes_at' => Carbon::now()->addDays(5),
+            'starts_at' => Carbon::now()->addDays(6),
+            'ends_at' => Carbon::now()->addDays(6)->addHours(4),
+            'status' => Event::STATUS_PUBLISHED,
+        ]);
+
+        $overview = $this->actingAs($this->organizerA)
+            ->get(route('organizer.events.show', $event));
+
+        $overview->assertOk()
+            ->assertSee('data-event-island', false)
+            ->assertSee('data-island-target="event-gates"', false);
+
+        $this->actingAs($this->organizerA)
+            ->get(route('organizer.events.edit', $event))
+            ->assertOk()
+            ->assertDontSee('data-event-island', false);
+    }
+
     public function test_organizer_can_publish_draft_event(): void
     {
         $event = Event::create([

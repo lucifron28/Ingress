@@ -1875,10 +1875,7 @@ tbody tr:hover > th[scope='row'] {
     margin-bottom: 2rem;
 }
 
-.event-island-sticky {
-    position: sticky;
-    z-index: 20;
-    top: 16px;
+.event-island-wrap {
     width: fit-content;
     max-width: 100%;
     margin-bottom: 1.25rem;
@@ -1932,12 +1929,21 @@ tbody tr:hover > th[scope='row'] {
     font-weight: 650;
 }
 
+.event-section-highlight {
+    animation: event-section-highlight 850ms ease-out;
+}
+
+@keyframes event-section-highlight {
+    from { background-color: #f4e9ec; }
+    to { background-color: transparent; }
+}
+
 .event-detail-header,
 #event-overview,
 #event-gates,
 #event-staff,
 #event-transfers {
-    scroll-margin-top: 136px;
+    scroll-margin-top: 24px;
 }
 
 .event-management-grid {
@@ -1949,7 +1955,7 @@ tbody tr:hover > th[scope='row'] {
 
 .event-management-section {
     min-width: 0;
-    scroll-margin-top: 136px;
+    scroll-margin-top: 24px;
 }
 
 .event-management-section__title {
@@ -2370,9 +2376,17 @@ tbody tr:hover > th[scope='row'] {
         padding-block: 24px 32px;
     }
 
-    .event-island-sticky {
-        top: 64px;
+    .event-island-wrap {
         width: 100%;
+    }
+
+    .event-detail-header,
+    #event-overview,
+    #event-gates,
+    #event-staff,
+    #event-transfers,
+    .event-management-section {
+        scroll-margin-top: 76px;
     }
 
     .event-island {
@@ -2897,5 +2911,9 @@ tbody tr:hover > th[scope='row'] {
     *::before,
     *::after {
         scroll-behavior: auto !important;
+    }
+
+    .event-section-highlight {
+        animation: none;
     }
 }

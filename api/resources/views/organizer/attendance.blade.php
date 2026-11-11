@@ -25,7 +25,6 @@
             </button>
         </div>
 </header>
-<x-event-island-nav :event="$event" active="attendance" />
 
 <!-- Core KPI Cards -->
 <section class="attendance-stats-grid" aria-label="Attendance statistics">

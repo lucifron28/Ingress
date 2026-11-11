@@ -171,6 +171,7 @@ const eventIsland = document.querySelector('[data-event-island][data-track-secti
 
 if (eventIsland instanceof HTMLElement) {
     const islandLinks = [...eventIsland.querySelectorAll('[data-island-link]')];
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
     const islandSections = islandLinks
         .map((link) => ({
             key: link.dataset.islandLink,
@@ -191,10 +192,54 @@ if (eventIsland instanceof HTMLElement) {
         });
     };
 
+    let highlightTimeout;
+    let highlightedSection = null;
+    const highlightSection = (section) => {
+        if (!(section instanceof HTMLElement)) {
+            return;
+        }
+
+        if (highlightedSection instanceof HTMLElement && highlightedSection !== section) {
+            highlightedSection.classList.remove('event-section-highlight');
+        }
+
+        section.classList.remove('event-section-highlight');
+        window.clearTimeout(highlightTimeout);
+        void section.offsetWidth;
+        section.classList.add('event-section-highlight');
+        highlightedSection = section;
+        highlightTimeout = window.setTimeout(() => {
+            section.classList.remove('event-section-highlight');
+            if (highlightedSection === section) {
+                highlightedSection = null;
+            }
+        }, 850);
+    };
+
+    islandLinks.forEach((link) => {
+        link.addEventListener('click', (event) => {
+            const section = document.getElementById(link.dataset.islandTarget ?? '');
+
+            if (!(section instanceof HTMLElement)) {
+                return;
+            }
+
+            event.preventDefault();
+            window.history.pushState({}, '', link.href);
+            section.scrollIntoView({
+                behavior: reducedMotion.matches ? 'auto' : 'smooth',
+                block: 'start',
+            });
+            section.focus({ preventScroll: true });
+            highlightSection(section);
+            setActiveIslandLink(link.dataset.islandLink ?? 'overview');
+        });
+    });
+
     let activeUpdateIsScheduled = false;
     const updateActiveIslandLink = () => {
         activeUpdateIsScheduled = false;
-        const activationLine = eventIsland.getBoundingClientRect().bottom + 12;
+        const activationLine = Math.max(eventIsland.getBoundingClientRect().bottom + 12, 92);
         const currentSection = [...islandSections]
             .reverse()
             .find(({ element }) => element.getBoundingClientRect().top <= activationLine);

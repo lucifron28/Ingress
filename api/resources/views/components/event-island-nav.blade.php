@@ -11,7 +11,7 @@
     ];
 @endphp
 
-<div class="event-island-sticky">
+<div class="event-island-wrap">
     <nav class="event-island" aria-label="Event management" data-event-island data-track-sections="{{ $trackSections ? 'true' : 'false' }}">
         @foreach ($navigationItems as $item)
             @php($isActive = $active === $item['key'])
