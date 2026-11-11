@@ -79,16 +79,24 @@ class EventManagementTest extends TestCase
 
     public function test_event_island_is_limited_to_the_event_overview_page(): void
     {
+        $startsAt = Carbon::parse('2027-02-15 08:30:00');
+        $endsAt = Carbon::parse('2027-02-15 16:45:00');
+        $registrationOpensAt = Carbon::parse('2027-01-10 09:15:00');
+        $registrationClosesAt = Carbon::parse('2027-02-10 17:30:00');
+
         $event = Event::create([
             'organizer_id' => $this->organizerA->id,
             'venue_id' => $this->venue->id,
             'title' => 'Island Navigation Test',
             'slug' => 'island-navigation-test',
             'capacity' => 100,
-            'registration_opens_at' => Carbon::now()->subDay(),
-            'registration_closes_at' => Carbon::now()->addDays(5),
-            'starts_at' => Carbon::now()->addDays(6),
-            'ends_at' => Carbon::now()->addDays(6)->addHours(4),
+            'description' => 'A readable overview with the full event details.',
+            're_entry_allowed' => true,
+            'identity_verification_level' => 'id_check',
+            'registration_opens_at' => $registrationOpensAt,
+            'registration_closes_at' => $registrationClosesAt,
+            'starts_at' => $startsAt,
+            'ends_at' => $endsAt,
             'status' => Event::STATUS_PUBLISHED,
         ]);
 
@@ -97,12 +105,73 @@ class EventManagementTest extends TestCase
 
         $overview->assertOk()
             ->assertSee('data-event-island', false)
-            ->assertSee('data-island-target="event-gates"', false);
+            ->assertSee('data-island-target="event-gates"', false)
+            ->assertSee('Capacity Overview')
+            ->assertSee('Event dates')
+            ->assertSee('Registration period')
+            ->assertSee('About this Event')
+            ->assertSee('A readable overview with the full event details.')
+            ->assertSee($startsAt->format('F j, Y'))
+            ->assertSee($startsAt->format('g:i A'))
+            ->assertSee($endsAt->format('g:i A'))
+            ->assertSee($registrationOpensAt->format('F j, Y'))
+            ->assertSee($registrationOpensAt->format('g:i A'))
+            ->assertSee($registrationClosesAt->format('g:i A'))
+            ->assertSee('Admission policies')
+            ->assertSee('No transfer requests yet.')
+            ->assertSee('Disabled');
+
+        $page = $overview->getContent();
+        $capacityPosition = strpos($page, 'id="event-capacity-title"');
+        $schedulePosition = strpos($page, 'id="event-details-title"');
+        $this->assertNotFalse($capacityPosition);
+        $this->assertNotFalse($schedulePosition);
+        $this->assertLessThan($schedulePosition, $capacityPosition);
 
         $this->actingAs($this->organizerA)
             ->get(route('organizer.events.edit', $event))
             ->assertOk()
             ->assertDontSee('data-event-island', false);
+    }
+
+    public function test_create_and_edit_forms_use_four_grouped_sections(): void
+    {
+        $create = $this->actingAs($this->organizerA)
+            ->get(route('organizer.events.create'))
+            ->assertOk()
+            ->assertSee('Basic Information')
+            ->assertSee('Event Schedule')
+            ->assertSee('Registration Settings')
+            ->assertSee('Admission Policies')
+            ->assertSee('Event Starts')
+            ->assertSee('Registration Opens')
+            ->assertSee('Create Event (Draft)');
+
+        $this->assertSame(4, substr_count($create->getContent(), 'event-form-section__header'));
+
+        $event = Event::create([
+            'organizer_id' => $this->organizerA->id,
+            'venue_id' => $this->venue->id,
+            'title' => 'Grouped Form Test',
+            'slug' => 'grouped-form-test',
+            'capacity' => 100,
+            'registration_opens_at' => Carbon::now()->subDay(),
+            'registration_closes_at' => Carbon::now()->addDays(5),
+            'starts_at' => Carbon::now()->addDays(6),
+            'ends_at' => Carbon::now()->addDays(6)->addHours(4),
+            'status' => Event::STATUS_DRAFT,
+        ]);
+
+        $edit = $this->actingAs($this->organizerA)
+            ->get(route('organizer.events.edit', $event))
+            ->assertOk()
+            ->assertSee('Basic Information')
+            ->assertSee('Event Schedule')
+            ->assertSee('Registration Settings')
+            ->assertSee('Admission Policies')
+            ->assertSee('Save Changes');
+
+        $this->assertSame(4, substr_count($edit->getContent(), 'event-form-section__header'));
     }
 
     public function test_organizer_can_publish_draft_event(): void

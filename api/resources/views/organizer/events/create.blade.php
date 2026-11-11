@@ -18,7 +18,7 @@
     </div>
 @endif
 
-<div class="card event-form-card">
+<div class="event-form-page">
     <form method="POST" action="{{ route('organizer.events.store') }}">
         @csrf
         @include('organizer.events.partials.form-fields', [

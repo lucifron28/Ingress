@@ -2,6 +2,7 @@ document.documentElement.classList.add('js');
 
 const appShell = document.querySelector('[data-app-shell]');
 const appSidebar = document.querySelector('[data-app-sidebar]');
+const sidebarBrand = document.querySelector('[data-sidebar-brand]');
 const mobileSidebarToggle = document.querySelector('[data-sidebar-open]');
 const sidebarCollapseToggle = document.querySelector('[data-sidebar-collapse]');
 const sidebarCloseButton = document.querySelector('[data-sidebar-close]');
@@ -11,6 +12,7 @@ const appMainArea = document.querySelector('[data-app-main-area]');
 if (
     appShell instanceof HTMLElement
     && appSidebar instanceof HTMLElement
+    && sidebarBrand instanceof HTMLAnchorElement
     && mobileSidebarToggle instanceof HTMLButtonElement
     && sidebarCollapseToggle instanceof HTMLButtonElement
     && sidebarCloseButton instanceof HTMLButtonElement
@@ -29,6 +31,9 @@ if (
         sidebarCollapseToggle.setAttribute('aria-expanded', String(isExpanded));
         sidebarCollapseToggle.setAttribute('aria-label', isExpanded ? 'Collapse sidebar' : 'Expand sidebar');
         sidebarCollapseToggle.title = isExpanded ? 'Collapse sidebar' : 'Expand sidebar';
+        const brandExpandsSidebar = !isExpanded && !mobileViewport.matches;
+        sidebarBrand.setAttribute('aria-label', brandExpandsSidebar ? 'Expand sidebar' : 'Ingress Dashboard');
+        sidebarBrand.title = brandExpandsSidebar ? 'Expand sidebar' : 'Ingress Dashboard';
 
         if (persist) {
             hasSavedPreference = true;
@@ -80,6 +85,8 @@ if (
             mobileSidebarToggle.setAttribute('aria-expanded', 'false');
             mobileSidebarToggle.setAttribute('aria-label', 'Open navigation');
             mobileSidebarToggle.title = 'Open navigation';
+            sidebarBrand.setAttribute('aria-label', 'Ingress Dashboard');
+            sidebarBrand.title = 'Ingress Dashboard';
             setPageInert(false);
         } else {
             if (drawerIsOpen) {
@@ -87,6 +94,9 @@ if (
             }
             appSidebar.inert = false;
             appSidebar.setAttribute('aria-hidden', 'false');
+            const brandExpandsSidebar = appShell.dataset.sidebarState === 'collapsed';
+            sidebarBrand.setAttribute('aria-label', brandExpandsSidebar ? 'Expand sidebar' : 'Ingress Dashboard');
+            sidebarBrand.title = brandExpandsSidebar ? 'Expand sidebar' : 'Ingress Dashboard';
             setPageInert(false);
         }
     };
@@ -119,6 +129,17 @@ if (
     sidebarCollapseToggle.addEventListener('click', () => {
         const nextState = appShell.dataset.sidebarState === 'collapsed' ? 'expanded' : 'collapsed';
         setSidebarState(nextState, true);
+        if (nextState === 'collapsed') {
+            sidebarBrand.focus();
+        }
+    });
+
+    sidebarBrand.addEventListener('click', (event) => {
+        if (!mobileViewport.matches && appShell.dataset.sidebarState === 'collapsed') {
+            event.preventDefault();
+            setSidebarState('expanded', true);
+            sidebarBrand.focus();
+        }
     });
 
     appSidebar.addEventListener('click', (event) => {
@@ -164,6 +185,19 @@ if (
         if (!hasSavedPreference && !mobileViewport.matches) {
             setSidebarState(tabletViewport.matches ? 'collapsed' : 'expanded');
         }
+    });
+}
+
+const passwordToggle = document.querySelector('[data-password-toggle]');
+const passwordInput = document.querySelector('[data-password-input]');
+
+if (passwordToggle instanceof HTMLButtonElement && passwordInput instanceof HTMLInputElement) {
+    passwordToggle.addEventListener('click', () => {
+        const isVisible = passwordToggle.getAttribute('aria-pressed') !== 'true';
+        passwordInput.type = isVisible ? 'text' : 'password';
+        passwordToggle.setAttribute('aria-pressed', String(isVisible));
+        passwordToggle.setAttribute('aria-label', isVisible ? 'Hide password' : 'Show password');
+        passwordToggle.title = isVisible ? 'Hide password' : 'Show password';
     });
 }
 

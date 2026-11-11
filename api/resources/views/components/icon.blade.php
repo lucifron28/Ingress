@@ -25,6 +25,24 @@
             <rect x="3" y="4" width="18" height="18" rx="2" />
             <path d="M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01" />
             @break
+        @case('calendar-clock')
+            <path d="M8 2v4M16 2v4M3 10h12" />
+            <rect x="3" y="4" width="18" height="17" rx="2" />
+            <circle cx="17" cy="16" r="4" />
+            <path d="M17 14v2l1.3 1" />
+            @break
+        @case('file-text')
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <path d="M14 2v6h6M8 13h8M8 17h8" />
+            @break
+        @case('shield-check')
+            <path d="M12 22s8-4 8-11V5l-8-3-8 3v6c0 7 8 11 8 11Z" />
+            <path d="m9 12 2 2 4-4" />
+            @break
+        @case('panel-left-close')
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <path d="M9 3v18M16 9l-3 3 3 3" />
+            @break
         @case('plus')
             <path d="M12 5v14M5 12h14" />
             @break
@@ -98,6 +116,10 @@
         @case('eye')
             <path d="M2.06 12C3.42 7.72 7.36 5 12 5s8.58 2.72 9.94 7c-1.36 4.28-5.3 7-9.94 7s-8.58-2.72-9.94-7Z" />
             <circle cx="12" cy="12" r="3" />
+            @break
+        @case('eye-off')
+            <path d="m3 3 18 18M10.6 10.6a2 2 0 0 0 2.8 2.8" />
+            <path d="M9.9 5.2A10.6 10.6 0 0 1 12 5c4.6 0 8.5 2.7 10 7a10.8 10.8 0 0 1-3.1 4.6M6.2 6.2A10.8 10.8 0 0 0 2 12c1.5 4.3 5.4 7 10 7 1.1 0 2.1-.2 3.1-.5" />
             @break
         @case('download')
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />

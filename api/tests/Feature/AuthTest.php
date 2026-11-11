@@ -234,6 +234,12 @@ class AuthTest extends TestCase
         $form = $this->get(route('login'));
 
         $form->assertSee('Too many login attempts. Please try again in a minute.');
+        $form->assertSee('Organizer Login')
+            ->assertSee('Manage university events, registration, and attendance through one platform.')
+            ->assertSee('name="remember"', false)
+            ->assertSee('data-password-toggle', false)
+            ->assertSee('aria-label="Show password"', false)
+            ->assertSee('Sign In');
         $form->assertDontSee('do not match our records');
 
         $this->assertGuest();

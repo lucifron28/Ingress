@@ -3,6 +3,7 @@
 @php
     $logoAssets = [
         'horizontal' => 'ingress-logo-horizontal.png',
+        'horizontal-light' => 'ingress-logo-horizontal-light.svg',
         'symbol' => 'ingress-gateway-symbol.png',
         'app-icon' => 'ingress-app-icon.png',
     ];

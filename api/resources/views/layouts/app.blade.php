@@ -13,7 +13,7 @@
     <a class="skip-link" href="#main-content">Skip to main content</a>
     @php($authenticatedUser = auth()->user())
 
-    <div class="app-shell {{ $authenticatedUser ? '' : 'app-shell--guest' }}" data-app-shell>
+    <div class="app-shell {{ $authenticatedUser ? '' : 'app-shell--guest' }} {{ request()->routeIs('login') ? 'app-shell--login' : '' }}" data-app-shell>
         @if ($authenticatedUser)
             <x-app-sidebar :user="$authenticatedUser" />
             <div class="app-sidebar-backdrop" data-sidebar-backdrop hidden aria-hidden="true"></div>

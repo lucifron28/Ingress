@@ -8,7 +8,13 @@
 
 <div class="event-editor">
     <section class="event-form-section" aria-labelledby="event-form-basic-title">
-        <h2 id="event-form-basic-title" class="event-form-section__title">Basic Information</h2>
+        <header class="event-form-section__header">
+            <x-icon name="file-text" size="20" class="event-form-section__icon" />
+            <div>
+                <h2 id="event-form-basic-title" class="event-form-section__title">Basic Information</h2>
+                <p class="event-form-section__description">Add the event name, venue, attendee limit, and overview.</p>
+            </div>
+        </header>
         <div class="form-group">
             <label for="title" class="form-label">Event Title <span class="required-indicator" aria-hidden="true">*</span><span class="visually-hidden">required</span></label>
             <input id="title" type="text" name="title" value="{{ old('title', $event?->title) }}" required class="form-input" placeholder="e.g. MSEUF Computer Science Summit 2026">
@@ -41,8 +47,13 @@
     </section>
 
     <section class="event-form-section" aria-labelledby="event-form-schedule-title">
-        <h2 id="event-form-schedule-title" class="event-form-section__title">Event Schedule</h2>
-        <p class="event-form-section__description">Set when the event begins and ends.</p>
+        <header class="event-form-section__header">
+            <x-icon name="calendar-days" size="20" class="event-form-section__icon" />
+            <div>
+                <h2 id="event-form-schedule-title" class="event-form-section__title">Event Schedule</h2>
+                <p class="event-form-section__description">Set when the event begins and ends.</p>
+            </div>
+        </header>
         <div class="event-form-grid">
             <div class="form-group">
                 <label for="starts_at" class="form-label">Event Starts <span class="required-indicator" aria-hidden="true">*</span><span class="visually-hidden">required</span></label>
@@ -57,8 +68,13 @@
     </section>
 
     <section class="event-form-section" aria-labelledby="event-form-registration-title">
-        <h2 id="event-form-registration-title" class="event-form-section__title">Registration Settings</h2>
-        <p class="event-form-section__description">Choose when attendees can register.</p>
+        <header class="event-form-section__header">
+            <x-icon name="calendar-clock" size="20" class="event-form-section__icon" />
+            <div>
+                <h2 id="event-form-registration-title" class="event-form-section__title">Registration Settings</h2>
+                <p class="event-form-section__description">Choose when attendees can register.</p>
+            </div>
+        </header>
         <div class="event-form-grid">
             <div class="form-group">
                 <label for="registration_opens_at" class="form-label">Registration Opens <span class="required-indicator" aria-hidden="true">*</span><span class="visually-hidden">required</span></label>
@@ -73,7 +89,13 @@
     </section>
 
     <section class="event-form-section" aria-labelledby="event-form-policies-title">
-        <h2 id="event-form-policies-title" class="event-form-section__title">Admission Policies</h2>
+        <header class="event-form-section__header">
+            <x-icon name="shield-check" size="20" class="event-form-section__icon" />
+            <div>
+                <h2 id="event-form-policies-title" class="event-form-section__title">Admission Policies</h2>
+                <p class="event-form-section__description">Set ticket transfer, re-entry, and identity check options.</p>
+            </div>
+        </header>
         <div class="event-policy-options">
             <input type="hidden" name="re_entry_allowed" value="0">
             <label class="event-policy-option" for="re_entry_allowed">
