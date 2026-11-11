@@ -26,6 +26,7 @@
         </div>
     </div>
 </div>
+<x-event-island-nav :event="$event" active="attendance" />
 
 <!-- Core KPI Cards -->
 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem;">

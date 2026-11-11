@@ -166,3 +166,52 @@ if (
         }
     });
 }
+
+const eventIsland = document.querySelector('[data-event-island][data-track-sections="true"]');
+
+if (eventIsland instanceof HTMLElement) {
+    const islandLinks = [...eventIsland.querySelectorAll('[data-island-link]')];
+    const islandSections = islandLinks
+        .map((link) => ({
+            key: link.dataset.islandLink,
+            element: document.getElementById(link.dataset.islandTarget ?? ''),
+        }))
+        .filter((section) => section.element instanceof HTMLElement);
+
+    const setActiveIslandLink = (activeKey) => {
+        islandLinks.forEach((link) => {
+            const isActive = link.dataset.islandLink === activeKey;
+            link.classList.toggle('is-active', isActive);
+
+            if (isActive) {
+                link.setAttribute('aria-current', 'location');
+            } else {
+                link.removeAttribute('aria-current');
+            }
+        });
+    };
+
+    let activeUpdateIsScheduled = false;
+    const updateActiveIslandLink = () => {
+        activeUpdateIsScheduled = false;
+        const activationLine = eventIsland.getBoundingClientRect().bottom + 12;
+        const currentSection = [...islandSections]
+            .reverse()
+            .find(({ element }) => element.getBoundingClientRect().top <= activationLine);
+
+        setActiveIslandLink(currentSection?.key ?? 'overview');
+    };
+
+    const scheduleActiveIslandUpdate = () => {
+        if (activeUpdateIsScheduled) {
+            return;
+        }
+
+        activeUpdateIsScheduled = true;
+        window.requestAnimationFrame(updateActiveIslandLink);
+    };
+
+    window.addEventListener('scroll', scheduleActiveIslandUpdate, { passive: true });
+    window.addEventListener('resize', scheduleActiveIslandUpdate);
+    scheduleActiveIslandUpdate();
+}

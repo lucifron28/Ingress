@@ -85,5 +85,34 @@
         @case('chevron-right')
             <path d="m9 18 6-6-6-6" />
             @break
+        @case('door-open')
+            <path d="M13 4h3a2 2 0 0 1 2 2v14" />
+            <path d="M2 20h3M13 20h9" />
+            <path d="M5 20V5a2 2 0 0 1 2-2h8v17" />
+            <path d="M9 12h.01" />
+            @break
+        @case('ticket')
+            <path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2z" />
+            <path d="M13 5v2M13 11v2M13 17v2" />
+            @break
+        @case('eye')
+            <path d="M2.06 12C3.42 7.72 7.36 5 12 5s8.58 2.72 9.94 7c-1.36 4.28-5.3 7-9.94 7s-8.58-2.72-9.94-7Z" />
+            <circle cx="12" cy="12" r="3" />
+            @break
+        @case('download')
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <path d="m7 10 5 5 5-5M12 15V3" />
+            @break
+        @case('filter')
+            <path d="M22 3H2l8 9.5V20l4 2v-9.5L22 3Z" />
+            @break
+        @case('search')
+            <circle cx="11" cy="11" r="8" />
+            <path d="m21 21-4.35-4.35" />
+            @break
+        @case('refresh-cw')
+            <path d="M20 11a8 8 0 0 0-14.93-3M4 13a8 8 0 0 0 14.93 3" />
+            <path d="M5 3v5h5M19 21v-5h-5" />
+            @break
     @endswitch
 </svg>

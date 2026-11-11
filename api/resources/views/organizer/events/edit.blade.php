@@ -9,6 +9,7 @@
         </div>
         <a href="{{ route('organizer.events.show', $event) }}" class="btn-secondary">Back to Overview</a>
     </div>
+    <x-event-island-nav :event="$event" active="overview" />
 
     @if ($errors->any())
         <div style="background-color: #fef2f2; border: 1px solid #fecaca; color: #991b1b; padding: 0.75rem 1rem; border-radius: 4px; font-size: 0.875rem; margin-bottom: 1.5rem;">
