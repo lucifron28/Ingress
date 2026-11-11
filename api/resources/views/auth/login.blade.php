@@ -4,8 +4,8 @@
 <div class="login-page">
     <section class="login-page__brand" aria-label="Ingress platform">
         <x-app-logo variant="horizontal-transparent" alt="Ingress" class="login-page__logo" />
+        <x-app-logo variant="symbol-transparent" alt="" aria-hidden="true" class="login-page__watermark" />
         <div class="login-page__copy">
-            <x-app-logo variant="symbol-transparent" alt="" aria-hidden="true" class="login-page__watermark" />
             <p class="login-page__description">Manage university events, registration, and attendance through one platform.</p>
         </div>
     </section>

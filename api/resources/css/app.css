@@ -244,22 +244,24 @@ a {
 
 .login-page {
     display: grid;
-    width: min(100%, 1280px);
+    width: min(100%, 1120px);
     min-height: 100vh;
     grid-template-columns: minmax(0, 0.9fr) minmax(310px, 1.1fr);
     align-items: center;
-    column-gap: clamp(48px, 7vw, 120px);
+    column-gap: clamp(48px, 5vw, 64px);
     margin-inline: auto;
     padding: clamp(24px, 6vw, 84px);
     color: #0f172a;
 }
 
 .login-page__brand {
+    position: relative;
     display: grid;
     width: 100%;
     max-width: 460px;
     justify-self: center;
     gap: 38px;
+    isolation: isolate;
 }
 
 .login-page__logo {
@@ -272,16 +274,15 @@ a {
     min-height: 168px;
     align-items: center;
     padding-block: 16px;
-    overflow: hidden;
-    isolation: isolate;
+    z-index: 1;
 }
 
 .login-page__watermark {
     position: absolute;
-    z-index: -1;
-    top: 50%;
+    z-index: 0;
+    top: 68%;
     left: 64%;
-    width: min(29vw, 320px);
+    width: min(28vw, 280px);
     height: auto;
     opacity: 0.045;
     transform: translate(-50%, -50%);
@@ -2487,8 +2488,9 @@ tbody tr:hover > th[scope='row'] {
     }
 
     .login-page__watermark {
-        left: 78%;
-        width: 190px;
+        top: 64%;
+        left: 72%;
+        width: 160px;
         opacity: 0.035;
     }
 
