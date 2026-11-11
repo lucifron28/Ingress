@@ -11,6 +11,10 @@ class PaymentAttempt extends Model
 
     public const METHOD_CARD = 'card';
 
+    public const SIMULATED_OUTCOME_SUCCESS = 'success';
+
+    public const SIMULATED_OUTCOME_FAILURE = 'failure';
+
     public const STATUS_PENDING = 'pending';
 
     public const STATUS_SUCCESSFUL = 'successful';
@@ -26,6 +30,7 @@ class PaymentAttempt extends Model
         'attempt_number',
         'attempt_key',
         'payment_method',
+        'simulated_outcome',
         'status',
         'outcome_code',
         'processed_at',

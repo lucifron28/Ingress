@@ -80,9 +80,13 @@ class CheckoutController extends Controller
         $data = $request->validate([
             'payment_method' => ['required', Rule::in([PaymentAttempt::METHOD_WALLET, PaymentAttempt::METHOD_CARD])],
             'attempt_key' => ['required', 'uuid'],
+            'simulated_outcome' => ['required', Rule::in([
+                PaymentAttempt::SIMULATED_OUTCOME_SUCCESS,
+                PaymentAttempt::SIMULATED_OUTCOME_FAILURE,
+            ])],
         ]);
 
-        $begin->execute($checkoutOrder->id, $data['payment_method'], $data['attempt_key']);
+        $begin->execute($checkoutOrder->id, $data['payment_method'], $data['attempt_key'], $data['simulated_outcome']);
 
         return redirect()->route('public.checkout.show', $checkoutOrder->public_id);
     }
