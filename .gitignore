@@ -50,3 +50,6 @@ Thumbs.db
 # Local database data & logs
 pgdata/
 *.log
+
+# Persistent local Graphify indexes
+**/graphify-out/
