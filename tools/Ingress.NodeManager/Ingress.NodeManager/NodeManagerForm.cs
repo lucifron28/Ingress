@@ -137,8 +137,7 @@ public sealed class NodeManagerForm : Form
 
         _contentHost.Dock = DockStyle.Fill;
         _contentHost.BackColor = _theme.Canvas;
-        _contentHost.Padding = new Padding(24, 20, 24, 24);
-        _contentHost.Resize += (_, _) => ResizePage();
+        _contentHost.Padding = new Padding(18, 14, 18, 16);
         main.Controls.Add(_contentHost, 0, 2);
     }
 
@@ -207,7 +206,7 @@ public sealed class NodeManagerForm : Form
             Dock = DockStyle.Fill,
             FlowDirection = FlowDirection.TopDown,
             WrapContents = false,
-            AutoScroll = false,
+            AutoScroll = true,
             BackColor = _theme.Sidebar,
             Margin = Padding.Empty,
             Padding = Padding.Empty,
@@ -256,71 +255,90 @@ public sealed class NodeManagerForm : Form
 
     private Control BuildHeader()
     {
-        var panel = new Panel { Dock = DockStyle.Fill, BackColor = _theme.Surface, Padding = new Padding(26, 15, 22, 12) };
-        var eyebrow = MakeLabel("INGRESS  /  EVENT NODE", 8.2F, FontStyle.Bold, _theme.Muted);
-        eyebrow.Location = new Point(26, 10);
-        eyebrow.AutoSize = true;
-        panel.Controls.Add(eyebrow);
+        var panel = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            BackColor = _theme.Surface,
+            Padding = new Padding(24, 4, 22, 4),
+            Margin = Padding.Empty,
+            ColumnCount = 2,
+            RowCount = 2,
+        };
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 62));
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 38));
+        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
+        panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
+        var heading = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.TopDown,
+            WrapContents = false,
+            BackColor = Color.Transparent,
+            Margin = Padding.Empty,
+        };
+        var eyebrow = MakeLabel("INGRESS  /  EVENT NODE", 8.2F, FontStyle.Bold, _theme.Muted);
+        eyebrow.Margin = Padding.Empty;
         var title = MakeLabel("Ingress Node Manager", 17, FontStyle.Bold, _theme.Ink);
-        title.Location = new Point(24, 28);
-        title.AutoSize = true;
-        panel.Controls.Add(title);
+        title.Margin = new Padding(0, 1, 0, 0);
+        heading.Controls.Add(eyebrow);
+        heading.Controls.Add(title);
+        panel.Controls.Add(heading, 0, 0);
 
         _lastUpdated.Text = "Status not checked";
         _lastUpdated.AutoSize = true;
         _lastUpdated.ForeColor = _theme.Muted;
         _lastUpdated.Font = new Font("Segoe UI", 8.5F);
-        panel.Controls.Add(_lastUpdated);
+        _lastUpdated.Margin = Padding.Empty;
 
-        _headerStatus.AutoSize = true;
-        _headerStatus.TextAlign = ContentAlignment.MiddleCenter;
+        _headerStatus.AutoSize = false;
+        _headerStatus.Dock = DockStyle.Fill;
+        _headerStatus.TextAlign = ContentAlignment.MiddleRight;
         _headerStatus.Font = new Font("Segoe UI", 8.8F, FontStyle.Bold);
-        _headerStatus.Padding = new Padding(12, 7, 12, 7);
-        _headerStatus.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        panel.Controls.Add(_headerStatus);
+        _headerStatus.Padding = new Padding(8, 2, 0, 2);
+        _headerStatus.Margin = Padding.Empty;
+        panel.Controls.Add(_headerStatus, 1, 0);
 
         _activityLabel.AutoSize = true;
         _activityLabel.Font = new Font("Segoe UI", 8.4F, FontStyle.Bold);
         _activityLabel.ForeColor = _theme.Accent;
-        _activityLabel.Location = new Point(26, 64);
+        _activityLabel.Margin = Padding.Empty;
         _activityLabel.Visible = false;
-        panel.Controls.Add(_activityLabel);
+        var meta = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = false,
+            BackColor = Color.Transparent,
+            Margin = Padding.Empty,
+        };
+        meta.Controls.Add(_lastUpdated);
+        meta.Controls.Add(_activityLabel);
+        panel.Controls.Add(meta, 0, 1);
 
         _refreshButton = MakeButton("Refresh", primary: true);
         _refreshButton.Size = new Size(100, 36);
-        _refreshButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        _refreshButton.Margin = new Padding(0, 1, 8, 1);
         _refreshButton.Click += async (_, _) => await RefreshStatusAsync(showProgress: true);
-        panel.Controls.Add(_refreshButton);
 
         _cancelButton.Text = "Cancel";
         _cancelButton.Size = new Size(86, 36);
-        _cancelButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+        _cancelButton.Margin = new Padding(0, 1, 8, 1);
         _cancelButton.Visible = false;
         _cancelButton.Click += (_, _) => _activeOperation?.Cancel();
         StyleSecondaryButton(_cancelButton);
-        panel.Controls.Add(_cancelButton);
-
-        void PositionHeaderActions()
+        var actions = new FlowLayoutPanel
         {
-            var right = Math.Min(panel.ClientSize.Width, 700) - 22;
-            var actionRight = right;
-            if (_cancelButton.Visible)
-            {
-                _cancelButton.Location = new Point(actionRight - _cancelButton.Width, 27);
-                actionRight = _cancelButton.Left - 12;
-            }
-
-            _refreshButton.Location = new Point(actionRight - _refreshButton.Width, 27);
-            actionRight = _refreshButton.Left - 12;
-            _headerStatus.Location = new Point(Math.Max(8, actionRight - _headerStatus.Width), 31);
-            _lastUpdated.Location = new Point(26, 64);
-        }
-        panel.Resize += (_, _) => PositionHeaderActions();
-        _cancelButton.VisibleChanged += (_, _) => PositionHeaderActions();
-        _headerStatus.SizeChanged += (_, _) => PositionHeaderActions();
-        panel.PerformLayout();
-        PositionHeaderActions();
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.RightToLeft,
+            WrapContents = false,
+            BackColor = Color.Transparent,
+            Margin = Padding.Empty,
+            Padding = Padding.Empty,
+        };
+        actions.Controls.Add(_refreshButton);
+        actions.Controls.Add(_cancelButton);
+        panel.Controls.Add(actions, 1, 1);
         return panel;
     }
 
@@ -352,24 +370,23 @@ public sealed class NodeManagerForm : Form
             _ => BuildDiagnosticsPage(),
         };
         page.Dock = DockStyle.Fill;
-        page.Width = Math.Max(620, _contentHost.ClientSize.Width - _contentHost.Padding.Horizontal - 8);
         _contentHost.Controls.Add(page);
         _contentHost.ResumeLayout(performLayout: true);
         UpdateHeaderStatus();
-    }
-
-    private void ResizePage()
-    {
-        if (_contentHost.Controls.Count > 0)
-        {
-            _contentHost.Controls[0].Width = Math.Max(620, _contentHost.ClientSize.Width - _contentHost.Padding.Horizontal - 8);
-        }
     }
 
     private Control BuildDashboardPage()
     {
         var root = CreatePageRoot();
         AddPageHeader(root, "OVERVIEW", "Ingress at this venue", "Start the Node, pair the scanner, and check local status from one place.");
+        if (_status.SchemaVersion == 0 && _status.ErrorMessage is null)
+        {
+            var loading = CreateCard(14);
+            loading.Controls.Add(MakeLabel("Checking local services", 11, FontStyle.Bold, _theme.Ink));
+            loading.Controls.Add(MakeLabel("Ingress is checking the current network, Docker, PostgreSQL, and Event Node. This can take a few seconds.", 9.5F, FontStyle.Regular, _theme.Muted));
+            root.Controls.Add(loading);
+            return root;
+        }
         AddStartupError(root);
 
         var hero = CreateCard(14);
@@ -469,7 +486,8 @@ public sealed class NodeManagerForm : Form
         };
         root.Controls.Add(CreateIndicatorGrid(indicators));
         root.Controls.Add(CreatePhysicalTestNote());
-        root.Controls.Add(CreateWarningsPanel());
+        var warnings = CreateWarningsPanel();
+        if (warnings is not null) root.Controls.Add(warnings);
         return root;
     }
 
@@ -549,7 +567,6 @@ public sealed class NodeManagerForm : Form
         }
 
         root.Controls.Add(CreateAdapterPanel(_status.Adapters));
-        root.Controls.Add(CreatePhysicalTestNote());
         return root;
     }
 
@@ -609,7 +626,6 @@ public sealed class NodeManagerForm : Form
         schedulerPanel.Controls.Add(CreateStatusCard(schedulerIndicator));
         schedulerPanel.Controls.Add(MakeLabel(_status.SchedulerDetail, 9.2F, FontStyle.Regular, _theme.Muted));
         root.Controls.Add(schedulerPanel);
-        root.Controls.Add(CreatePhysicalTestNote());
         return root;
     }
 
@@ -645,7 +661,6 @@ public sealed class NodeManagerForm : Form
         }
         steps.Controls.Add(MakeLabel("Phone connectivity and installed CA trust are not visible from Windows. Test pairing on each physical scanner.", 9.5F, FontStyle.Bold, _theme.Warning));
         root.Controls.Add(steps);
-        root.Controls.Add(CreatePhysicalTestNote());
         return root;
     }
 
@@ -677,8 +692,8 @@ public sealed class NodeManagerForm : Form
         };
         root.Controls.Add(CreateIndicatorGrid(allIndicators));
         root.Controls.Add(CreateAdapterPanel(_status.Adapters));
-        root.Controls.Add(BuildBulletPanel("Network change blockers", _status.Blockers, _theme.Danger));
-        root.Controls.Add(BuildBulletPanel("Safe Stop blockers", _status.SafeStopBlockers, _theme.Warning));
+        if (_status.Blockers.Length > 0) root.Controls.Add(BuildBulletPanel("Network change blockers", _status.Blockers, _theme.Danger));
+        if (_status.SafeStopBlockers.Length > 0) root.Controls.Add(BuildBulletPanel("Safe Stop blockers", _status.SafeStopBlockers, _theme.Warning));
 
         var report = CreateCard(12);
         report.Controls.Add(MakeLabel("Copy preview", 10, FontStyle.Bold, _theme.Ink));
@@ -698,7 +713,6 @@ public sealed class NodeManagerForm : Form
         };
         report.Controls.Add(text);
         root.Controls.Add(report);
-        root.Controls.Add(CreatePhysicalTestNote());
         return root;
     }
 
@@ -721,62 +735,84 @@ public sealed class NodeManagerForm : Form
         {
             panel.Controls.Add(MakeLabel("Preview passed. The manager will recheck safety immediately before applying.", 9.5F, FontStyle.Bold, _theme.Success));
         }
-        panel.Controls.Add(BuildBulletPanel("Warnings", preview.Warnings, _theme.Warning));
+        if (preview.Warnings.Length > 0) panel.Controls.Add(BuildBulletPanel("Warnings", preview.Warnings, _theme.Warning));
         return panel;
     }
 
     private Control CreateIndicatorGrid(IEnumerable<HealthIndicator> indicators)
     {
         var values = indicators.ToArray();
-        var columns = GetPageTextWidth(40) < 1200 ? 1 : 2;
-        var rows = (int)Math.Ceiling(values.Length / (double)columns);
         var grid = new TableLayoutPanel
         {
             Dock = DockStyle.Top,
             AutoSize = true,
-            ColumnCount = columns,
-            RowCount = rows,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            ColumnCount = 1,
+            RowCount = 0,
             BackColor = Color.Transparent,
-            Margin = new Padding(-6, 0, -6, 8),
+            Margin = new Padding(0, 0, 0, 8),
         };
-        for (var column = 0; column < columns; column++)
+        var cards = values.Select(CreateStatusCard).ToArray();
+        var configuredColumns = 0;
+        void ArrangeColumns(int width)
         {
-            grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F / columns));
-        }
-        for (var row = 0; row < rows; row++)
-        {
-            grid.RowStyles.Add(new RowStyle(SizeType.Absolute, 116));
+            var columns = width >= 840 ? 2 : 1;
+            if (columns == configuredColumns) return;
+
+            grid.SuspendLayout();
+            grid.Controls.Clear();
+            grid.ColumnStyles.Clear();
+            grid.RowStyles.Clear();
+            grid.ColumnCount = columns;
+            grid.RowCount = (int)Math.Ceiling(cards.Length / (double)columns);
+            for (var column = 0; column < columns; column++)
+            {
+                grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F / columns));
+            }
+            for (var row = 0; row < grid.RowCount; row++)
+            {
+                grid.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            }
+            for (var index = 0; index < cards.Length; index++)
+            {
+                cards[index].Dock = DockStyle.Fill;
+                grid.Controls.Add(cards[index], index % columns, index / columns);
+            }
+            configuredColumns = columns;
+            grid.ResumeLayout(performLayout: true);
         }
 
-        for (var index = 0; index < values.Length; index++)
-        {
-            var card = CreateStatusCard(values[index]);
-            card.Dock = DockStyle.Fill;
-            grid.Controls.Add(card, index % columns, index / columns);
-        }
-
+        ArrangeColumns(GetPageTextWidth(40));
+        grid.SizeChanged += (_, _) => ArrangeColumns(grid.ClientSize.Width);
         return grid;
     }
 
     private Control CreateStatusCard(HealthIndicator indicator)
     {
-        var panel = new Panel
+        var panel = new TableLayoutPanel
         {
+            ColumnCount = 3,
+            RowCount = 2,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            MinimumSize = new Size(0, 104),
             BackColor = _theme.Surface,
-            Height = 104,
             Padding = new Padding(12),
             Margin = new Padding(6, 5, 6, 5),
         };
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 4));
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        panel.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        panel.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         var accent = new Panel
         {
-            Dock = DockStyle.Left,
-            Width = 4,
+            Dock = DockStyle.Fill,
             BackColor = _theme.ForLevel(indicator.Level),
             Margin = Padding.Empty,
         };
         var title = MakeLabel(indicator.Name, 10.1F, FontStyle.Bold, _theme.Ink);
-        title.Location = new Point(16, 11);
-        title.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+        title.Margin = Padding.Empty;
         var badge = new Label
         {
             Text = indicator.Level.ToString().ToUpperInvariant(),
@@ -786,23 +822,24 @@ public sealed class NodeManagerForm : Form
             ForeColor = _theme.ForLevel(indicator.Level),
             BackColor = _theme.SurfaceForLevel(indicator.Level),
             Padding = new Padding(7, 3, 7, 3),
-            Anchor = AnchorStyles.Top | AnchorStyles.Right,
-            Top = 8,
+            Margin = new Padding(8, 0, 0, 0),
         };
         var detail = MakeLabel(indicator.Detail, 9.1F, FontStyle.Regular, _theme.Muted);
-        detail.Location = new Point(16, 42);
-        detail.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-        detail.MaximumSize = new Size(GetPageTextWidth(56) / 2, 0);
-        panel.Resize += (_, _) =>
+        detail.Margin = new Padding(0, 5, 0, 0);
+        void ResizeCardContent()
         {
-            title.MaximumSize = new Size(Math.Max(100, panel.ClientSize.Width - badge.Width - 44), 0);
-            badge.Left = Math.Max(120, panel.ClientSize.Width - badge.Width - 12);
-            detail.MaximumSize = new Size(Math.Max(180, panel.ClientSize.Width - 44), 0);
-        };
-        panel.Controls.Add(accent);
-        panel.Controls.Add(title);
-        panel.Controls.Add(badge);
-        panel.Controls.Add(detail);
+            var contentWidth = Math.Max(1, panel.ClientSize.Width - panel.Padding.Horizontal - 4);
+            title.MaximumSize = new Size(Math.Max(1, contentWidth - badge.PreferredSize.Width - 8), 0);
+            detail.MaximumSize = new Size(contentWidth, 0);
+        }
+        panel.Controls.Add(accent, 0, 0);
+        panel.SetRowSpan(accent, 2);
+        panel.Controls.Add(title, 1, 0);
+        panel.Controls.Add(badge, 2, 0);
+        panel.Controls.Add(detail, 1, 1);
+        panel.SetColumnSpan(detail, 2);
+        panel.SizeChanged += (_, _) => ResizeCardContent();
+        ResizeCardContent();
         return panel;
     }
 
@@ -878,11 +915,11 @@ public sealed class NodeManagerForm : Form
         return panel;
     }
 
-    private Control CreateWarningsPanel()
+    private Control? CreateWarningsPanel()
     {
         if (_status.Warnings.Length == 0)
         {
-            return CreateBulletPanel("Notes", ["No additional notes."], _theme.Muted);
+            return null;
         }
 
         return BuildBulletPanel("Notes and limits", _status.Warnings, _theme.Warning);
@@ -1029,23 +1066,25 @@ public sealed class NodeManagerForm : Form
         return card;
     }
 
-    private int GetPageTextWidth(int inset) => Math.Max(260, _contentHost.ClientSize.Width - _contentHost.Padding.Horizontal - inset);
+    private int GetPageTextWidth(int inset) => Math.Max(1, _contentHost.ClientSize.Width - _contentHost.Padding.Horizontal - inset);
 
     private void SizePageItem(FlowLayoutPanel page, Control item)
     {
-        var width = Math.Max(320, page.ClientSize.Width - SystemInformation.VerticalScrollBarWidth - 6);
+        var scrollBarWidth = page.VerticalScroll.Visible ? SystemInformation.VerticalScrollBarWidth : 0;
+        var width = Math.Max(1, page.ClientSize.Width - scrollBarWidth - item.Margin.Horizontal - 6);
         SizeFlowItem(item, width);
     }
 
     private void SizeCardItem(FlowLayoutPanel card, Control item)
     {
-        var width = Math.Max(220, card.ClientSize.Width - card.Padding.Horizontal - SystemInformation.VerticalScrollBarWidth - 4);
+        var scrollBarWidth = card.VerticalScroll.Visible ? SystemInformation.VerticalScrollBarWidth : 0;
+        var width = Math.Max(1, card.ClientSize.Width - card.Padding.Horizontal - scrollBarWidth - item.Margin.Horizontal - 4);
         SizeFlowItem(item, width);
     }
 
     private static void SizeFlowItem(Control item, int width)
     {
-        width = Math.Min(width, 720);
+        width = Math.Max(1, width);
         if (item is Button)
         {
             return;
