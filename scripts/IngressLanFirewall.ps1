@@ -2,10 +2,22 @@
 param(
     [Parameter(Mandatory = $true)][ValidateRange(1, 65535)][int] $InterfaceIndex,
     [Parameter(Mandatory = $true)][string] $Address,
-    [Parameter(Mandatory = $true)][ValidateRange(1, 65535)][int] $Port
+    [Parameter(Mandatory = $true)][ValidateRange(1, 65535)][int] $Port,
+    [string] $ResultPath
 )
 
 $ErrorActionPreference = 'Stop'
+trap {
+    if (-not [string]::IsNullOrWhiteSpace($ResultPath)) {
+        try {
+            [pscustomobject] @{ Success = $false; Message = $_.Exception.Message } |
+                ConvertTo-Json -Compress | Set-Content -LiteralPath $ResultPath -Encoding utf8
+        }
+        catch { }
+    }
+    exit 1
+}
+
 $group = 'Ingress Node Manager'
 $displayName = 'Ingress Event Node LAN Demo'
 
@@ -41,11 +53,51 @@ $foreignNameCollision = @(Get-NetFirewallRule -DisplayName $displayName -ErrorAc
 if ($foreignNameCollision.Count -gt 0) { throw 'A firewall rule with the Ingress LAN name is owned by another policy; it was not changed.' }
 
 $firewallProfile = if ($profile.NetworkCategory -eq 'DomainAuthenticated') { 'Domain' } else { [string] $profile.NetworkCategory }
-$newRule = New-NetFirewallRule -DisplayName $displayName -Group $group -Direction Inbound -Action Allow `
-    -Protocol TCP -LocalPort $Port -LocalAddress $Address -RemoteAddress $remoteCidr `
-    -InterfaceAlias $adapter.Name -Program $dockerProcess.Path -Profile $firewallProfile `
-    -EdgeTraversalPolicy Block -Enabled True -ErrorAction Stop
+$ruleArguments = @{
+    DisplayName = $displayName
+    Group = $group
+    Direction = 'Inbound'
+    Action = 'Allow'
+    Protocol = 'TCP'
+    LocalPort = $Port
+    LocalAddress = $Address
+    RemoteAddress = $remoteCidr
+    InterfaceAlias = $adapter.Name
+    Program = $dockerProcess.Path
+    Profile = $firewallProfile
+    EdgeTraversalPolicy = 'Block'
+    Enabled = $true
+    ErrorAction = 'Stop'
+}
+$newRule = New-NetFirewallRule @ruleArguments
+$candidate = [pscustomobject] @{
+    Mode = Get-IngressAdapterMode -Adapter $adapter
+    Name = [string] $adapter.Name
+    Address = $Address
+    PrefixLength = [int] $ipEntry.PrefixLength
+    NetworkCategory = [string] $profile.NetworkCategory
+}
+$firewallProfileState = Get-NetFirewallProfile -Name $firewallProfile -ErrorAction Stop | Select-Object -First 1
+$verified = $false
+try {
+    $rules = @(Get-IngressScopedFirewallRules -DisplayName $displayName | Where-Object { $_.InstanceName -eq [string] $newRule.Name })
+    $verification = Test-IngressFirewallPolicy -Rules $rules -Candidate $candidate -Port $Port `
+        -RuleName $displayName -FirewallProfileEnabled ([bool] $firewallProfileState.Enabled)
+    if (-not $verification.Allowed) {
+        throw 'Windows did not retain the requested app, adapter, host address, port, firewall profile, and LAN subnet scope.'
+    }
+    $verified = $true
+}
+finally {
+    if (-not $verified) { Remove-NetFirewallRule -Name $newRule.Name -ErrorAction SilentlyContinue }
+}
 foreach ($oldRule in $ownedRules) {
     if ($oldRule.Name -ne $newRule.Name) { Remove-NetFirewallRule -Name $oldRule.Name -ErrorAction Stop }
 }
-Write-Output 'The selected adapter now allows the Event Node port only from its LAN subnet.'
+
+$message = 'The selected adapter now allows the Event Node port only from its LAN subnet.'
+if (-not [string]::IsNullOrWhiteSpace($ResultPath)) {
+    [pscustomobject] @{ Success = $true; Message = $message } |
+        ConvertTo-Json -Compress | Set-Content -LiteralPath $ResultPath -Encoding utf8
+}
+Write-Output $message

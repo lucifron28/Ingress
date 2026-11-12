@@ -877,7 +877,9 @@ function Test-IngressUrlResolvesToAddress {
 
 function Get-IngressScopedFirewallRules {
     param([string] $DisplayName = 'Ingress Event Node HTTPS')
-    $rules = @(Get-NetFirewallRule -DisplayName $DisplayName -ErrorAction Stop | Where-Object { [string] $_.Direction -eq 'Inbound' })
+    $rules = @(Get-NetFirewallRule -ErrorAction Stop | Where-Object {
+        [string] $_.DisplayName -eq $DisplayName -and [string] $_.Direction -eq 'Inbound'
+    })
     foreach ($rule in $rules) {
         $addressFilters = @($rule | Get-NetFirewallAddressFilter -ErrorAction Stop)
         $portFilters = @($rule | Get-NetFirewallPortFilter -ErrorAction Stop)
@@ -895,6 +897,7 @@ function Get-IngressScopedFirewallRules {
         })
         [pscustomobject] @{
             Name = [string] $rule.DisplayName
+            InstanceName = [string] $rule.Name
             Enabled = ([string] $rule.Enabled -eq 'True')
             Direction = [string] $rule.Direction
             Action = [string] $rule.Action
@@ -1203,7 +1206,7 @@ function Invoke-IngressLanDemoNetworkManager {
     }
     elseif ($composeSummary.OperatorPortIsolated) { 'configured for 127.0.0.1 only; runtime binding unavailable' }
     else { 'not verified as loopback-only' }
-    $firewallStatus = if (-not $firewallKnown) { 'active firewall policy could not be read' } elseif (-not $firewallProfileState.Enabled) { "the active $($candidate.NetworkCategory) firewall profile is disabled" } elseif ($firewallResult.Allowed) { "scoped rule '$($firewallResult.RuleName)' allows TCP/$httpPort" } else { "add the app-scoped LAN rule for TCP/$httpPort on $targetAddress and $($firewallResult.RequiredRemoteScope)" }
+    $firewallStatus = if ($null -eq $candidate) { "saved Node address $currentAddress is not on an active private adapter" } elseif (-not $firewallKnown) { 'Windows Firewall profile or scoped LAN rules could not be read' } elseif (-not $firewallProfileState.Enabled) { "the active $($candidate.NetworkCategory) firewall profile is disabled" } elseif ($firewallResult.Allowed) { "scoped rule '$($firewallResult.RuleName)' allows TCP/$httpPort" } else { "add the app-scoped LAN rule for TCP/$httpPort on $targetAddress and $($firewallResult.RequiredRemoteScope)" }
     $admissionStatus = if (-not $admissionState.Known) { 'unknown; restart blocked' } elseif ($admissionState.Active) { 'admissions can run; restart blocked' } else { 'no admission-enabled event window' }
     $scannerReadiness = if ($nodeHealthy -and $actualPorts.NodeMatches -and $firewallResult.Allowed -and $tcpProbe) { 'LAN path ready; verify scanner pairing and ticket scans on an Android device' } else { 'Start the Node and resolve the network checks before connecting a scanner' }
     $adapterStatuses = @(

@@ -17,10 +17,10 @@ public sealed class NodeManagerForm : Form
     private readonly Label _headerStatus = new();
     private readonly Label _lastUpdated = new();
     private readonly Label _activityLabel = new();
-    private readonly ProgressBar _progress = new();
     private readonly Button _cancelButton = new();
     private Button _refreshButton = new();
     private readonly Dictionary<ManagerPage, Button> _navigation = [];
+    private readonly Dictionary<ManagerPage, Control> _pageCache = [];
     private readonly System.Windows.Forms.Timer _refreshTimer = new() { Interval = 60_000 };
     private NodeManagerStatus _status = new();
     private NodeManagerStatus? _networkPreview;
@@ -117,28 +117,22 @@ public sealed class NodeManagerForm : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 3,
+            RowCount = 2,
             BackColor = _theme.Canvas,
             Margin = Padding.Empty,
             Padding = Padding.Empty,
         };
-        main.RowStyles.Add(new RowStyle(SizeType.Absolute, 92));
-        main.RowStyles.Add(new RowStyle(SizeType.Absolute, 3));
+        main.RowStyles.Add(new RowStyle(SizeType.Absolute, 100));
         main.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         layout.Controls.Add(main, 1, 0);
 
         var header = BuildHeader();
         main.Controls.Add(header, 0, 0);
-        _progress.Dock = DockStyle.Fill;
-        _progress.Style = ProgressBarStyle.Marquee;
-        _progress.MarqueeAnimationSpeed = 24;
-        _progress.Visible = false;
-        main.Controls.Add(_progress, 0, 1);
 
         _contentHost.Dock = DockStyle.Fill;
         _contentHost.BackColor = _theme.Canvas;
         _contentHost.Padding = new Padding(18, 14, 18, 16);
-        main.Controls.Add(_contentHost, 0, 2);
+        main.Controls.Add(_contentHost, 0, 1);
     }
 
     private void BuildSidebar()
@@ -159,16 +153,21 @@ public sealed class NodeManagerForm : Form
         _sidebar.Controls.Add(stack);
 
         var brand = new Panel { Dock = DockStyle.Fill, BackColor = _theme.Sidebar, Margin = Padding.Empty };
-        var mark = new Label
+        var logoTile = new Panel
         {
-            Text = "I",
-            TextAlign = ContentAlignment.MiddleCenter,
-            Font = new Font("Segoe UI", 20, FontStyle.Bold),
-            ForeColor = Color.White,
-            BackColor = _theme.Accent,
+            BackColor = Color.White,
             Size = new Size(42, 42),
             Location = new Point(0, 4),
         };
+        var mark = new PictureBox
+        {
+            Dock = DockStyle.Fill,
+            BackColor = Color.White,
+            Image = LoadIngressMark(),
+            SizeMode = PictureBoxSizeMode.Zoom,
+            Padding = new Padding(3),
+        };
+        logoTile.Controls.Add(mark);
         var brandName = new Label
         {
             Text = "INGRESS",
@@ -181,11 +180,11 @@ public sealed class NodeManagerForm : Form
         {
             Text = "NODE MANAGER",
             Font = new Font("Segoe UI", 8.2F, FontStyle.Bold),
-            ForeColor = Color.FromArgb(164, 179, 203),
+            ForeColor = _theme.SidebarMuted,
             AutoSize = true,
             Location = new Point(55, 30),
         };
-        brand.Controls.Add(mark);
+        brand.Controls.Add(logoTile);
         brand.Controls.Add(brandName);
         brand.Controls.Add(brandSub);
         stack.Controls.Add(brand, 0, 0);
@@ -194,7 +193,7 @@ public sealed class NodeManagerForm : Form
         {
             Text = "EVENT NODE",
             Dock = DockStyle.Fill,
-            ForeColor = Color.FromArgb(139, 157, 185),
+            ForeColor = _theme.SidebarMuted,
             Font = new Font("Segoe UI", 8.2F, FontStyle.Bold),
             TextAlign = ContentAlignment.MiddleLeft,
             Padding = new Padding(2, 0, 0, 8),
@@ -222,7 +221,7 @@ public sealed class NodeManagerForm : Form
         {
             Text = "Local operator tool\nPowerShell CLI remains available",
             Dock = DockStyle.Fill,
-            ForeColor = Color.FromArgb(148, 163, 184),
+            ForeColor = _theme.SidebarMuted,
             Font = new Font("Segoe UI", 8.2F),
             TextAlign = ContentAlignment.MiddleLeft,
             Padding = new Padding(2, 0, 0, 0),
@@ -247,7 +246,7 @@ public sealed class NodeManagerForm : Form
             AccessibleName = text,
         };
         button.FlatAppearance.BorderSize = 0;
-        button.FlatAppearance.MouseOverBackColor = Color.FromArgb(30, 50, 78);
+        button.FlatAppearance.MouseOverBackColor = _theme.AccentHover;
         button.Click += (_, _) => ShowPage(page);
         _navigation.Add(page, button);
         parent.Controls.Add(button);
@@ -266,7 +265,7 @@ public sealed class NodeManagerForm : Form
         };
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 62));
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 38));
-        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
+        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
         panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
         var heading = new FlowLayoutPanel
@@ -348,31 +347,60 @@ public sealed class NodeManagerForm : Form
         foreach (var pair in _navigation)
         {
             var selected = pair.Key == page;
-            pair.Value.BackColor = selected ? Color.FromArgb(37, 59, 89) : _theme.Sidebar;
+            pair.Value.BackColor = selected ? _theme.Accent : _theme.Sidebar;
             pair.Value.ForeColor = selected ? Color.White : _theme.SidebarText;
             pair.Value.FlatAppearance.BorderSize = selected ? 2 : 0;
             pair.Value.FlatAppearance.BorderColor = _theme.Accent;
         }
 
-        RenderCurrentPage();
+        DisplayCurrentPage();
     }
 
     private void RenderCurrentPage()
     {
         _contentHost.SuspendLayout();
-        _contentHost.Controls.Clear();
-        var page = _currentPage switch
+        foreach (var cachedPage in _pageCache.Values.ToArray())
         {
-            ManagerPage.Dashboard => BuildDashboardPage(),
-            ManagerPage.Network => BuildNetworkPage(),
-            ManagerPage.Controls => BuildControlsPage(),
-            ManagerPage.Pairing => BuildPairingPage(),
-            _ => BuildDiagnosticsPage(),
-        };
-        page.Dock = DockStyle.Fill;
-        _contentHost.Controls.Add(page);
+            _contentHost.Controls.Remove(cachedPage);
+            cachedPage.Dispose();
+        }
+        _pageCache.Clear();
+        DisplayCurrentPageCore();
         _contentHost.ResumeLayout(performLayout: true);
         UpdateHeaderStatus();
+    }
+
+    private void DisplayCurrentPage()
+    {
+        _contentHost.SuspendLayout();
+        DisplayCurrentPageCore();
+        _contentHost.ResumeLayout(performLayout: true);
+        UpdateHeaderStatus();
+    }
+
+    private void DisplayCurrentPageCore()
+    {
+        if (!_pageCache.TryGetValue(_currentPage, out var page))
+        {
+            page = _currentPage switch
+            {
+                ManagerPage.Dashboard => BuildDashboardPage(),
+                ManagerPage.Network => BuildNetworkPage(),
+                ManagerPage.Controls => BuildControlsPage(),
+                ManagerPage.Pairing => BuildPairingPage(),
+                _ => BuildDiagnosticsPage(),
+            };
+            page.Dock = DockStyle.Fill;
+            _pageCache.Add(_currentPage, page);
+            _contentHost.Controls.Add(page);
+        }
+
+        foreach (var cachedPage in _pageCache)
+        {
+            cachedPage.Value.Visible = cachedPage.Key == _currentPage;
+        }
+
+        page.BringToFront();
     }
 
     private Control BuildDashboardPage()
@@ -1036,12 +1064,13 @@ public sealed class NodeManagerForm : Form
         return root;
     }
 
-    private FlowLayoutPanel CreateCard(int padding)
+    private TableLayoutPanel CreateCard(int padding)
     {
-        var card = new FlowLayoutPanel
+        var card = new TableLayoutPanel
         {
-            FlowDirection = FlowDirection.TopDown,
-            WrapContents = false,
+            ColumnCount = 1,
+            RowCount = 0,
+            GrowStyle = TableLayoutPanelGrowStyle.AddRows,
             BackColor = _theme.Surface,
             Padding = new Padding(padding),
             Margin = new Padding(0, 0, 0, 12),
@@ -1049,10 +1078,15 @@ public sealed class NodeManagerForm : Form
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
         };
+        card.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         card.ControlAdded += (_, eventArgs) =>
         {
             if (eventArgs.Control is { } item)
             {
+                var row = card.RowCount;
+                card.RowCount++;
+                card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                card.SetCellPosition(item, new TableLayoutPanelCellPosition(0, row));
                 SizeCardItem(card, item);
             }
         };
@@ -1075,7 +1109,7 @@ public sealed class NodeManagerForm : Form
         SizeFlowItem(item, width);
     }
 
-    private void SizeCardItem(FlowLayoutPanel card, Control item)
+    private void SizeCardItem(TableLayoutPanel card, Control item)
     {
         var scrollBarWidth = card.VerticalScroll.Visible ? SystemInformation.VerticalScrollBarWidth : 0;
         var width = Math.Max(1, card.ClientSize.Width - card.Padding.Horizontal - scrollBarWidth - item.Margin.Horizontal - 4);
@@ -1125,6 +1159,14 @@ public sealed class NodeManagerForm : Form
             Margin = new Padding(0, 0, 0, 5),
             AutoSize = true,
         };
+    }
+
+    private static Image LoadIngressMark()
+    {
+        using var stream = typeof(NodeManagerForm).Assembly.GetManifestResourceStream("Ingress.NodeManager.Assets.ingress-mark.png")
+            ?? throw new InvalidOperationException("The Ingress logo resource is missing.");
+        using var source = Image.FromStream(stream);
+        return new Bitmap(source);
     }
 
     private Button MakeButton(string text, bool primary)
@@ -1237,7 +1279,6 @@ public sealed class NodeManagerForm : Form
         _busy = true;
         using var cancellation = new CancellationTokenSource();
         _activeOperation = cancellation;
-        _progress.Visible = true;
         _activityLabel.Text = description;
         _activityLabel.Visible = true;
         _cancelButton.Visible = true;
@@ -1272,7 +1313,6 @@ public sealed class NodeManagerForm : Form
         {
             _activeOperation = null;
             _busy = false;
-            _progress.Visible = false;
             _activityLabel.Visible = false;
             _cancelButton.Visible = false;
             _refreshButton.Enabled = true;

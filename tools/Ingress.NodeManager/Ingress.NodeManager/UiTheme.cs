@@ -11,6 +11,7 @@ internal sealed record UiTheme(
     Color Border,
     Color Sidebar,
     Color SidebarText,
+    Color SidebarMuted,
     Color Accent,
     Color AccentHover,
     Color Success,
@@ -36,17 +37,17 @@ internal sealed record UiTheme(
 
         return dark
             ? new UiTheme(
-                Color.FromArgb(22, 27, 37), Color.FromArgb(31, 38, 51), Color.FromArgb(39, 47, 62),
-                Color.FromArgb(234, 239, 247), Color.FromArgb(163, 174, 190), Color.FromArgb(57, 66, 82),
-                Color.FromArgb(17, 25, 40), Color.FromArgb(226, 232, 240), Color.FromArgb(96, 165, 250),
-                Color.FromArgb(125, 185, 255), Color.FromArgb(74, 222, 128), Color.FromArgb(251, 191, 36),
-                Color.FromArgb(248, 113, 113), Color.FromArgb(148, 163, 184), true)
+                Color.FromArgb(31, 27, 26), Color.FromArgb(43, 37, 36), Color.FromArgb(57, 49, 47),
+                Color.FromArgb(249, 246, 244), Color.FromArgb(191, 179, 175), Color.FromArgb(78, 67, 64),
+                Color.FromArgb(27, 23, 22), Color.FromArgb(248, 244, 241), Color.FromArgb(190, 177, 171),
+                Color.FromArgb(166, 41, 59), Color.FromArgb(201, 63, 79), Color.FromArgb(74, 222, 128),
+                Color.FromArgb(251, 191, 36), Color.FromArgb(248, 113, 113), Color.FromArgb(168, 162, 158), true)
             : new UiTheme(
-                Color.FromArgb(245, 247, 251), Color.White, Color.FromArgb(239, 243, 248),
-                Color.FromArgb(24, 34, 54), Color.FromArgb(98, 111, 132), Color.FromArgb(224, 230, 239),
-                Color.FromArgb(17, 33, 56), Color.FromArgb(226, 232, 240), Color.FromArgb(42, 97, 184),
-                Color.FromArgb(31, 78, 150), Color.FromArgb(33, 126, 83), Color.FromArgb(168, 105, 16),
-                Color.FromArgb(181, 55, 61), Color.FromArgb(111, 124, 145), false);
+                Color.FromArgb(247, 244, 241), Color.White, Color.FromArgb(240, 231, 228),
+                Color.FromArgb(36, 29, 29), Color.FromArgb(109, 98, 96), Color.FromArgb(231, 223, 218),
+                Color.FromArgb(36, 29, 29), Color.FromArgb(250, 247, 245), Color.FromArgb(200, 185, 181),
+                Color.FromArgb(116, 29, 43), Color.FromArgb(91, 0, 0), Color.FromArgb(33, 122, 75),
+                Color.FromArgb(166, 111, 22), Color.FromArgb(180, 43, 52), Color.FromArgb(116, 110, 108), false);
     }
 
     public Color ForLevel(Core.Status.HealthLevel level) => level switch
