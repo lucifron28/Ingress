@@ -35,7 +35,74 @@ function Test-IngressThrows {
     }
 }
 
+function Get-TestActualPortStatus {
+    param([object] $NodeResult, [object] $OperatorResult)
+
+    $context = [pscustomobject] @{ Distro = 'Ubuntu-26.04' }
+    $commandRunner = {
+        param($executable, $arguments)
+        if ($arguments[-1] -eq '8080/tcp') { return $NodeResult }
+        return $OperatorResult
+    }.GetNewClosure()
+    $module = Get-Module IngressNetworkManager
+
+    return & $module {
+        param($fixtureContext, $runner)
+        Get-IngressActualPortStatus -Context $fixtureContext -ContainerId 'node-id' -CommandRunner $runner `
+            -Address '192.168.55.158' -HttpsPort 443 -OperatorPort 8444 -LanDemo -HttpPort 8000
+    } $context $commandRunner
+}
+
 Describe 'Ingress Network Manager safety' {
+    It 'handles missing LAN Node port output without a collection crash' {
+        $operator = [pscustomobject] @{ ExitCode = 0; Output = '127.0.0.1:8444' }
+        foreach ($node in @(
+            [pscustomobject] @{ ExitCode = 1; Output = '' },
+            [pscustomobject] @{ ExitCode = 0; Output = '' }
+        )) {
+            $status = Get-TestActualPortStatus -NodeResult $node -OperatorResult $operator
+
+            $status.Known | Should Be $true
+            $status.NodeBinding | Should Be ''
+            $status.NodeMatches | Should Be $false
+            $status.OperatorIsolated | Should Be $true
+        }
+
+        $unavailableOperator = Get-TestActualPortStatus `
+            -NodeResult ([pscustomobject] @{ ExitCode = 0; Output = '192.168.55.158:8000' }) `
+            -OperatorResult ([pscustomobject] @{ ExitCode = 1; Output = '' })
+        $unavailableOperator.Known | Should Be $false
+        $unavailableOperator.NodeBinding | Should Be ''
+        $unavailableOperator.OperatorBinding | Should Be ''
+        $unavailableOperator.OperatorIsolated | Should Be $false
+    }
+
+    It 'validates one and multiple LAN port bindings without unwrapping errors' {
+        $operator = [pscustomobject] @{ ExitCode = 0; Output = '127.0.0.1:8444' }
+        $single = Get-TestActualPortStatus `
+            -NodeResult ([pscustomobject] @{ ExitCode = 0; Output = '192.168.55.158:8000' }) `
+            -OperatorResult $operator
+        $single.Known | Should Be $true
+        $single.NodeBinding | Should Be '192.168.55.158:8000'
+        $single.NodeMatches | Should Be $true
+        $single.OperatorIsolated | Should Be $true
+
+        $multipleNode = Get-TestActualPortStatus `
+            -NodeResult ([pscustomobject] @{ ExitCode = 0; Output = "192.168.55.158:8000`n192.168.55.159:8000" }) `
+            -OperatorResult $operator
+        $multipleNode.Known | Should Be $false
+        $multipleNode.NodeBinding | Should Be ''
+        $multipleNode.NodeMatches | Should Be $false
+        $multipleNode.OperatorIsolated | Should Be $true
+
+        $multipleOperator = Get-TestActualPortStatus `
+            -NodeResult ([pscustomobject] @{ ExitCode = 0; Output = '192.168.55.158:8000' }) `
+            -OperatorResult ([pscustomobject] @{ ExitCode = 0; Output = "127.0.0.1:8444`n0.0.0.0:8444" })
+        $multipleOperator.Known | Should Be $false
+        $multipleOperator.OperatorBinding | Should Be ''
+        $multipleOperator.OperatorIsolated | Should Be $false
+    }
+
     It 'changes only the binding line and preserves other env content' {
         $nl = [Environment]::NewLine
         $content = 'APP_URL=https://node.example' + $nl + 'INGRESS_NODE_BIND_ADDRESS=10.1.2.3' + $nl + 'DB_PASSWORD=fake-only' + $nl
