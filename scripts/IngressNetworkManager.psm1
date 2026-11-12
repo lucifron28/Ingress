@@ -372,6 +372,7 @@ function Test-IngressApplyGate {
         @{ Property = 'MigrationsComplete'; Message = 'The existing Node migration service is not confirmed successful.' },
         @{ Property = 'SessionStateKnown'; Message = 'Admission state could not be determined; no restart was attempted.' },
         @{ Property = 'CertificateMatch'; Message = 'The Node HTTPS certificate does not cover the selected IP address.' },
+        @{ Property = 'ProfileMatch'; Message = 'No valid saved profile matches the selected hotspot address; the Node URL cannot be updated safely.' },
         @{ Property = 'FirewallStateKnown'; Message = 'The scoped Windows firewall policy could not be read.' },
         @{ Property = 'FirewallAllowed'; Message = 'No inbound HTTPS rule matches the selected interface and its staff subnet.' },
         @{ Property = 'ComposeValid'; Message = 'The existing Compose files failed configuration validation.' },
@@ -403,6 +404,72 @@ function Test-IngressApplyGate {
         Blockers = @($blockers.ToArray())
         Warnings = @($warnings.ToArray())
     }
+}
+
+function Test-IngressSafeStopGate {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][object] $Facts)
+
+    $blockers = New-Object 'System.Collections.Generic.List[string]'
+    $requirements = @(
+        @{ Property = 'NodeStateKnown'; Message = 'The Event Node state is unknown; it was left running.' },
+        @{ Property = 'NodeHealthy'; Message = 'The Event Node is not healthy; it was left running for inspection.' },
+        @{ Property = 'DatabaseHealthy'; Message = 'The PostgreSQL database is not healthy; the Node was left running.' },
+        @{ Property = 'AdmissionStateKnown'; Message = 'Admission state is unknown; the Node was left running.' },
+        @{ Property = 'PendingSyncStateKnown'; Message = 'Pending synchronization state is unknown; the Node was left running.' },
+        @{ Property = 'AuthorityStateKnown'; Message = 'Event authority state is unknown; the Node was left running.' },
+        @{ Property = 'OperatorPortIsolated'; Message = 'The operator port is not verified loopback-only; the Node was left running.' }
+    )
+
+    foreach ($requirement in $requirements) {
+        if (-not [bool] (Get-IngressPropertyValue -InputObject $Facts -Name $requirement.Property -Default $false)) {
+            $blockers.Add($requirement.Message)
+        }
+    }
+
+    if ([bool] (Get-IngressPropertyValue -InputObject $Facts -Name 'AdmissionsPossible' -Default $true)) {
+        $blockers.Add('An event may still accept admissions; the Node was left running.')
+    }
+
+    $pending = Get-IngressPropertyValue -InputObject $Facts -Name 'PendingSyncRecords' -Default $null
+    if ($null -eq $pending) {
+        if ([bool] (Get-IngressPropertyValue -InputObject $Facts -Name 'PendingSyncStateKnown' -Default $false)) {
+            $blockers.Add('Pending synchronization count is missing; the Node was left running.')
+        }
+    }
+    elseif ([int] $pending -ne 0) {
+        $blockers.Add("$([int] $pending) pending records remain unsynchronized; the Node was left running.")
+    }
+
+    if ([bool] (Get-IngressPropertyValue -InputObject $Facts -Name 'AuthorityUncertain' -Default $true)) {
+        $blockers.Add('At least one event authority is uncertain; the Node was left running.')
+    }
+
+    return [pscustomobject] @{ CanStop = ($blockers.Count -eq 0); Blockers = @($blockers.ToArray()) }
+}
+
+function New-IngressNodeStopArguments {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string] $Project,
+        [Parameter(Mandatory = $true)][string] $WorkingDirectory,
+        [Parameter(Mandatory = $true)][string] $EnvironmentFile,
+        [Parameter(Mandatory = $true)][string[]] $ComposeFiles
+    )
+
+    $arguments = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($argument in @('--project-name', $Project, '--project-directory', $WorkingDirectory, '--env-file', $EnvironmentFile)) {
+        $arguments.Add($argument)
+    }
+    foreach ($file in $ComposeFiles) {
+        $arguments.Add('-f')
+        $arguments.Add($file)
+    }
+    foreach ($argument in @('stop', '--timeout', '30', 'ingress-node')) {
+        $arguments.Add($argument)
+    }
+
+    return @($arguments.ToArray())
 }
 
 function New-IngressComposeUpArguments {
@@ -441,6 +508,9 @@ function Invoke-IngressPlannedChange {
         [Parameter(Mandatory = $true)][bool] $BindChanged,
         [Parameter(Mandatory = $true)][bool] $NodeRunning,
         [Parameter(Mandatory = $true)][string] $TargetAddress,
+        [Parameter(Mandatory = $true)][string] $TargetAppUrl,
+        [string] $PreviousAddress,
+        [string] $PreviousAppUrl,
         [Parameter(Mandatory = $true)][scriptblock] $WriteBinding,
         [Parameter(Mandatory = $true)][scriptblock] $ApplyNode
     )
@@ -453,9 +523,23 @@ function Invoke-IngressPlannedChange {
     }
 
     if ($BindChanged) {
-        & $WriteBinding $TargetAddress
+        & $WriteBinding $TargetAddress $TargetAppUrl
     }
-    & $ApplyNode $BindChanged
+    try {
+        & $ApplyNode $BindChanged
+    }
+    catch {
+        if ($BindChanged -and -not [string]::IsNullOrWhiteSpace($PreviousAddress) -and -not [string]::IsNullOrWhiteSpace($PreviousAppUrl)) {
+            $previousSettingsRestored = $true
+            try { & $WriteBinding $PreviousAddress $PreviousAppUrl }
+            catch { $previousSettingsRestored = $false }
+            if ($previousSettingsRestored) {
+                throw 'Node start or recreation failed. The previous bind address and HTTPS URL were restored; no second restart was attempted.'
+            }
+            throw 'Node start or recreation failed, and the previous network settings could not be restored safely. The Node was not restarted again; inspect the env file before retrying.'
+        }
+        throw 'Node start failed. No network settings were changed; refresh status before retrying.'
+    }
 
     return [pscustomobject] @{ Outcome = $(if ($BindChanged) { 'RecreatedNode' } else { 'StartedNode' }); Changed = $true }
 }
@@ -532,7 +616,7 @@ function Get-IngressComposeContext {
 
         $project = 'ingress-node'
         $containerIds = @()
-        foreach ($service in @('ingress-node', 'ingress-db')) {
+        foreach ($service in @('ingress-node', 'ingress-db', 'ingress-scheduler')) {
             $containerIds += Get-IngressComposeContainerIds -Distro $distro -Project $project -Service $service -CommandRunner $CommandRunner
         }
         $containerIds = @($containerIds | Select-Object -Unique)
@@ -555,7 +639,8 @@ function Get-IngressComposeContext {
         $nodeIds = @(Get-IngressComposeContainerIds -Distro $distro -Project $project -Service 'ingress-node' -CommandRunner $CommandRunner)
         $dbIds = @(Get-IngressComposeContainerIds -Distro $distro -Project $project -Service 'ingress-db' -CommandRunner $CommandRunner)
         $migrateIds = @(Get-IngressComposeContainerIds -Distro $distro -Project $project -Service 'ingress-migrate' -CommandRunner $CommandRunner)
-        if ($nodeIds.Count -gt 1 -or $dbIds.Count -ne 1 -or $migrateIds.Count -gt 1) { throw 'The Ingress Compose project has ambiguous service containers.' }
+        $schedulerIds = @(Get-IngressComposeContainerIds -Distro $distro -Project $project -Service 'ingress-scheduler' -CommandRunner $CommandRunner)
+        if ($nodeIds.Count -gt 1 -or $dbIds.Count -ne 1 -or $migrateIds.Count -gt 1 -or $schedulerIds.Count -gt 1) { throw 'The Ingress Compose project has ambiguous service containers.' }
 
         $contexts.Add([pscustomobject] @{
             Distro = $distro; Project = $project; WorkingDirectory = $workingDirectory; EnvironmentFile = $environmentFile
@@ -563,6 +648,7 @@ function Get-IngressComposeContext {
             NodeContainerId = if ($nodeIds.Count -eq 1) { $nodeIds[0] } else { '' }
             DatabaseContainerId = $dbIds[0]
             MigrationContainerId = if ($migrateIds.Count -eq 1) { $migrateIds[0] } else { '' }
+            SchedulerContainerId = if ($schedulerIds.Count -eq 1) { $schedulerIds[0] } else { '' }
             DockerVersion = $dockerInfo.Output.Trim(); ComposeVersion = $composeVersion.Output.Trim(); Kernel = $kernel.Output.Trim()
         })
     }
@@ -572,7 +658,7 @@ function Get-IngressComposeContext {
 }
 function Read-IngressNodeEnvironment {
     param([object] $Context, [scriptblock] $CommandRunner)
-    $pattern = '^(INGRESS_NODE_BIND_ADDRESS|INGRESS_NODE_HTTPS_PORT|INGRESS_OPERATOR_PORT)='
+    $pattern = '^(APP_URL|INGRESS_NODE_BIND_ADDRESS|INGRESS_NODE_HTTPS_PORT|INGRESS_OPERATOR_PORT)='
     $result = Invoke-IngressWslCommand -Distro $Context.Distro -Arguments @('grep', '-E', $pattern, $Context.EnvironmentFile) -CommandRunner $CommandRunner -SuppressStderr
     if ($result.ExitCode -ne 0) { throw 'The allowed Node network settings could not be read from node-compose.env.' }
 
@@ -583,6 +669,7 @@ function Read-IngressNodeEnvironment {
         $settings[$parts[0]] = $parts[1].Trim().Trim('"')
     }
     if (-not $settings.ContainsKey('INGRESS_NODE_BIND_ADDRESS')) { throw 'node-compose.env is missing INGRESS_NODE_BIND_ADDRESS.' }
+    if (-not $settings.ContainsKey('APP_URL')) { throw 'node-compose.env is missing APP_URL.' }
     return [pscustomobject] $settings
 }
 function Get-IngressContainerState {
@@ -632,8 +719,10 @@ function Get-IngressActualPortStatus {
 }
 
 function Get-IngressComposeSummary {
-    param([object] $Context, [string] $BindAddress, [scriptblock] $CommandRunner)
-    $arguments = @('env', "INGRESS_NODE_BIND_ADDRESS=$BindAddress", 'docker', 'compose', '--project-name', $Context.Project,
+    param([object] $Context, [string] $BindAddress, [string] $AppUrl, [scriptblock] $CommandRunner)
+    $arguments = @('env', "INGRESS_NODE_BIND_ADDRESS=$BindAddress")
+    if (-not [string]::IsNullOrWhiteSpace($AppUrl)) { $arguments += "APP_URL=$AppUrl" }
+    $arguments += @('docker', 'compose', '--project-name', $Context.Project,
         '--project-directory', $Context.WorkingDirectory, '--env-file', $Context.EnvironmentFile)
     foreach ($file in $Context.ComposeFiles) { $arguments += @('-f', $file) }
     $arguments += @('config', '--format', 'json')
@@ -781,14 +870,162 @@ function Read-IngressAdmissionState {
 function Read-IngressCertificateNames {
     param([object] $Context, [string] $CertificatePath, [scriptblock] $CommandRunner)
     if ([string]::IsNullOrWhiteSpace($CertificatePath)) {
-        return [pscustomobject] @{ Known = $false; Valid = $false; Names = '' }
+        return [pscustomobject] @{ Known = $false; Valid = $false; Names = ''; ExpiresAtUtc = $null; DaysRemaining = $null }
     }
     $san = Invoke-IngressWslCommand -Distro $Context.Distro -Arguments @('openssl', 'x509', '-in', $CertificatePath, '-noout', '-ext', 'subjectAltName') -CommandRunner $CommandRunner -SuppressStderr
     $validity = Invoke-IngressWslCommand -Distro $Context.Distro -Arguments @('openssl', 'x509', '-in', $CertificatePath, '-checkend', '0', '-noout') -CommandRunner $CommandRunner -SuppressStderr
-    if ($san.ExitCode -ne 0 -or $validity.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($san.Output)) {
-        return [pscustomobject] @{ Known = $false; Valid = $false; Names = '' }
+    $expiry = Invoke-IngressWslCommand -Distro $Context.Distro -Arguments @('openssl', 'x509', '-in', $CertificatePath, '-noout', '-enddate') -CommandRunner $CommandRunner -SuppressStderr
+    if ($san.ExitCode -ne 0 -or $validity.ExitCode -ne 0 -or $expiry.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($san.Output)) {
+        return [pscustomobject] @{ Known = $false; Valid = $false; Names = ''; ExpiresAtUtc = $null; DaysRemaining = $null }
     }
-    return [pscustomobject] @{ Known = $true; Valid = $true; Names = $san.Output }
+    $expiresAtUtc = $null
+    $daysRemaining = $null
+    if ($expiry.Output -match '(?im)^notAfter=([A-Z]{3})\s+([0-9]{1,2})\s+([0-9]{2}:[0-9]{2}:[0-9]{2})\s+([0-9]{4})\s+GMT\s*$') {
+        try {
+            $normalizedExpiry = "$($Matches[1]) $([int] $Matches[2]) $($Matches[4]) $($Matches[3]) +00:00"
+            $parsed = [DateTimeOffset]::ParseExact($normalizedExpiry, 'MMM d yyyy HH:mm:ss zzz', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AssumeUniversal)
+            $expiresAtUtc = $parsed.ToUniversalTime()
+            $daysRemaining = [int] [math]::Floor(($expiresAtUtc - [DateTimeOffset]::UtcNow).TotalDays)
+        }
+        catch { return [pscustomobject] @{ Known = $false; Valid = $false; Names = ''; ExpiresAtUtc = $null; DaysRemaining = $null } }
+    }
+    else { return [pscustomobject] @{ Known = $false; Valid = $false; Names = ''; ExpiresAtUtc = $null; DaysRemaining = $null } }
+
+    return [pscustomobject] @{ Known = $true; Valid = ($validity.ExitCode -eq 0); Names = $san.Output; ExpiresAtUtc = $expiresAtUtc; DaysRemaining = $daysRemaining }
+}
+
+function Get-IngressSavedNetworkProfiles {
+    param([string] $Distro, [scriptblock] $CommandRunner)
+
+    $bash = @'
+set -eu
+printf '{"Known":true,"Profiles":['
+first=1
+emit_profile() {
+    mode="$1"
+    filename="$2"
+    profile_path="$HOME/.config/ingress/network-profiles/$filename"
+    address=""
+    app_url=""
+    seen_address=0
+    seen_url=0
+    invalid=0
+    size=0
+    if [[ -f "$profile_path" && ! -L "$profile_path" ]]; then
+        size="$(stat -c %s -- "$profile_path" 2>/dev/null || true)"
+        if [[ ! "$size" =~ ^[0-9]+$ ]] || (( size > 32768 )); then
+            invalid=1
+        else
+            while IFS= read -r line || [[ -n "$line" ]]; do
+                IFS='=' read -r key value <<< "$line"
+                case "$key" in
+                    INGRESS_NODE_BIND_ADDRESS)
+                        if (( seen_address )); then invalid=1; else address="$value"; seen_address=1; fi
+                        ;;
+                    APP_URL)
+                        if (( seen_url )); then invalid=1; else app_url="$value"; seen_url=1; fi
+                        ;;
+                esac
+            done < "$profile_path"
+        fi
+    fi
+    configured=false
+    if (( ! invalid )) && [[ "$address" =~ ^(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$ ]]; then
+        IFS='.' read -r one two three four <<< "$address"
+        if (( 10#$one <= 255 && 10#$two <= 255 && 10#$three <= 255 && 10#$four <= 255 )); then
+            if (( one == 10 || (one == 172 && two >= 16 && two <= 31) || (one == 192 && two == 168) )); then
+                if [[ "$app_url" == "https://$address" || "$app_url" == "https://$address/api/v1" ]]; then
+                    configured=true
+                fi
+            fi
+        fi
+    fi
+    if [[ "$configured" != true ]]; then address=""; app_url=""; fi
+    if (( ! first )); then printf ','; fi
+    first=0
+    printf '{"Name":"%s","Mode":"%s","Address":"%s","AppUrl":"%s","IsConfigured":%s}' "$mode" "$mode" "$address" "$app_url" "$configured"
+}
+emit_profile "Phone Hotspot" "phone-hotspot.env"
+emit_profile "Laptop Hotspot" "laptop-hotspot.env"
+printf ']}\n'
+'@
+    $bash = $bash.Replace([Environment]::NewLine, [string] [char] 10)
+    $result = Invoke-IngressWslCommand -Distro $Distro -Arguments @('bash', '--noprofile', '--norc', '-c', $bash) -CommandRunner $CommandRunner -SuppressStderr
+    if ($result.ExitCode -ne 0) {
+        return [pscustomobject] @{ Known = $false; Profiles = @() }
+    }
+
+    try {
+        $document = $result.Output | ConvertFrom-Json
+        return [pscustomobject] @{ Known = [bool] $document.Known; Profiles = @($document.Profiles) }
+    }
+    catch { return [pscustomobject] @{ Known = $false; Profiles = @() } }
+}
+
+function Read-IngressNodeOperationsSummary {
+    param([object] $Context, [object] $ComposeSummary, [object] $NodeState, [scriptblock] $CommandRunner)
+
+    if (-not $NodeState.Known -or $NodeState.Status -ne 'running' -or
+        [string]::IsNullOrWhiteSpace($Context.NodeContainerId) -or
+        [string]::IsNullOrWhiteSpace($ComposeSummary.DatabaseUser) -or
+        [string]::IsNullOrWhiteSpace($ComposeSummary.DatabaseName)) {
+        return [pscustomobject] @{ Known = $false; AuthorityUncertain = $true; PendingSyncRecords = $null }
+    }
+
+    $php = @'
+$root = getcwd();
+foreach (['APP_KEY' => '/run/secrets/app_key', 'DB_PASSWORD' => '/run/secrets/db_password', 'INGRESS_NODE_SYNC_KEY' => '/run/secrets/node_sync_key'] as $name => $path) {
+    $value = @file_get_contents($path);
+    if (! is_string($value) || trim($value) === '') { exit(68); }
+    $value = trim($value);
+    putenv($name . '=' . $value);
+    $_ENV[$name] = $value;
+    $_SERVER[$name] = $value;
+    unset($value);
+}
+require $root . '/vendor/autoload.php';
+$application = require $root . '/bootstrap/app.php';
+$kernel = $application->make(Illuminate\Contracts\Console\Kernel::class);
+$kernel->bootstrap();
+if ($kernel->call('ingress:node-start', ['--no-interaction' => true]) !== 0) { exit(69); }
+$status = $application->make(App\Support\NodeOperatorOperationsStatus::class)->dashboard();
+echo json_encode(['authorityUncertain' => (bool) $status['authorityUncertain']], JSON_THROW_ON_ERROR);
+'@
+    $authorityResult = Invoke-IngressWslCommand -Distro $Context.Distro -Arguments @(
+        'docker', 'exec', '-w', '/app', $Context.NodeContainerId, 'php', '-r', $php
+    ) -CommandRunner $CommandRunner -SuppressStderr
+    if ($authorityResult.ExitCode -ne 0) {
+        return [pscustomobject] @{ Known = $false; AuthorityUncertain = $true; PendingSyncRecords = $null }
+    }
+
+    try {
+        $authority = $authorityResult.Output | ConvertFrom-Json
+        $authorityUncertain = $authority.PSObject.Properties['authorityUncertain']
+        if ($null -eq $authorityUncertain -or $authorityUncertain.Value -isnot [bool]) {
+            return [pscustomobject] @{ Known = $false; AuthorityUncertain = $true; PendingSyncRecords = $null }
+        }
+    }
+    catch { return [pscustomobject] @{ Known = $false; AuthorityUncertain = $true; PendingSyncRecords = $null } }
+
+    $sql = @'
+SELECT
+  (SELECT count(*) FROM admissions a JOIN tickets t ON t.id = a.ticket_id JOIN registrations r ON r.id = t.registration_id WHERE NOT EXISTS (SELECT 1 FROM node_synced_admissions s WHERE s.admission_id = a.id))
+  + (SELECT count(*) FROM node_walk_in_issuances w WHERE w.synced_at IS NULL)
+  + (SELECT count(*) FROM node_walk_in_recoveries r JOIN node_walk_in_issuances w ON w.id = r.issuance_id WHERE w.synced_at IS NOT NULL AND r.synced_at IS NULL);
+'@
+    $pendingResult = Invoke-IngressWslCommand -Distro $Context.Distro -Arguments @(
+        'docker', 'exec', $Context.DatabaseContainerId, 'psql', '-U', $ComposeSummary.DatabaseUser,
+        '-d', $ComposeSummary.DatabaseName, '-Atc', $sql
+    ) -CommandRunner $CommandRunner -SuppressStderr
+    if ($pendingResult.ExitCode -ne 0 -or $pendingResult.Output.Trim() -notmatch '\A[0-9]+\z') {
+        return [pscustomobject] @{ Known = $false; AuthorityUncertain = [bool] $authorityUncertain.Value; PendingSyncRecords = $null }
+    }
+
+    return [pscustomobject] @{
+        Known = $true
+        AuthorityUncertain = [bool] $authorityUncertain.Value
+        PendingSyncRecords = [int] $pendingResult.Output.Trim()
+    }
 }
 
 function Get-IngressLanDemoHost {
@@ -846,56 +1083,120 @@ function Write-IngressStatus {
     foreach ($warning in $Status.Warnings) { Write-Host "Note: $warning" }
 }
 
-function Write-IngressNodeBindAddress {
-    param([object] $Context, [string] $Address, [scriptblock] $CommandRunner)
-    $python = @'
-import os
-import stat
-import sys
-import tempfile
+function Get-IngressSafeDisplayUrl {
+    param([string] $Url)
 
-path = sys.argv[1]
-address = sys.argv[2].encode("ascii")
-source_descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-original_stat = os.fstat(source_descriptor)
-if not stat.S_ISREG(original_stat.st_mode):
-    os.close(source_descriptor)
-    raise SystemExit("node-compose.env must be a regular file")
-with os.fdopen(source_descriptor, "rb") as source:
-    original = source.read()
-lines = original.splitlines(keepends=True)
-matching = [index for index, line in enumerate(lines) if line.rstrip(b"\r\n").startswith(b"INGRESS_NODE_BIND_ADDRESS=")]
-if len(matching) != 1:
-    raise SystemExit("expected exactly one bind assignment")
-index = matching[0]
-line = lines[index]
-body = line.rstrip(b"\r\n")
-ending = line[len(body):]
-updated = b"INGRESS_NODE_BIND_ADDRESS=" + address + ending
-if updated == line:
-    print("unchanged")
-    raise SystemExit(0)
-descriptor, temporary = tempfile.mkstemp(prefix=".node-compose.env.", dir=os.path.dirname(path))
-try:
-    os.fchown(descriptor, original_stat.st_uid, original_stat.st_gid)
-    os.fchmod(descriptor, stat.S_IMODE(original_stat.st_mode))
-    with os.fdopen(descriptor, "wb") as destination:
-        destination.writelines(lines[:index] + [updated] + lines[index + 1:])
-        destination.flush()
-        os.fsync(destination.fileno())
-    os.replace(temporary, path)
-    directory = os.open(os.path.dirname(path), os.O_DIRECTORY)
-    os.fsync(directory)
-    os.close(directory)
-    print("updated only INGRESS_NODE_BIND_ADDRESS")
-except:
-    try:
-        os.unlink(temporary)
-    except OSError:
-        pass
-    raise
+    try {
+        $parsed = [uri] $Url
+        if (-not $parsed.IsAbsoluteUri -or $parsed.Scheme -ne 'https') { return 'unavailable' }
+        $builder = [UriBuilder]::new($parsed)
+        $builder.UserName = ''
+        $builder.Password = ''
+        $builder.Query = ''
+        $builder.Fragment = ''
+        return $builder.Uri.GetLeftPart([UriPartial]::Authority)
+    }
+    catch { return 'unavailable' }
+}
+
+function Protect-IngressSensitiveText {
+    param([AllowEmptyString()][string] $Text)
+
+    $Text = [regex]::Replace($Text, '(?im)(\b[A-Z0-9_]*(?:API[_-]?KEY|API[_-]?TOKEN|SECRET|PASSWORD|PRIVATE[_-]?KEY|CREDENTIALS?|TOKEN|_KEY)\b\s*[:=]\s*)("[^"]*"|''[^'']*''|[^\s,;]+)', '$1[REDACTED]')
+    $Text = [regex]::Replace($Text, '(?i)([?&](?:access_token|refresh_token|token|code|credential|pairing_token|ticket_credential|verification_token)=)[^&#\s]+', '$1[REDACTED]')
+
+    $safe = [regex]::Replace($Text, '(?im)(?<prefix>\b(?:APP_KEY|DB_URL|DB_PASSWORD|INGRESS_NODE_SYNC_KEY|INGRESS_AUTHORITY_PRIVATE_KEY|INGRESS_NODE_PRIVATE_KEY|INGRESS_NODE_TLS_PRIVATE_KEY|FIREBASE_PRIVATE_KEY|RESEND_API_KEY|MAIL_PASSWORD|PASSWORD|ACCESS_TOKEN|REFRESH_TOKEN|PAIRING_TOKEN|TICKET_CREDENTIAL)\b\s*[:=]\s*)[^\s,;]+', '${prefix}[REDACTED]')
+    $safe = [regex]::Replace($safe, '(?i)(\b(?:postgres(?:ql)?|mysql)://[^:/@\s]+:)[^@/\s]+(@)', '$1[REDACTED]$2')
+    $safe = [regex]::Replace($safe, '-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----', '[REDACTED PRIVATE KEY]', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    $safe = [regex]::Replace($safe, '\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b', '[REDACTED TOKEN]')
+    $safe = [regex]::Replace($safe, '(?i)https?://[^\s"''<>]*(?:/tickets?/|/pair(?:ing)?(?:/|\?)|/verify(?:/|\?))[^\s"''<>]*', '[REDACTED LINK]')
+    return [regex]::Replace($safe, '(?i)(\bBearer\s+)[A-Za-z0-9._~+/-]+=*', '$1[REDACTED]')
+}
+
+function Write-IngressNodeBindAddress {
+    param([object] $Context, [string] $Address, [string] $AppUrl, [scriptblock] $CommandRunner)
+    if (-not (Test-IngressPrivateIPv4 -Address $Address)) { throw 'The bind address must be a private IPv4 address.' }
+    if ($AppUrl -cne "https://$Address") { throw 'The Node APP_URL must be the HTTPS origin for the selected private address.' }
+
+    $bash = @'
+set -eu
+path="$1"
+address="$2"
+app_url="$3"
+case "$address" in
+    *[!0-9.]*|'') echo "invalid bind address" >&2; exit 2 ;;
+esac
+if [[ "$address" =~ ^(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$ ]]; then
+    IFS='.' read -r one two three four <<< "$address"
+    if (( 10#$one > 255 || 10#$two > 255 || 10#$three > 255 || 10#$four > 255 )); then
+        echo "invalid bind address" >&2
+        exit 2
+    fi
+else
+    echo "invalid bind address" >&2
+    exit 2
+fi
+if [[ "$app_url" != "https://$address" ]]; then
+    echo "invalid Node APP_URL" >&2
+    exit 2
+fi
+if [[ ! -f "$path" || -L "$path" ]]; then
+    echo "node-compose.env must be a regular file" >&2
+    exit 3
+fi
+directory="$(dirname -- "$path")"
+metadata="$(stat -c '%d:%i:%u:%g:%a:%s:%y' -- "$path")"
+size="$(stat -c '%s' -- "$path")"
+if (( size > 262144 )); then
+    echo "node-compose.env exceeds the safe size limit" >&2
+    exit 4
+fi
+mode="$(stat -c '%a' -- "$path")"
+owner="$(stat -c '%u:%g' -- "$path")"
+last_byte="$(tail -c 1 -- "$path" | od -An -t x1 | tr -d '[:space:]')"
+temporary="$(mktemp "$directory/.node-compose.env.XXXXXX")"
+cleanup() { rm -f -- "$temporary"; }
+trap cleanup EXIT
+awk -v address="$address" -v app_url="$app_url" '
+{
+    line = $0
+    ending = ""
+    if (line ~ /\r$/) { sub(/\r$/, "", line); ending = "\r" }
+    if (line ~ /^INGRESS_NODE_BIND_ADDRESS=/) {
+        bind_count++
+        if (bind_count > 1) exit 5
+        line = "INGRESS_NODE_BIND_ADDRESS=" address
+    }
+    if (line ~ /^APP_URL=/) {
+        app_url_count++
+        if (app_url_count > 1) exit 5
+        line = "APP_URL=" app_url
+    }
+    printf "%s%s\n", line, ending
+}
+END { if (bind_count != 1 || app_url_count != 1) exit 6 }
+' "$path" > "$temporary"
+if [[ -L "$path" || ! -f "$path" || "$(stat -c '%d:%i:%u:%g:%a:%s:%y' -- "$path")" != "$metadata" ]]; then
+    echo "node-compose.env changed while it was being prepared" >&2
+    exit 7
+fi
+if [[ "$last_byte" != 0a ]]; then truncate -s -1 "$temporary"; fi
+chown "$owner" "$temporary"
+chmod "$mode" "$temporary"
+sync -f "$temporary"
+if cmp -s -- "$path" "$temporary"; then
+    echo "unchanged"
+    exit 0
+fi
+mv -f -- "$temporary" "$path"
+trap - EXIT
+sync -f "$directory"
+echo "updated INGRESS_NODE_BIND_ADDRESS and APP_URL"
 '@
-    $result = Invoke-IngressWslCommand -Distro $Context.Distro -Arguments @('python3', '-c', $python, $Context.EnvironmentFile, $Address) -CommandRunner $CommandRunner -SuppressStderr
+    $bash = $bash.Replace([Environment]::NewLine, [string] [char] 10)
+    $result = Invoke-IngressWslCommand -Distro $Context.Distro -Arguments @(
+        'bash', '--noprofile', '--norc', '-c', $bash, '--', $Context.EnvironmentFile, $Address, $AppUrl
+    ) -CommandRunner $CommandRunner -SuppressStderr
     if ($result.ExitCode -ne 0) { throw 'The bind address could not be updated safely; the Node was not restarted.' }
     return $result.Output.Trim()
 }
@@ -914,15 +1215,31 @@ function Invoke-IngressNetworkManager {
         [switch] $Status,
         [switch] $DryRun,
         [switch] $Apply,
+        [switch] $Json,
+        [switch] $Logs,
+        [switch] $SafeStop,
+        [switch] $ConfirmApply,
+        [switch] $ConfirmStop,
         [string] $LanDemoHost,
         [scriptblock] $CommandRunner,
         [object[]] $Adapters,
         [object[]] $FirewallRules
     )
 
-    if ($Status -and ($DryRun -or $Apply)) { throw '-Status cannot be combined with -DryRun or -Apply.' }
+    if ($Logs -and ($Status -or $DryRun -or $Apply -or $SafeStop)) { throw '-Logs cannot be combined with status, preview, apply, or safe-stop operations.' }
+    if ($Status -and ($DryRun -or $Apply -or $SafeStop -or $Logs)) { throw '-Status cannot be combined with preview, apply, logs, or safe-stop operations.' }
     if ($DryRun -and $Apply) { throw 'Choose either -DryRun or -Apply.' }
-    if (-not $Status -and [string]::IsNullOrWhiteSpace($Mode)) {
+    if ($ConfirmApply -and -not $Apply) { throw '-ConfirmApply requires -Apply.' }
+    if ($ConfirmStop -and (-not $SafeStop -or -not $Apply)) { throw '-ConfirmStop requires -SafeStop and -Apply.' }
+    if ($SafeStop -and -not [string]::IsNullOrWhiteSpace($Mode)) { throw '-SafeStop operates on the current Node binding and cannot select a network mode.' }
+    if ($Logs) {
+        $context = Get-IngressComposeContext -CommandRunner $CommandRunner
+        if ([string]::IsNullOrWhiteSpace($context.NodeContainerId)) { throw 'The Event Node container is not available; recent logs cannot be read.' }
+        $result = Invoke-IngressWslCommand -Distro $context.Distro -Arguments @('docker', 'logs', '--tail', '150', $context.NodeContainerId) -CommandRunner $CommandRunner -SuppressStderr
+        if ($result.ExitCode -ne 0) { throw 'Recent Event Node logs could not be read.' }
+        return [pscustomobject] @{ SchemaVersion = 1; Known = $true; Lines = @($result.Output -split '\r?\n' | Select-Object -Last 150 | ForEach-Object { Protect-IngressSensitiveText -Text $_ }) }
+    }
+    if (-not $Status -and -not $SafeStop -and [string]::IsNullOrWhiteSpace($Mode)) {
         Write-Host 'Choose the network to use:'
         Write-Host '  1. Laptop Hotspot'
         Write-Host '  2. Phone Hotspot'
@@ -946,10 +1263,11 @@ function Invoke-IngressNetworkManager {
     $context = Get-IngressComposeContext -CommandRunner $CommandRunner
     $settings = Read-IngressNodeEnvironment -Context $context -CommandRunner $CommandRunner
     $currentAddress = [string] (Get-IngressPropertyValue $settings 'INGRESS_NODE_BIND_ADDRESS' '')
+    $currentAppUrl = [string] (Get-IngressPropertyValue $settings 'APP_URL' '')
     if (-not (Test-IngressPrivateIPv4 -Address $currentAddress)) { throw 'The current Node bind setting is missing or invalid; no changes were made.' }
 
     $candidate = $null
-    if ($Status) {
+    if ($Status -or $SafeStop) {
         $candidate = Get-IngressModeFromSavedAddress -Adapters $Adapters -Address $currentAddress
         if ($candidate) { $Mode = $candidate.Mode } else { $Mode = 'Unmatched or unavailable' }
         $targetAddress = $currentAddress
@@ -957,17 +1275,8 @@ function Invoke-IngressNetworkManager {
     else {
         $candidate = Resolve-IngressNetworkAdapter -Adapters $Adapters -Mode $Mode
         $targetAddress = [string] $candidate.Address
+        $Mode = [string] $candidate.Mode
     }
-
-    $firewallProfileState = if ($candidate) { Get-IngressFirewallProfileState -NetworkCategory $candidate.NetworkCategory } else { [pscustomobject] @{ Known = $false; Enabled = $false } }
-    if (-not $firewallProfileState.Known) { $firewallKnown = $false }
-
-    $composeSummary = Get-IngressComposeSummary -Context $context -BindAddress $targetAddress -CommandRunner $CommandRunner
-    $nodeState = Get-IngressContainerState -Context $context -ContainerId $context.NodeContainerId -CommandRunner $CommandRunner
-    $databaseState = Get-IngressContainerState -Context $context -ContainerId $context.DatabaseContainerId -CommandRunner $CommandRunner
-    $migrationState = Get-IngressContainerState -Context $context -ContainerId $context.MigrationContainerId -CommandRunner $CommandRunner
-    $admissionState = Read-IngressAdmissionState -Context $context -ComposeSummary $composeSummary -CommandRunner $CommandRunner
-    $certificate = Read-IngressCertificateNames -Context $context -CertificatePath $composeSummary.CertificatePath -CommandRunner $CommandRunner
 
     $httpsPortText = [string] (Get-IngressPropertyValue $settings 'INGRESS_NODE_HTTPS_PORT' '443')
     $httpsPort = 443
@@ -975,6 +1284,45 @@ function Invoke-IngressNetworkManager {
     $operatorPortText = [string] (Get-IngressPropertyValue $settings 'INGRESS_OPERATOR_PORT' '8444')
     $operatorPort = 8444
     if ($operatorPortText -match '\A[0-9]{1,5}\z' -and [int] $operatorPortText -ge 1 -and [int] $operatorPortText -le 65535) { $operatorPort = [int] $operatorPortText }
+
+    $savedProfiles = Get-IngressSavedNetworkProfiles -Distro $context.Distro -CommandRunner $CommandRunner
+    $profileMode = if ($Status -or $SafeStop) { $null } elseif ($candidate) { [string] $candidate.Mode } else { $null }
+    $matchingProfiles = @($savedProfiles.Profiles | Where-Object {
+        [bool] $_.IsConfigured -and [string] $_.Address -eq $targetAddress -and
+        ([string]::IsNullOrWhiteSpace($profileMode) -or [string] $_.Mode -eq $profileMode)
+    })
+    $targetProfile = if ($matchingProfiles.Count -eq 1) { $matchingProfiles[0] } else { $null }
+    $targetAppUrl = ''
+    $targetProfileMatches = $false
+    if ($targetProfile) {
+        try {
+            $profileUri = [uri] ([string] $targetProfile.AppUrl)
+            $allowedProfilePath = $profileUri.AbsolutePath -in @('', '/', '/api/v1')
+            if ($profileUri.IsAbsoluteUri -and $profileUri.Scheme -eq 'https' -and
+                [string]::IsNullOrWhiteSpace($profileUri.UserInfo) -and
+                [string]::IsNullOrWhiteSpace($profileUri.Query) -and
+                [string]::IsNullOrWhiteSpace($profileUri.Fragment) -and
+                $profileUri.DnsSafeHost.Trim('[', ']') -eq $targetAddress -and
+                $profileUri.Port -eq $httpsPort -and $allowedProfilePath) {
+                $targetAppUrl = $profileUri.GetLeftPart([UriPartial]::Authority)
+                $targetProfileMatches = $true
+            }
+        }
+        catch { $targetProfileMatches = $false }
+    }
+
+    $firewallProfileState = if ($candidate) { Get-IngressFirewallProfileState -NetworkCategory $candidate.NetworkCategory } else { [pscustomobject] @{ Known = $false; Enabled = $false } }
+    if (-not $firewallProfileState.Known) { $firewallKnown = $false }
+
+    $composeAppUrl = if ($Status -or $SafeStop) { '' } elseif ($targetProfileMatches) { $targetAppUrl } else { [string] $settings.APP_URL }
+    $composeSummary = Get-IngressComposeSummary -Context $context -BindAddress $targetAddress -AppUrl $composeAppUrl -CommandRunner $CommandRunner
+    $nodeState = Get-IngressContainerState -Context $context -ContainerId $context.NodeContainerId -CommandRunner $CommandRunner
+    $databaseState = Get-IngressContainerState -Context $context -ContainerId $context.DatabaseContainerId -CommandRunner $CommandRunner
+    $migrationState = Get-IngressContainerState -Context $context -ContainerId $context.MigrationContainerId -CommandRunner $CommandRunner
+    $schedulerState = Get-IngressContainerState -Context $context -ContainerId $context.SchedulerContainerId -CommandRunner $CommandRunner
+    $admissionState = Read-IngressAdmissionState -Context $context -ComposeSummary $composeSummary -CommandRunner $CommandRunner
+    $certificate = Read-IngressCertificateNames -Context $context -CertificatePath $composeSummary.CertificatePath -CommandRunner $CommandRunner
+    $operations = Read-IngressNodeOperationsSummary -Context $context -ComposeSummary $composeSummary -NodeState $nodeState -CommandRunner $CommandRunner
     $actualPorts = Get-IngressActualPortStatus -Context $context -ContainerId $context.NodeContainerId -CommandRunner $CommandRunner -Address $targetAddress -HttpsPort $httpsPort -OperatorPort $operatorPort
     $appUrl = [string] $composeSummary.AppUrl
     $appUrlMatches = $false
@@ -984,11 +1332,12 @@ function Invoke-IngressNetworkManager {
         $appUri = [uri] $appUrl
         $appUrlHost = $appUri.DnsSafeHost.Trim('[', ']')
         $urlPortMatches = $appUri.Port -eq $httpsPort
+        $certificateHostMatches = $certificate.Known -and $certificate.Valid -and (Test-IngressCertificateHost -SubjectAlternativeNames $certificate.Names -HostName $appUrlHost)
         $appUrlMatches = $certificate.Known -and $certificate.Valid -and $urlPortMatches -and
-            (Test-IngressCertificateHost -SubjectAlternativeNames $certificate.Names -HostName $appUrlHost) -and
+            $certificateHostMatches -and
             (Test-IngressUrlResolvesToAddress -Url $appUrl -Address $targetAddress)
     }
-    catch { $appUrlMatches = $false }
+    catch { $appUrlMatches = $false; $certificateHostMatches = $false }
 
     $firewallResult = if ($candidate) {
         Test-IngressFirewallPolicy -Rules $FirewallRules -Candidate $candidate -Port $httpsPort -FirewallProfileEnabled $firewallProfileState.Enabled
@@ -1006,6 +1355,7 @@ function Invoke-IngressNetworkManager {
     $nodeHealthy = $nodeState.Known -and $nodeState.Status -eq 'running' -and $nodeState.Health -eq 'healthy'
     $databaseHealthy = $databaseState.Known -and $databaseState.Status -eq 'running' -and $databaseState.Health -eq 'healthy'
     $migrationsComplete = -not [string]::IsNullOrWhiteSpace($context.MigrationContainerId) -and $migrationState.Known -and $migrationState.Status -eq 'exited' -and $migrationState.ExitCode -eq 0
+    $schedulerRunning = $schedulerState.Known -and $schedulerState.Status -eq 'running'
     $tcpProbe = if ($targetAddress -eq $currentAddress -and $nodeHealthy) { Get-IngressWindowsNetworkProbe -Address $targetAddress -Port $httpsPort } else { $false }
 
     $operatorPortStatus = if ($nodeState.Status -eq 'running' -and $actualPorts.Known) {
@@ -1034,30 +1384,21 @@ function Invoke-IngressNetworkManager {
     if (-not $lanDemoHostMatches) { $warnings += 'The manager does not change EAS variables, Android trust anchors, DNS, or certificates.' }
     if (-not $tcpProbe) { $warnings += 'The selected HTTPS port did not pass a local TCP probe; the phone still needs its own acceptance test.' }
 
-    $statusObject = [pscustomobject] @{
-        NetworkMode = $Mode
-        LanAddress = if ($candidate) { "$($candidate.Address)/$($candidate.PrefixLength)" } else { $currentAddress }
-        NodeUrl = $appUrl
-        LanMapping = if ($actualPorts.Known) { "https://$($actualPorts.NodeBinding)" } else { 'unknown' }
-        DockerStatus = if ($databaseHealthy -and $composeSummary.Valid) { "WSL2/Docker Desktop ready ($($context.DockerVersion), Compose $($context.ComposeVersion))" } else { 'not ready' }
-        NodeStatus = if ($nodeState.Known) { "$($nodeState.Status) ($($nodeState.Health))" } else { 'unknown' }
-        OperatorPortStatus = $operatorPortStatus
-        CertificateStatus = $certificateStatus
-        FirewallStatus = $firewallStatus
-        AdmissionStatus = $admissionStatus
-        LanDemoStatus = $lanDemoStatus
-        LanProbeStatus = if ($tcpProbe) { 'reachable from this PC' } else { 'not reachable from this PC' }
-        ScannerReadiness = $scannerReadiness
-        Warnings = $warnings
-        CurrentBindAddress = $currentAddress
-        TargetBindAddress = $targetAddress
-    }
-
-    if ($Status) {
-        Write-IngressStatus -Status $statusObject
-        return $statusObject
-    }
-
+    $adapterStatuses = @(
+        foreach ($adapter in $Adapters) {
+            foreach ($address in @($adapter.IPv4Addresses)) {
+                [pscustomobject] @{
+                    Name = [string] $adapter.Name
+                    Description = [string] $adapter.InterfaceDescription
+                    Mode = [string] $adapter.CandidateMode
+                    Address = [string] $address.Address
+                    PrefixLength = [int] $address.PrefixLength
+                    NetworkCategory = [string] $adapter.NetworkCategory
+                    IsUp = ([string] $adapter.Status -eq 'Up')
+                }
+            }
+        }
+    )
     $facts = [pscustomobject] @{
         DockerReady = $databaseHealthy -and $composeSummary.Valid
         ComposeReady = $context.ComposeVersion -match '^v?[0-9]+\.'
@@ -1066,6 +1407,7 @@ function Invoke-IngressNetworkManager {
         SessionStateKnown = [bool] $admissionState.Known
         ActiveAdmissionSession = [bool] $admissionState.Active
         CertificateMatch = [bool] $appUrlMatches
+        ProfileMatch = [bool] $targetProfileMatches
         FirewallStateKnown = [bool] $firewallKnown
         FirewallAllowed = [bool] $firewallResult.Allowed
         ComposeValid = [bool] $composeSummary.Valid -and [bool] $composeSummary.BindMatches
@@ -1076,9 +1418,159 @@ function Invoke-IngressNetworkManager {
         LanDemoTrustVerified = $false
     }
     $gate = Test-IngressApplyGate -Facts $facts
-    $bindChanged = $currentAddress -ne $targetAddress -or ($nodeState.Status -eq 'running' -and $actualPorts.Known -and -not $actualPorts.NodeMatches)
+    $safeStopFacts = [pscustomobject] @{
+        NodeStateKnown = [bool] $nodeState.Known
+        NodeHealthy = [bool] $nodeHealthy
+        DatabaseHealthy = [bool] $databaseHealthy
+        AdmissionStateKnown = [bool] $admissionState.Known
+        AdmissionsPossible = [bool] $admissionState.Active
+        PendingSyncStateKnown = [bool] $operations.Known
+        PendingSyncRecords = $operations.PendingSyncRecords
+        AuthorityStateKnown = [bool] $operations.Known
+        AuthorityUncertain = [bool] $operations.AuthorityUncertain
+        OperatorPortIsolated = [bool] ($composeSummary.OperatorPortIsolated -and ($nodeState.Status -ne 'running' -or ($actualPorts.Known -and $actualPorts.OperatorIsolated)))
+    }
+    $safeStopGate = Test-IngressSafeStopGate -Facts $safeStopFacts
+    $statusObject = [pscustomobject] @{
+        SchemaVersion = 1
+        NetworkMode = $Mode
+        LanAddress = if ($candidate) { "$($candidate.Address)/$($candidate.PrefixLength)" } else { $currentAddress }
+        NodeUrl = Get-IngressSafeDisplayUrl -Url $appUrl
+        LanMapping = if ($actualPorts.Known) { "https://$($actualPorts.NodeBinding)" } else { 'unknown' }
+        DockerStatus = if ($databaseHealthy -and $composeSummary.Valid) { "WSL2/Docker Desktop ready ($($context.DockerVersion), Compose $($context.ComposeVersion))" } else { 'not ready' }
+        NodeStatus = if ($nodeState.Known) { "$($nodeState.Status) ($($nodeState.Health))" } else { 'unknown' }
+        DatabaseStatus = if ($databaseState.Known) { "$($databaseState.Status) ($($databaseState.Health))" } else { 'unknown' }
+        MigrationStatus = if ($migrationState.Known) { "$($migrationState.Status) (exit $($migrationState.ExitCode))" } else { 'unknown' }
+        SchedulerStatus = if ($schedulerState.Known) { "$($schedulerState.Status) ($($schedulerState.Health))" } else { 'unknown' }
+        SchedulerDetail = 'Container state is visible; no scheduler heartbeat is exposed by the current Event Node.'
+        OperatorPortStatus = $operatorPortStatus
+        OperatorPort = $operatorPort
+        CertificateStatus = $certificateStatus
+        FirewallStatus = $firewallStatus
+        AdmissionStatus = $admissionStatus
+        LanDemoStatus = $lanDemoStatus
+        LanProbeStatus = if ($tcpProbe) { 'reachable from this PC' } else { 'not reachable from this PC' }
+        ScannerReadiness = $scannerReadiness
+        DockerVersion = $context.DockerVersion
+        WslDistribution = $context.Distro
+        CertificateExpiresAtUtc = if ($certificate.ExpiresAtUtc) { $certificate.ExpiresAtUtc.ToString('o') } else { $null }
+        CertificateDaysRemaining = $certificate.DaysRemaining
+        AdmissionCapableEventCount = $admissionState.Count
+        PendingSyncRecords = $operations.PendingSyncRecords
+        DockerStateKnown = $true
+        DockerAvailable = $true
+        WslStateKnown = $true
+        WslAvailable = $true
+        NodeStateKnown = [bool] $nodeState.Known
+        NodeHealthy = [bool] $nodeHealthy
+        DatabaseStateKnown = [bool] $databaseState.Known
+        DatabaseHealthy = [bool] $databaseHealthy
+        MigrationStateKnown = [bool] $migrationState.Known
+        MigrationsComplete = [bool] $migrationsComplete
+        SchedulerStateKnown = (-not [string]::IsNullOrWhiteSpace($context.SchedulerContainerId) -and [bool] $schedulerState.Known)
+        SchedulerProcessRunning = [bool] $schedulerRunning
+        SchedulerHeartbeatVerified = $false
+        OperatorPortStateKnown = [bool] ($actualPorts.Known -or ($nodeState.Status -ne 'running' -and $composeSummary.Valid))
+        OperatorPortIsolated = [bool] ($composeSummary.OperatorPortIsolated -and ($nodeState.Status -ne 'running' -or ($actualPorts.Known -and $actualPorts.OperatorIsolated)))
+        CertificateKnown = [bool] $certificate.Known
+        CertificateValid = [bool] $certificate.Valid
+        CertificateHostMatches = [bool] $certificateHostMatches
+        FirewallStateKnown = [bool] $firewallKnown
+        FirewallAllowed = [bool] $firewallResult.Allowed
+        AdmissionStateKnown = [bool] $admissionState.Known
+        AdmissionsPossible = [bool] $admissionState.Active
+        PendingSyncStateKnown = [bool] $operations.Known
+        AuthorityStateKnown = [bool] $operations.Known
+        AuthorityUncertain = [bool] $operations.AuthorityUncertain
+        LanProbeReachable = [bool] $tcpProbe
+        LanDemoHostMatches = [bool] $lanDemoHostMatches
+        LanDemoTrustVerified = $false
+        CanApplyNetworkChange = [bool] $gate.CanApply
+        CanSafelyStop = [bool] $safeStopGate.CanStop
+        Blockers = @($gate.Blockers)
+        SafeStopBlockers = @($safeStopGate.Blockers)
+        Warnings = @($warnings + $gate.Warnings)
+        Adapters = $adapterStatuses
+        ProfileDiscoveryKnown = [bool] $savedProfiles.Known
+        SavedProfiles = @($savedProfiles.Profiles)
+        TargetProfileName = if ($targetProfileMatches) { [string] $targetProfile.Name } else { 'None' }
+        TargetProfileMatches = [bool] $targetProfileMatches
+        TargetAppUrl = if ($targetProfileMatches) { Get-IngressSafeDisplayUrl -Url $targetAppUrl } else { 'Unknown' }
+        CurrentBindAddress = $currentAddress
+        TargetBindAddress = $targetAddress
+    }
+
+    if ($Status -or $SafeStop) {
+        if (-not $Json -and $Status) { Write-IngressStatus -Status $statusObject }
+    }
+
+    if ($SafeStop) {
+        if (-not $safeStopGate.CanStop) {
+            if (-not $Json) { foreach ($blocker in $safeStopGate.Blockers) { Write-Host "Blocked: $blocker" }; Write-Host 'The Node remains running.' }
+            return $statusObject
+        }
+
+        if (-not $Apply) {
+            if (-not $Json) { Write-Host 'Safe-stop preview passed. No Docker state was changed.' }
+            return $statusObject
+        }
+
+        if (-not $ConfirmStop -and (Read-Host 'Type STOP to stop only ingress-node after confirming closeout') -cne 'STOP') {
+            if (-not $Json) { Write-Host 'Cancelled. The Node remains running.' }
+            return $statusObject
+        }
+
+        $latestAdmissionState = Read-IngressAdmissionState -Context $context -ComposeSummary $composeSummary -CommandRunner $CommandRunner
+        $latestNodeState = Get-IngressContainerState -Context $context -ContainerId $context.NodeContainerId -CommandRunner $CommandRunner
+        $latestDatabaseState = Get-IngressContainerState -Context $context -ContainerId $context.DatabaseContainerId -CommandRunner $CommandRunner
+        $latestPorts = Get-IngressActualPortStatus -Context $context -ContainerId $context.NodeContainerId -CommandRunner $CommandRunner -Address $currentAddress -HttpsPort $httpsPort -OperatorPort $operatorPort
+        $latestOperations = Read-IngressNodeOperationsSummary -Context $context -ComposeSummary $composeSummary -NodeState $latestNodeState -CommandRunner $CommandRunner
+        $latestStopFacts = [pscustomobject] @{
+            NodeStateKnown = [bool] $latestNodeState.Known
+            NodeHealthy = [bool] ($latestNodeState.Status -eq 'running' -and $latestNodeState.Health -eq 'healthy')
+            DatabaseHealthy = [bool] ($latestDatabaseState.Known -and $latestDatabaseState.Status -eq 'running' -and $latestDatabaseState.Health -eq 'healthy')
+            AdmissionStateKnown = [bool] $latestAdmissionState.Known
+            AdmissionsPossible = [bool] $latestAdmissionState.Active
+            PendingSyncStateKnown = [bool] $latestOperations.Known
+            PendingSyncRecords = $latestOperations.PendingSyncRecords
+            AuthorityStateKnown = [bool] $latestOperations.Known
+            AuthorityUncertain = [bool] $latestOperations.AuthorityUncertain
+            OperatorPortIsolated = [bool] ($latestPorts.Known -and $latestPorts.OperatorIsolated -and $composeSummary.OperatorPortIsolated)
+        }
+        $latestStopGate = Test-IngressSafeStopGate -Facts $latestStopFacts
+        if (-not $latestStopGate.CanStop) {
+            if (-not $Json) { foreach ($blocker in $latestStopGate.Blockers) { Write-Host "Blocked: $blocker" }; Write-Host 'The Node remains running.' }
+            $statusObject.CanSafelyStop = $false
+            $statusObject.SafeStopBlockers = @($latestStopGate.Blockers)
+            return $statusObject
+        }
+
+        $stopArguments = New-IngressNodeStopArguments -Project $context.Project -WorkingDirectory $context.WorkingDirectory -EnvironmentFile $context.EnvironmentFile -ComposeFiles $context.ComposeFiles
+        $stopResult = Invoke-IngressWslCommand -Distro $context.Distro -Arguments (@('docker', 'compose') + $stopArguments) -CommandRunner $CommandRunner -SuppressStderr
+        if ($stopResult.ExitCode -ne 0) { throw 'Compose could not safely stop ingress-node. The database service and volume were not changed.' }
+        $stopped = $false
+        for ($attempt = 0; $attempt -lt 15; $attempt++) {
+            Start-Sleep -Seconds 2
+            $stoppedState = Get-IngressContainerState -Context $context -ContainerId $context.NodeContainerId -CommandRunner $CommandRunner
+            if ($stoppedState.Known -and $stoppedState.Status -eq 'exited') { $stopped = $true; break }
+        }
+        if (-not $stopped) { throw 'The Node did not confirm a clean stopped state within 30 seconds. The database service and volume were not changed.' }
+        $statusObject.NodeStatus = 'exited (stopped after verified closeout)'
+        $statusObject.NodeHealthy = $false
+        $statusObject.CanSafelyStop = $false
+        $statusObject.SafeStopBlockers = @('The Event Node is stopped; refresh status before another operation.')
+        if (-not $Json) { Write-Host 'Only ingress-node was stopped. PostgreSQL, scheduler, and the database volume were left intact.' }
+        return $statusObject
+    }
+
+    if ($Status) {
+        return $statusObject
+    }
+
+    $bindChanged = $currentAddress -ne $targetAddress -or $currentAppUrl -cne $targetAppUrl -or ($nodeState.Status -eq 'running' -and $actualPorts.Known -and -not $actualPorts.NodeMatches)
     Write-Host "Mode: $($candidate.Mode)"
     Write-Host "Bind address: $currentAddress -> $targetAddress"
+    if ($targetProfileMatches) { Write-Host "Node URL: $(Get-IngressSafeDisplayUrl -Url $currentAppUrl) -> $(Get-IngressSafeDisplayUrl -Url $targetAppUrl)" }
     Write-Host 'Compose plan: validate the active files, then start/recreate ingress-node only with --no-deps.'
     foreach ($warning in $gate.Warnings) { Write-Host "Note: $warning" }
     if (-not $gate.CanApply) {
@@ -1092,7 +1584,7 @@ function Invoke-IngressNetworkManager {
         return $statusObject
     }
 
-    if ((Read-Host 'Type APPLY to update the bind address and start/recreate only ingress-node') -cne 'APPLY') {
+    if ((Read-Host 'Type APPLY to update the bind address and HTTPS URL, then start/recreate only ingress-node') -cne 'APPLY') {
         Write-Host 'Cancelled. No environment or Docker changes were made.'
         return $statusObject
     }
@@ -1101,6 +1593,17 @@ function Invoke-IngressNetworkManager {
     $latestCandidate = Resolve-IngressNetworkAdapter -Adapters $latestAdapters -Mode $Mode
     if ($latestCandidate.InterfaceIndex -ne $candidate.InterfaceIndex -or $latestCandidate.Address -ne $targetAddress -or $latestCandidate.NetworkCategory -ne $candidate.NetworkCategory) {
         throw 'The selected hotspot adapter or address changed during confirmation. No environment or Docker changes were made.'
+    }
+    $latestSettings = Read-IngressNodeEnvironment -Context $context -CommandRunner $CommandRunner
+    if ([string] $latestSettings.INGRESS_NODE_BIND_ADDRESS -cne $currentAddress -or [string] $latestSettings.APP_URL -cne $currentAppUrl) {
+        throw 'The saved Node network settings changed during confirmation. Refresh status and preview again; no change was made.'
+    }
+    $latestProfiles = Get-IngressSavedNetworkProfiles -Distro $context.Distro -CommandRunner $CommandRunner
+    $latestProfileMatches = @($latestProfiles.Profiles | Where-Object {
+        [bool] $_.IsConfigured -and [string] $_.Address -eq $targetAddress -and [string] $_.Mode -eq [string] $latestCandidate.Mode
+    })
+    if (-not $latestProfiles.Known -or $latestProfileMatches.Count -ne 1 -or [string] $latestProfileMatches[0].AppUrl -notin @($targetAppUrl, "$targetAppUrl/api/v1")) {
+        throw 'The saved network profile changed or became unavailable during confirmation. No environment or Docker changes were made.'
     }
     $latestAdmissionState = Read-IngressAdmissionState -Context $context -ComposeSummary $composeSummary -CommandRunner $CommandRunner
     if (-not $latestAdmissionState.Known) { throw 'Admission state could not be confirmed immediately before the change. No environment or Docker changes were made.' }
@@ -1111,21 +1614,18 @@ function Invoke-IngressNetworkManager {
     }
 
     $writeBinding = {
-        param($address)
-        $message = Write-IngressNodeBindAddress -Context $context -Address $address -CommandRunner $CommandRunner
+        param($address, $appUrl)
+        $message = Write-IngressNodeBindAddress -Context $context -Address $address -AppUrl $appUrl -CommandRunner $CommandRunner
         Write-Host $message
     }.GetNewClosure()
     $applyNode = {
         param($forceRecreate)
         $upArguments = New-IngressComposeUpArguments -Project $context.Project -WorkingDirectory $context.WorkingDirectory -EnvironmentFile $context.EnvironmentFile -ComposeFiles $context.ComposeFiles -ForceRecreate:$forceRecreate
         $result = Invoke-IngressWslCommand -Distro $context.Distro -Arguments (@('docker', 'compose') + $upArguments) -CommandRunner $CommandRunner -SuppressStderr
-        if ($result.ExitCode -ne 0) { throw 'Compose could not start ingress-node. The bind setting remains saved; inspect the Node service before retrying.' }
-    }.GetNewClosure()
+        if ($result.ExitCode -ne 0) { throw 'Compose could not start ingress-node.' }
 
-    $outcome = Invoke-IngressPlannedChange -Gate $gate -BindChanged $bindChanged -NodeRunning ($nodeState.Status -eq 'running' -and $nodeHealthy) -TargetAddress $targetAddress -WriteBinding $writeBinding -ApplyNode $applyNode
-    Write-Host "Result: $($outcome.Outcome)"
-    if ($outcome.Changed) {
         $healthy = $false
+        $nodeIds = @()
         for ($attempt = 0; $attempt -lt 30; $attempt++) {
             Start-Sleep -Seconds 2
             $nodeIds = @(Get-IngressComposeContainerIds -Distro $context.Distro -Project $context.Project -Service 'ingress-node' -CommandRunner $CommandRunner)
@@ -1134,17 +1634,24 @@ function Invoke-IngressNetworkManager {
                 if ($postState.Status -eq 'running' -and $postState.Health -eq 'healthy') { $healthy = $true; break }
             }
         }
-        if (-not $healthy) { throw 'ingress-node did not become healthy within 60 seconds. Database and volumes were not changed.' }
+        if (-not $healthy) { throw 'ingress-node did not become healthy within 60 seconds.' }
+
+        $postSettings = Read-IngressNodeEnvironment -Context $context -CommandRunner $CommandRunner
         $postSummary = Get-IngressComposeSummary -Context $context -BindAddress $targetAddress -CommandRunner $CommandRunner
         $postPorts = Get-IngressActualPortStatus -Context $context -ContainerId $nodeIds[0] -CommandRunner $CommandRunner -Address $targetAddress -HttpsPort $httpsPort -OperatorPort $operatorPort
-        if (-not $postSummary.Valid -or -not $postSummary.BindMatches -or -not $postSummary.OperatorPortIsolated -or -not $postPorts.Known -or -not $postPorts.NodeMatches -or -not $postPorts.OperatorIsolated) {
-            throw 'Post-start Compose port verification failed. The operator port or Node binding needs inspection.'
+        if (-not $postSummary.Valid -or -not $postSummary.BindMatches -or [string] $postSettings.APP_URL -cne $targetAppUrl -or [string] $postSettings.INGRESS_NODE_BIND_ADDRESS -cne $targetAddress -or -not $postSummary.OperatorPortIsolated -or -not $postPorts.Known -or -not $postPorts.NodeMatches -or -not $postPorts.OperatorIsolated) {
+            throw 'Post-start Compose settings or port verification failed.'
         }
         if (-not (Get-IngressWindowsNetworkProbe -Address $targetAddress -Port $httpsPort)) {
-            throw 'The Node is healthy internally, but its selected LAN TCP port is not reachable from this PC.'
+            throw 'The selected HTTPS port did not pass a local TCP probe.'
         }
+    }.GetNewClosure()
+
+    $outcome = Invoke-IngressPlannedChange -Gate $gate -BindChanged $bindChanged -NodeRunning ($nodeState.Status -eq 'running' -and $nodeHealthy) -TargetAddress $targetAddress -TargetAppUrl $targetAppUrl -PreviousAddress $currentAddress -PreviousAppUrl $currentAppUrl -WriteBinding $writeBinding -ApplyNode $applyNode
+    Write-Host "Result: $($outcome.Outcome)"
+    if ($outcome.Changed) {
         Write-Host 'ingress-node is healthy and the operator port remains loopback-only. Android device verification is still required.'
     }
     return $statusObject
 }
-Export-ModuleMember -Function Get-IngressNetworkSnapshot, Get-IngressAdapterMode, Resolve-IngressNetworkAdapter, Get-IngressIPv4Range, Test-IngressFirewallPolicy, Update-IngressBindContent, Test-IngressApplyGate, New-IngressComposeUpArguments, Invoke-IngressPlannedChange, Test-IngressPrivateIPv4, Test-IngressCertificateHost, Invoke-IngressNetworkManager
+Export-ModuleMember -Function Get-IngressNetworkSnapshot, Get-IngressAdapterMode, Resolve-IngressNetworkAdapter, Get-IngressIPv4Range, Test-IngressFirewallPolicy, Update-IngressBindContent, Test-IngressApplyGate, Test-IngressSafeStopGate, New-IngressComposeUpArguments, New-IngressNodeStopArguments, Protect-IngressSensitiveText, Invoke-IngressPlannedChange, Test-IngressPrivateIPv4, Test-IngressCertificateHost, Invoke-IngressNetworkManager

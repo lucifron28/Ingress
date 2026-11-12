@@ -5,18 +5,31 @@ param(
     [switch] $Status,
     [switch] $DryRun,
     [switch] $Apply,
-    [string] $LanDemoHost
+    [string] $LanDemoHost,
+    [switch] $Json,
+    [switch] $Logs,
+    [switch] $SafeStop,
+    [switch] $ConfirmApply,
+    [switch] $ConfirmStop
 )
 
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'IngressNetworkManager.psm1') -Force
 
 try {
-    $managerParameters = @{ Status = $Status; DryRun = $DryRun; Apply = $Apply; LanDemoHost = $LanDemoHost }
+    $managerParameters = @{
+        Status = $Status; DryRun = $DryRun; Apply = $Apply; LanDemoHost = $LanDemoHost
+        Json = $Json; Logs = $Logs; SafeStop = $SafeStop; ConfirmApply = $ConfirmApply; ConfirmStop = $ConfirmStop
+    }
     if ($PSBoundParameters.ContainsKey('Mode')) { $managerParameters.Mode = $Mode }
-    $null = Invoke-IngressNetworkManager @managerParameters
+    if ($Json) {
+        $result = Invoke-IngressNetworkManager @managerParameters 6>$null
+        $result | ConvertTo-Json -Depth 12 -Compress
+    }
+    else { $null = Invoke-IngressNetworkManager @managerParameters }
 }
 catch {
-    Write-Error $_.Exception.Message
+    $safeMessage = Protect-IngressSensitiveText -Text ([string] $_.Exception.Message)
+    Write-Error $safeMessage
     exit 1
 }
