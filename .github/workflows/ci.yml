@@ -19,6 +19,18 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      - name: Run PowerShell apply confirmation regressions
+        shell: powershell
+        run: |
+          if (-not (Get-Module Pester -ListAvailable | Where-Object { $_.Version -eq [version]'3.4.0' })) {
+            Install-Module -Name Pester -RequiredVersion 3.4.0 -Scope CurrentUser -Force -SkipPublisherCheck
+          }
+          Import-Module Pester -RequiredVersion 3.4.0 -Force
+          $result = Invoke-Pester -Script scripts/tests/IngressNetworkManager.ConfirmApply.Tests.ps1 -PassThru
+          if ($result.PassedCount -lt 1 -or $result.FailedCount -ne 0) {
+            throw 'PowerShell apply confirmation regression tests failed.'
+          }
+
       - name: Run Node Manager tests
         run: dotnet test tools/Ingress.NodeManager/Ingress.NodeManager.slnx --configuration Release
 

@@ -41,6 +41,40 @@ public sealed class NetworkManagerClientTests
     }
 
     [Fact]
+    public async Task ConfirmedNetworkApplyPassesNonInteractiveConfirmationAndJsonAsSeparateArguments()
+    {
+        var runner = new RecordingProcessRunner(StatusJson);
+        var client = CreateClient(runner);
+
+        await client.ApplyNetworkChangeAsync(NetworkMode.PhoneHotspot, confirmationAccepted: true, CancellationToken.None);
+
+        var arguments = runner.LastRequest!.Arguments;
+        Assert.Contains("-NonInteractive", arguments);
+        Assert.Contains("-Apply", arguments);
+        Assert.Contains("-ConfirmApply", arguments);
+        Assert.Contains("-Json", arguments);
+        var modeIndex = Array.IndexOf(arguments.ToArray(), "-Mode");
+        Assert.Equal("Phone Hotspot", arguments[modeIndex + 1]);
+    }
+
+    [Fact]
+    public async Task ConfirmedStartPassesNonInteractiveConfirmationAndJsonAsSeparateArguments()
+    {
+        var runner = new RecordingProcessRunner(StatusJson);
+        var client = CreateClient(runner);
+
+        await client.StartNodeAsync(NetworkMode.PhoneHotspot, confirmationAccepted: true, CancellationToken.None);
+
+        var arguments = runner.LastRequest!.Arguments;
+        Assert.Contains("-NonInteractive", arguments);
+        Assert.Contains("-Apply", arguments);
+        Assert.Contains("-ConfirmApply", arguments);
+        Assert.Contains("-Json", arguments);
+        var modeIndex = Array.IndexOf(arguments.ToArray(), "-Mode");
+        Assert.Equal("Phone Hotspot", arguments[modeIndex + 1]);
+    }
+
+    [Fact]
     public async Task ApplyDoesNotProceedWhenPreviewReportsAdmissionBlocker()
     {
         var runner = new RecordingProcessRunner("""
