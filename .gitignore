@@ -52,4 +52,6 @@ pgdata/
 *.log
 
 # Persistent local Graphify indexes
-**/graphify-out/
+/graphify-out/
+/api/graphify-out/
+/mobile/graphify-out/
