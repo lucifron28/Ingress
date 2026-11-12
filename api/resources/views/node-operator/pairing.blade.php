@@ -13,7 +13,12 @@
         </div>
 
         <p>Expires at <time datetime="{{ $expiresAt }}">{{ \Carbon\Carbon::parse($expiresAt)->utc()->format('Y-m-d H:i:s') }} UTC</time>. Remaining time: <strong data-countdown data-seconds="{{ $secondsRemaining }}"></strong>.</p>
-        <p>The node enforces the expiry and one-use limit. The phone must show the same node identity and HTTPS address before staff confirms pairing.</p>
+        <p>The node enforces the expiry and one-use limit. The phone must show the same node identity and address before staff confirms pairing.</p>
+        @if (str_starts_with($nodeApiUrl, 'http://'))
+            <p>This LAN-demo pairing uses unencrypted HTTP on the private venue network. Only use it on an isolated network controlled by the operator.</p>
+        @else
+            <p>Confirm the phone shows the node's HTTPS address before staff accepts pairing.</p>
+        @endif
 
         <form method="post" action="{{ route('node.operator.staff.pairing.cancel', [$event->id, $staff->id], absolute: false) }}">
             @csrf

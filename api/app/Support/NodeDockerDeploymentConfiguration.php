@@ -50,8 +50,14 @@ class NodeDockerDeploymentConfiguration
             $errors[] = 'APP_KEY must be a valid 32-byte Laravel key.';
         }
 
-        if (! self::isHttpsOrigin($app['url'] ?? null)) {
-            $errors[] = 'APP_URL must be an HTTPS node origin.';
+        $lanDemo = ($ingress['lan_demo'] ?? false) === true;
+        $validNodeOrigin = $lanDemo
+            ? self::isLanDemoOrigin($app['url'] ?? null, $ingress['node_bind_address'] ?? null)
+            : self::isHttpsOrigin($app['url'] ?? null);
+        if (! $validNodeOrigin) {
+            $errors[] = $lanDemo
+                ? 'APP_URL must be an HTTP origin matching the selected private LAN address.'
+                : 'APP_URL must be an HTTPS node origin.';
         }
 
         if (! is_string($ingress['node_id'] ?? null)
@@ -106,7 +112,7 @@ class NodeDockerDeploymentConfiguration
 
         $session = is_array($configuration['session'] ?? null) ? $configuration['session'] : [];
         if (($session['driver'] ?? null) !== 'database'
-            || ($session['secure'] ?? false) !== true
+            || ($session['secure'] ?? false) !== ! $lanDemo
             || ($session['encrypt'] ?? false) !== true
             || ($session['http_only'] ?? false) !== true
             || ($session['same_site'] ?? null) !== 'strict') {
@@ -152,6 +158,41 @@ class NodeDockerDeploymentConfiguration
             && ! isset($parts['query'])
             && ! isset($parts['fragment'])
             && in_array($parts['path'] ?? '', ['', '/'], true);
+    }
+
+    private static function isLanDemoOrigin(mixed $url, mixed $bindAddress): bool
+    {
+        if (! is_string($url) || filter_var($url, FILTER_VALIDATE_URL) === false
+            || ! is_string($bindAddress) || ! self::isPrivateIpv4($bindAddress)) {
+            return false;
+        }
+
+        $parts = parse_url($url);
+        if (! is_array($parts)
+            || strtolower((string) ($parts['scheme'] ?? '')) !== 'http'
+            || ($parts['host'] ?? null) !== $bindAddress
+            || ! isset($parts['port'])
+            || $parts['port'] < 1 || $parts['port'] > 65535
+            || isset($parts['user']) || isset($parts['pass'])
+            || isset($parts['query']) || isset($parts['fragment'])
+            || ! in_array($parts['path'] ?? '', ['', '/'], true)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static function isPrivateIpv4(string $address): bool
+    {
+        if (filter_var($address, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) === false) {
+            return false;
+        }
+
+        $octets = array_map('intval', explode('.', $address));
+
+        return $octets[0] === 10
+            || ($octets[0] === 172 && $octets[1] >= 16 && $octets[1] <= 31)
+            || ($octets[0] === 192 && $octets[1] === 168);
     }
 
     private static function isSafeServerName(mixed $host): bool

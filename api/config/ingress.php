@@ -2,6 +2,8 @@
 
 return [
     'mode' => env('INGRESS_RUNTIME', 'legacy'),
+    'lan_demo' => env('INGRESS_NODE_LAN_DEMO', false),
+    'node_bind_address' => env('INGRESS_NODE_BIND_ADDRESS'),
     'trusted_proxies' => array_values(array_filter(array_map('trim', explode(',', (string) env('TRUSTED_PROXIES', ''))))),
     'trusted_hosts' => array_values(array_filter(array_map('trim', explode(',', (string) env('INGRESS_TRUSTED_HOSTS', ''))))),
     'node_id' => env('INGRESS_NODE_ID'),

@@ -315,12 +315,15 @@ class NodeOperatorStaffController extends Controller
         $pathIsSafe = $path === '' || preg_match('#\A(?:/[A-Za-z0-9_-]+)+\z#D', $path) === 1;
         $nodeId = config('ingress.node_id');
 
+        $lanDemo = config('ingress.mode') === 'node' && config('ingress.lan_demo') === true;
+        $expectedScheme = $lanDemo ? 'http' : 'https';
         if (! is_string($applicationUrl) || strlen($applicationUrl) > 480
-            || ! is_array($parts) || ($parts['scheme'] ?? null) !== 'https' || empty($parts['host'])
+            || ! is_array($parts) || ($parts['scheme'] ?? null) !== $expectedScheme || empty($parts['host'])
+            || ($lanDemo && ($parts['host'] ?? null) !== config('ingress.node_bind_address'))
             || isset($parts['user']) || isset($parts['pass']) || isset($parts['query']) || isset($parts['fragment'])
             || ! $pathIsSafe || ! filter_var($applicationUrl, FILTER_VALIDATE_URL)
             || ! is_string($nodeId) || ! preg_match('/\A[a-zA-Z0-9_-]{1,64}\z/', $nodeId)) {
-            abort(503, 'Set APP_URL to the trusted HTTPS Event Node address before generating pairing codes.');
+            abort(503, 'Set APP_URL to the configured Event Node address before generating pairing codes.');
         }
 
         return [rtrim($applicationUrl, '/').'/api/v1', $nodeId];

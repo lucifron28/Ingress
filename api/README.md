@@ -11,6 +11,6 @@ php artisan migrate --seed
 php artisan serve --host=0.0.0.0 --port=8000
 ```
 
-The example environment enables demo accounts for local use. Production deployments must set `APP_ENV=production`, `APP_DEBUG=false`, and `INGRESS_DEMO_MODE=false`, use HTTPS, and provision separate databases and application keys for cloud and each Event Node. Follow the [deployment guide](../docs/deployment.md) before exposing a runtime.
+The example environment enables demo accounts for local use. Cloud and standard Event Node deployments must set `APP_ENV=production`, `APP_DEBUG=false`, and `INGRESS_DEMO_MODE=false`, use HTTPS, and provision separate databases and application keys for cloud and each Event Node. The isolated capstone LAN demo has a separate HTTP-only Compose overlay; see [LAN capstone demo](../docs/lan-capstone-demo.md). Do not expose that overlay to a public or shared network.
 
 Run the backend feature suite with `php artisan test`. Run the PostgreSQL concurrency checks separately with `php scripts/verify_pgsql_concurrency.php` after configuring the test database. The root [`README.md`](../README.md) documents the mobile app and local workflows. See the [API reference](../docs/api.md) and [current architecture](../docs/second-half-architecture.md) for routes, data transfer, authority rules, and operating limits.

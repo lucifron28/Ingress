@@ -13,7 +13,14 @@ class NodeStaffPairingCode
     public function payload(string $url, string $nodeId, string $token, string $expiresAt): string
     {
         $parts = parse_url($url);
-        if (! is_array($parts) || ($parts['scheme'] ?? null) !== 'https' || empty($parts['host'])
+        $configuredUrl = rtrim((string) config('app.url'), '/').'/api/v1';
+        $lanDemoHttp = config('ingress.mode') === 'node'
+            && config('ingress.lan_demo') === true
+            && ($parts['scheme'] ?? null) === 'http'
+            && ($parts['host'] ?? null) === config('ingress.node_bind_address')
+            && rtrim($url, '/') === $configuredUrl;
+        if (! is_array($parts)
+            || (($parts['scheme'] ?? null) !== 'https' && ! $lanDemoHttp) || empty($parts['host'])
             || isset($parts['user']) || isset($parts['pass']) || isset($parts['query']) || isset($parts['fragment'])
             || ! preg_match('#\A(?:/[A-Za-z0-9_-]+)*/api/v1\z#D', $parts['path'] ?? '')
             || strlen($url) > 512 || ! filter_var($url, FILTER_VALIDATE_URL)

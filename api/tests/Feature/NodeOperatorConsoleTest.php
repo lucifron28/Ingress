@@ -243,6 +243,36 @@ class NodeOperatorConsoleTest extends TestCase
             ->assertOk();
     }
 
+    public function test_production_operator_console_allows_http_only_for_the_configured_private_lan_demo(): void
+    {
+        $this->configureNodeOperatorConsole();
+        $this->withoutMiddleware(EnsureRuntimeDatabase::class);
+        $this->app->detectEnvironment(fn () => 'production');
+
+        $this->get('/node/operator/login')->assertForbidden();
+
+        config([
+            'ingress.lan_demo' => true,
+            'ingress.node_bind_address' => '192.168.1.20',
+            'app.url' => 'http://192.168.1.20:8000',
+            'session.secure' => false,
+        ]);
+        $response = $this->get('/node/operator/login')->assertOk();
+        $this->assertNull($response->headers->get('Strict-Transport-Security'));
+        $cookie = collect($response->headers->getCookies())->first(fn ($cookie) => $cookie->getName() === config('session.cookie'));
+        $this->assertNotNull($cookie);
+        $this->assertFalse($cookie->isSecure());
+        $this->assertTrue($cookie->isHttpOnly());
+        $this->assertSame('strict', $cookie->getSameSite());
+
+        config([
+            'ingress.mode' => 'cloud',
+            'app.url' => 'https://localhost',
+            'session.secure' => true,
+        ]);
+        $this->get('/node/operator/login')->assertStatus(503);
+    }
+
     public function test_malformed_operator_allowlist_fails_closed(): void
     {
         $this->configureNodeOperatorConsole();

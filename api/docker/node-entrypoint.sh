@@ -65,15 +65,28 @@ case "$role" in
         exec php artisan "$@"
         ;;
     serve)
-        if [ ! -r /run/secrets/node_tls_certificate ] || [ ! -s /run/secrets/node_tls_certificate ]; then
-            fail 'TLS certificate secret is missing or empty.' 64
-        fi
-        if [ ! -r /run/secrets/node_tls_private_key ] || [ ! -s /run/secrets/node_tls_private_key ]; then
-            fail 'TLS private-key secret is missing or empty.' 64
-        fi
         if ! php -r '$gateway = getenv("INGRESS_OPERATOR_GATEWAY"); $allowed = explode(",", (string) getenv("INGRESS_OPERATOR_ALLOWED_CIDRS")); exit(filter_var($gateway, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) && $allowed === [$gateway."/32"] ? 0 : 1);'; then
             fail 'operator access must be limited to the configured Docker bridge gateway.' 64
         fi
+
+        lan_demo=${INGRESS_NODE_LAN_DEMO:-false}
+        case "$lan_demo" in
+            true)
+                nginx_template=/etc/nginx/node-lan-demo.conf.template
+                ;;
+            false)
+                if [ ! -r /run/secrets/node_tls_certificate ] || [ ! -s /run/secrets/node_tls_certificate ]; then
+                    fail 'TLS certificate secret is missing or empty.' 64
+                fi
+                if [ ! -r /run/secrets/node_tls_private_key ] || [ ! -s /run/secrets/node_tls_private_key ]; then
+                    fail 'TLS private-key secret is missing or empty.' 64
+                fi
+                nginx_template=/etc/nginx/node.conf.template
+                ;;
+            *)
+                fail 'INGRESS_NODE_LAN_DEMO must be true or false.' 64
+                ;;
+        esac
 
         php artisan ingress:node-start --no-interaction || fail 'runtime verification failed before the web server started.'
 
@@ -84,8 +97,8 @@ case "$role" in
 
         mkdir -p /tmp/nginx/client_body /tmp/nginx/fastcgi /tmp/nginx/proxy /tmp/nginx/uwsgi /tmp/nginx/scgi
         if ! envsubst '${APP_HOST} ${INGRESS_OPERATOR_GATEWAY}' \
-            < /etc/nginx/node.conf.template > /tmp/nginx.conf; then
-            fail 'could not configure the HTTPS listeners.'
+            < "$nginx_template" > /tmp/nginx.conf; then
+            fail 'could not configure the Event Node listeners.'
         fi
         if ! nginx -e stderr -t -c /tmp/nginx.conf; then
             fail 'Nginx configuration validation failed.'
