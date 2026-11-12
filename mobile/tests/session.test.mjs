@@ -17,6 +17,12 @@ export async function deleteItemAsync(key) { values.delete(key); }
 `);
 const reactNativeStub = encode(`export const Platform = { OS: 'android' };`);
 const expoFetchStub = encode(`export const fetch = (...args) => globalThis.fetch(...args);`);
+const expoConstantsStub = encode(`
+let lanDemoEnabled = false;
+const Constants = { get expoConfig() { return { extra: { ingressLanDemo: lanDemoEnabled } }; } };
+export function setLanDemoEnabled(enabled) { lanDemoEnabled = enabled; }
+export default Constants;
+`);
 const loader = encode(`
 import { existsSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -24,6 +30,7 @@ const mappings = {
   'expo-secure-store': ${JSON.stringify(secureStoreStub)},
   'react-native': ${JSON.stringify(reactNativeStub)},
   'expo/fetch': ${JSON.stringify(expoFetchStub)},
+  'expo-constants': ${JSON.stringify(expoConstantsStub)},
 };
 export async function resolve(specifier, context, nextResolve) {
   if (mappings[specifier]) return { url: mappings[specifier], shortCircuit: true };
@@ -42,16 +49,16 @@ register(loader, import.meta.url);
 const nodeSession = await import('../src/services/node-session.ts');
 const nodeState = await import('../src/services/node-staff-state.ts');
 const SecureStore = await import('expo-secure-store');
+const { setLanDemoEnabled } = await import('expo-constants');
 const { Platform } = await import('react-native');
 const staffUser = { id: 7, name: 'Event Staff', email: 'staff@example.test', student_id: null };
 
-test('Event Node local authentication and pairing remain isolated and TLS-only', async (t) => {
+test('Event Node authentication and pairing allow private HTTP only in the LAN demo build', async (t) => {
   const originalFetch = globalThis.fetch;
-  const originalHttpOverride = process.env.EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE;
 
   try {
-    await t.test('accepts a strict HTTPS API base and rejects every HTTP override', () => {
-      process.env.EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE = 'true';
+    await t.test('production builds accept HTTPS and reject HTTP', () => {
+      setLanDemoEnabled(false);
       assert.equal(nodeSession.normalizeNodeUrl('https://node.example/api/v1/'), 'https://node.example/api/v1');
       for (const url of [
         'http://localhost:8000/api/v1',
@@ -63,6 +70,21 @@ test('Event Node local authentication and pairing remain isolated and TLS-only',
       ]) {
         assert.throws(() => nodeSession.normalizeNodeUrl(url));
       }
+    });
+
+    await t.test('LAN demo accepts a private IPv4 address and defaults to port 8000', () => {
+      setLanDemoEnabled(true);
+      assert.equal(nodeSession.normalizeNodeUrl('192.168.55.158'), 'http://192.168.55.158:8000/api/v1');
+      assert.equal(nodeSession.normalizeNodeUrl('http://192.168.55.158:8080/api/v1'), 'http://192.168.55.158:8080/api/v1');
+      for (const url of [
+        'http://8.8.8.8:8000/api/v1',
+        'http://node.example:8000/api/v1',
+        'http://localhost:8000/api/v1',
+        'http://192.168.55.158:8000/api/v1?token=secret',
+      ]) {
+        assert.throws(() => nodeSession.normalizeNodeUrl(url));
+      }
+      setLanDemoEnabled(false);
     });
 
     await t.test('discards a previously stored HTTP Node session', async () => {
@@ -92,6 +114,12 @@ test('Event Node local authentication and pairing remain isolated and TLS-only',
       ]) {
         assert.throws(() => nodeSession.parseNodePairingCode(raw), /valid Event Node pairing code/);
       }
+      setLanDemoEnabled(true);
+      assert.equal(nodeSession.parseNodePairingCode(JSON.stringify({
+        ...validCode,
+        url: 'http://192.168.55.158:8000/api/v1',
+      })).url, 'http://192.168.55.158:8000/api/v1');
+      setLanDemoEnabled(false);
     });
 
     await t.test('login, requests, and logout use only the stored node session', async () => {
@@ -281,7 +309,6 @@ test('Event Node local authentication and pairing remain isolated and TLS-only',
     nodeSession.setNodeUnauthorizedHandler(null);
     await SecureStore.deleteItemAsync('ingress_node_staff_session_v1');
     globalThis.fetch = originalFetch;
-    if (originalHttpOverride === undefined) delete process.env.EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE;
-    else process.env.EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE = originalHttpOverride;
+    setLanDemoEnabled(false);
   }
 });

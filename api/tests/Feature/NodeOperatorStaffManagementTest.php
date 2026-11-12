@@ -266,6 +266,39 @@ class NodeOperatorStaffManagementTest extends TestCase
         $this->assertDatabaseCount('node_staff_pairings', 0);
     }
 
+    public function test_lan_demo_pairing_code_uses_the_current_private_http_node_address(): void
+    {
+        [$event, $staff] = $this->importEvent();
+        app(ManageNodeStaffCredential::class)->provision(101, $event->id);
+        $operator = NodeOperator::factory()->create();
+        $capturedPayload = null;
+        $qrCode = new NodeStaffPairingCode;
+        $renderer = Mockery::mock(NodeStaffPairingCode::class)->makePartial();
+        $renderer->shouldReceive('svgDataUri')->once()->andReturnUsing(function (string $payload) use (&$capturedPayload, $qrCode): string {
+            $capturedPayload = $payload;
+
+            return $qrCode->svgDataUri($payload);
+        });
+        $this->app->instance(NodeStaffPairingCode::class, $renderer);
+        config([
+            'ingress.mode' => 'node',
+            'ingress.lan_demo' => true,
+            'ingress.node_bind_address' => '192.168.55.158',
+            'app.url' => 'http://192.168.55.158:8000',
+            'session.secure' => false,
+        ]);
+
+        $this->actingAs($operator, 'node_operator')
+            ->post("/node/operator/events/{$event->id}/staff/{$staff->id}/pairing")
+            ->assertOk()
+            ->assertSee('http://192.168.55.158:8000/api/v1');
+
+        $this->assertIsString($capturedPayload);
+        $payload = json_decode($capturedPayload, true, flags: JSON_THROW_ON_ERROR);
+        $this->assertSame('http://192.168.55.158:8000/api/v1', $payload['url']);
+        $this->assertSame('node-1', $payload['node']);
+    }
+
     /** @return array{0: Event, 1: User} */
     private function importEvent(): array
     {

@@ -25,10 +25,10 @@ public sealed class NodeManagerForm : Form
     private NodeManagerStatus _status = new();
     private NodeManagerStatus? _networkPreview;
     private ManagerPage _currentPage = ManagerPage.Dashboard;
-    private NetworkMode _selectedMode = NetworkMode.PhoneHotspot;
+    private int _selectedInterfaceIndex = -1;
+    private string? _selectedBindAddress;
     private CancellationTokenSource? _activeOperation;
     private bool _busy;
-    private bool _modeSelectionTouched;
 
     public NodeManagerForm()
     {
@@ -369,7 +369,7 @@ public sealed class NodeManagerForm : Form
     private Control BuildDashboardPage()
     {
         var root = CreatePageRoot();
-        AddPageHeader(root, "OVERVIEW", "Node health", "A read-only view of the local Event Node. Unknown means the manager could not verify the state.");
+        AddPageHeader(root, "OVERVIEW", "Ingress at this venue", "Start the Node, pair the scanner, and check local status from one place.");
         AddStartupError(root);
 
         var hero = CreateCard(14);
@@ -378,41 +378,67 @@ public sealed class NodeManagerForm : Form
         top.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 35));
         var active = MakeLabel(_status.NetworkMode, 15, FontStyle.Bold, _theme.Ink);
         active.AutoSize = true;
-        var nodeUrl = MakeLabel(_status.NodeUrl, 10, FontStyle.Regular, _theme.Muted);
+        var apiAddress = _status.NodeUrl is "Unknown" or "unavailable" ? _status.NodeUrl : _status.NodeUrl.TrimEnd('/') + "/api/v1";
+        var nodeUrl = MakeLabel(apiAddress, 10, FontStyle.Regular, _theme.Muted);
         nodeUrl.AutoSize = true;
         var left = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = Padding.Empty };
-        left.Controls.Add(MakeLabel("ACTIVE NETWORK", 8, FontStyle.Bold, _theme.Muted));
+        left.Controls.Add(MakeLabel("SCANNER API ADDRESS", 8, FontStyle.Bold, _theme.Muted));
         left.Controls.Add(active);
         left.Controls.Add(nodeUrl);
         top.Controls.Add(left, 0, 0);
 
-        var laptopAddress = _status.Adapters.FirstOrDefault(adapter => adapter.Mode.Equals("Laptop Hotspot", StringComparison.OrdinalIgnoreCase) && adapter.IsUp)?.Address ?? "Not detected";
-        var phoneAddress = _status.Adapters.FirstOrDefault(adapter => adapter.Mode.Equals("Phone Hotspot", StringComparison.OrdinalIgnoreCase) && adapter.IsUp)?.Address ?? "Not detected";
+        var detectedAddresses = _status.Adapters.Where(IsUsableLanAdapter)
+            .Select(adapter => $"{adapter.Name}  {adapter.Address}")
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(4)
+            .ToArray();
         var right = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false, BackColor = Color.Transparent, Margin = Padding.Empty };
-        right.Controls.Add(MakeLabel("DETECTED ADDRESSES", 8, FontStyle.Bold, _theme.Muted));
-        right.Controls.Add(MakeLabel($"Laptop hotspot  {laptopAddress}", 9.2F, FontStyle.Regular, _theme.Ink));
-        right.Controls.Add(MakeLabel($"Phone hotspot  {phoneAddress}", 9.2F, FontStyle.Regular, _theme.Ink));
+        right.Controls.Add(MakeLabel("AVAILABLE LAN ADDRESSES", 8, FontStyle.Bold, _theme.Muted));
+        foreach (var address in detectedAddresses) right.Controls.Add(MakeLabel(address, 9.2F, FontStyle.Regular, _theme.Ink));
+        if (detectedAddresses.Length == 0) right.Controls.Add(MakeLabel("No LAN address detected", 9.2F, FontStyle.Regular, _theme.Warning));
         top.Controls.Add(right, 1, 0);
         hero.Controls.Add(top);
         root.Controls.Add(hero);
 
+        var currentBindAddressDetected = _status.Adapters.Any(adapter =>
+            IsUsableLanAdapter(adapter) && string.Equals(adapter.Address, _status.CurrentBindAddress, StringComparison.Ordinal));
+        if (!currentBindAddressDetected && GetSelectedLanAdapter() is not null)
+        {
+            var message = _status.NodeHealthy
+                ? $"This PC's network address changed. The Node is still bound to {_status.CurrentBindAddress}. Choose Network to preview the new address; active admissions will block a restart."
+                : "This PC's network address changed. Start Server will bind the Node to the selected address and update the scanner URL.";
+            root.Controls.Add(MakeLabel(message, 9.2F, FontStyle.Bold, _theme.Warning));
+        }
+        else if (!currentBindAddressDetected && _status.Adapters.Count(IsUsableLanAdapter) > 1)
+        {
+            root.Controls.Add(MakeLabel("Several private networks are active. Choose Network and select the Wi-Fi or hotspot shared with the scanner.", 9.2F, FontStyle.Bold, _theme.Warning));
+        }
+
         if (_status.NodeHealthy)
         {
-            root.Controls.Add(MakeLabel("The Event Node is already healthy. Start / Resume stays disabled.", 9.2F, FontStyle.Bold, _theme.Success));
+            root.Controls.Add(MakeLabel("The local Event Node is running.", 9.2F, FontStyle.Bold, _theme.Success));
+            if (!_status.LanProbeReachable)
+            {
+                root.Controls.Add(MakeLabel("The Node is running, but its LAN HTTP address is not reachable yet. Start Server to apply the selected LAN settings.", 9.2F, FontStyle.Bold, _theme.Warning));
+            }
         }
         else if (_status.SchemaVersion > 0 && !_status.CanApplyNetworkChange)
         {
-            root.Controls.Add(MakeLabel("Start / Resume stays disabled until the safety checks pass.", 9.2F, FontStyle.Bold, _theme.Warning));
+            root.Controls.Add(MakeLabel("Choose Start Server to review network checks and blockers.", 9.2F, FontStyle.Bold, _theme.Warning));
         }
 
         var actions = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Top, WrapContents = true, BackColor = Color.Transparent, Margin = new Padding(0, 2, 0, 10) };
         var refresh = MakeButton("Refresh status", primary: true);
         refresh.Click += async (_, _) => await RefreshStatusAsync(showProgress: true);
-        var start = MakeButton("Start / Resume Node", primary: false);
+        var chooseNetwork = MakeButton("Choose network", primary: false);
+        chooseNetwork.Click += (_, _) => ShowPage(ManagerPage.Network);
+        var copyScannerAddress = MakeButton("Copy scanner address", primary: false);
+        copyScannerAddress.Click += (_, _) => CopyScannerAddress();
+        var start = MakeButton("Start Server", primary: false);
         start.Enabled = CanStartNode() && !_busy;
-        start.AccessibleDescription = _status.NodeHealthy
-            ? "Disabled because the Event Node is already healthy."
-            : "Enabled only when the Event Node can start safely.";
+        start.AccessibleDescription = _status.NodeHealthy && _status.LanProbeReachable && _status.OperatorPortIsolated
+            ? "Disabled because the LAN demo server is already reachable."
+            : "Starts or switches the Node to the selected LAN only after the database, migrations, network, firewall, admission, and operator checks pass.";
         start.Click += async (_, _) => await StartNodeAsync();
         var operatorConsole = MakeButton("Open Operator Console", primary: false);
         operatorConsole.Enabled = CanOpenOperatorConsole() && !_busy;
@@ -420,6 +446,8 @@ public sealed class NodeManagerForm : Form
         var diagnostics = MakeButton("View Diagnostics", primary: false);
         diagnostics.Click += (_, _) => ShowPage(ManagerPage.Diagnostics);
         actions.Controls.Add(refresh);
+        actions.Controls.Add(chooseNetwork);
+        actions.Controls.Add(copyScannerAddress);
         actions.Controls.Add(start);
         actions.Controls.Add(operatorConsole);
         actions.Controls.Add(diagnostics);
@@ -433,11 +461,10 @@ public sealed class NodeManagerForm : Form
             _status.GetIndicator("PostgreSQL"),
             _status.GetIndicator("Database Migrations"),
             _status.GetIndicator("Scheduler"),
-            _status.GetIndicator("HTTPS Certificate"),
+            _status.GetIndicator("LAN Transport"),
             _status.GetIndicator("Windows Firewall"),
             _status.GetIndicator("Operator Port"),
             _status.GetIndicator("Admission Safety"),
-            _status.GetIndicator("Saved Network Profile"),
             _status.GetIndicator("Android Scanner"),
         };
         root.Controls.Add(CreateIndicatorGrid(indicators));
@@ -449,48 +476,67 @@ public sealed class NodeManagerForm : Form
     private Control BuildNetworkPage()
     {
         var root = CreatePageRoot();
-        AddPageHeader(root, "NETWORK MANAGER", "Choose a prepared network", "Preview validates the live adapter, HTTPS identity, firewall scope, admission state, and Compose configuration before any change.");
+        AddPageHeader(root, "NETWORK MANAGER", "Choose the active LAN", "The server address follows the selected adapter. Select a different adapter after changing hotspots.");
         AddStartupError(root);
 
         var selection = CreateCard(14);
-        selection.Controls.Add(MakeLabel("Target network", 11, FontStyle.Bold, _theme.Ink));
-        var choices = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, AutoSize = true, Dock = DockStyle.Top, WrapContents = true, BackColor = Color.Transparent, Margin = new Padding(0, 8, 0, 0) };
-        foreach (var mode in new[] { NetworkMode.PhoneHotspot, NetworkMode.LaptopHotspot, NetworkMode.AutoDetect })
+        selection.Controls.Add(MakeLabel("Network adapter", 11, FontStyle.Bold, _theme.Ink));
+        var choices = new ComboBox
         {
-            var label = ModeLabel(mode);
-            var radio = new RadioButton
+            DropDownStyle = ComboBoxStyle.DropDownList,
+            Width = Math.Min(580, GetPageTextWidth(40)),
+            Font = new Font("Segoe UI", 10F),
+            Margin = new Padding(0, 9, 0, 2),
+            FormattingEnabled = true,
+        };
+        choices.Format += (_, args) =>
+        {
+            if (args.ListItem is NetworkAdapterStatus adapter)
             {
-                Text = label,
-                AutoSize = true,
-                Font = new Font("Segoe UI", 9.2F, FontStyle.Bold),
-                ForeColor = _theme.Ink,
-                BackColor = Color.Transparent,
-                Margin = new Padding(0, 5, 24, 5),
-                Checked = mode == _selectedMode,
-                AccessibleName = label,
-            };
-            radio.CheckedChanged += (_, _) =>
+                args.Value = $"{adapter.Name}  ·  {adapter.Address}/{adapter.PrefixLength}  ·  {adapter.NetworkCategory}";
+            }
+        };
+        var eligibleAdapters = _status.Adapters.Where(IsUsableLanAdapter).ToArray();
+        foreach (var adapter in eligibleAdapters) choices.Items.Add(adapter);
+        var preferred = GetSelectedLanAdapter();
+        var preferredIndex = preferred is null ? -1 : choices.Items.IndexOf(preferred);
+        if (preferredIndex >= 0) choices.SelectedIndex = preferredIndex;
+        else if (choices.Items.Count == 1) choices.SelectedIndex = 0;
+        choices.SelectedIndexChanged += (_, _) =>
+        {
+            if (choices.SelectedItem is NetworkAdapterStatus adapter)
             {
-                if (radio.Checked)
-                {
-                    _selectedMode = mode;
-                    _modeSelectionTouched = true;
-                    _networkPreview = null;
-                }
-            };
-            choices.Controls.Add(radio);
-        }
+                _selectedInterfaceIndex = adapter.InterfaceIndex;
+                _selectedBindAddress = adapter.Address;
+                _networkPreview = null;
+            }
+        };
         selection.Controls.Add(choices);
+        if (eligibleAdapters.Length == 0)
+        {
+            selection.Controls.Add(MakeLabel("No active private IPv4 network was detected. Connect this PC to the same Wi-Fi or hotspot as the scanner, then refresh.", 9.5F, FontStyle.Regular, _theme.Warning));
+        }
+        else if (preferred is null && eligibleAdapters.Length > 1)
+        {
+            selection.Controls.Add(MakeLabel("Several private networks are active. Select the Wi-Fi or hotspot shared with the scanner before starting the server.", 9.5F, FontStyle.Regular, _theme.Warning));
+        }
         root.Controls.Add(selection);
 
         var actions = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Top, WrapContents = true, BackColor = Color.Transparent, Margin = new Padding(0, 0, 0, 12) };
         var previewButton = MakeButton("Preview changes", primary: true);
-        previewButton.Enabled = _manager is not null && !_busy;
+        previewButton.Enabled = _manager is not null && !_busy && choices.SelectedItem is NetworkAdapterStatus;
         previewButton.Click += async (_, _) => await PreviewNetworkChangeAsync();
         actions.Controls.Add(previewButton);
         if (_networkPreview is not null)
         {
-            var applyButton = MakeButton("Apply changes", primary: false);
+            if (!_networkPreview.FirewallAllowed)
+            {
+                var firewallButton = MakeButton("Configure Windows Firewall", primary: false);
+                firewallButton.Enabled = !_busy && choices.SelectedItem is NetworkAdapterStatus;
+                firewallButton.Click += async (_, _) => await ConfigureLanFirewallAsync();
+                actions.Controls.Add(firewallButton);
+            }
+            var applyButton = MakeButton("Start on this network", primary: false);
             applyButton.Enabled = _networkPreview.CanApplyNetworkChange && !_busy;
             applyButton.Click += async (_, _) => await ApplyNetworkChangeAsync();
             actions.Controls.Add(applyButton);
@@ -503,7 +549,6 @@ public sealed class NodeManagerForm : Form
         }
 
         root.Controls.Add(CreateAdapterPanel(_status.Adapters));
-        root.Controls.Add(CreateProfilePanel(_status.SavedProfiles, _status.ProfileDiscoveryKnown));
         root.Controls.Add(CreatePhysicalTestNote());
         return root;
     }
@@ -626,13 +671,12 @@ public sealed class NodeManagerForm : Form
         var allIndicators = new[]
         {
             _status.GetIndicator("Docker / WSL2"), _status.GetIndicator("Event Node"), _status.GetIndicator("PostgreSQL"),
-            _status.GetIndicator("Database Migrations"), _status.GetIndicator("Scheduler"), _status.GetIndicator("HTTPS Certificate"), _status.GetIndicator("Windows Firewall"),
+            _status.GetIndicator("Database Migrations"), _status.GetIndicator("Scheduler"), _status.GetIndicator("LAN Transport"), _status.GetIndicator("Windows Firewall"),
             _status.GetIndicator("Operator Port"), _status.GetIndicator("Admission Safety"),
-            _status.GetIndicator("Saved Network Profile"), _status.GetIndicator("Android Scanner"),
+            _status.GetIndicator("Android Scanner"),
         };
         root.Controls.Add(CreateIndicatorGrid(allIndicators));
         root.Controls.Add(CreateAdapterPanel(_status.Adapters));
-        root.Controls.Add(CreateProfilePanel(_status.SavedProfiles, _status.ProfileDiscoveryKnown));
         root.Controls.Add(BuildBulletPanel("Network change blockers", _status.Blockers, _theme.Danger));
         root.Controls.Add(BuildBulletPanel("Safe Stop blockers", _status.SafeStopBlockers, _theme.Warning));
 
@@ -662,18 +706,11 @@ public sealed class NodeManagerForm : Form
     {
         var panel = CreateCard(14);
         panel.Controls.Add(MakeLabel("Preview result", 12, FontStyle.Bold, _theme.Ink));
-        panel.Controls.Add(MakeLabel($"Mode: {preview.NetworkMode}", 10, FontStyle.Regular, _theme.Muted));
+        panel.Controls.Add(MakeLabel($"Network: {preview.NetworkMode}", 10, FontStyle.Regular, _theme.Muted));
         panel.Controls.Add(MakeLabel($"Node address: {preview.CurrentBindAddress}  →  {preview.TargetBindAddress}", 10, FontStyle.Bold, _theme.Ink));
-        panel.Controls.Add(MakeLabel($"HTTPS URL: {preview.NodeUrl}", 10, FontStyle.Regular, _theme.Ink));
-        panel.Controls.Add(MakeLabel($"Saved profile: {preview.TargetProfileName} · {preview.TargetAppUrl}", 9.5F, FontStyle.Regular, _theme.Muted));
-        var apkProfile = preview.NetworkMode switch
-        {
-            "Phone Hotspot" => "Phone Hotspot lanDemo APK",
-            "Laptop Hotspot" => "Laptop Hotspot lanDemo APK",
-            _ => "Select a prepared hotspot to choose its lanDemo APK",
-        };
-        panel.Controls.Add(MakeLabel($"Matching Android APK: {apkProfile} · {preview.LanDemoStatus}", 9.5F, FontStyle.Regular, _theme.Muted));
-        panel.Controls.Add(MakeLabel($"Certificate: {preview.CertificateStatus}", 9.5F, FontStyle.Regular, _theme.Muted));
+        panel.Controls.Add(MakeLabel($"Scanner API address: {preview.NodeUrl.TrimEnd('/')}/api/v1", 10, FontStyle.Bold, _theme.Ink));
+        panel.Controls.Add(MakeLabel("Enter this address in the scanner, or scan a one-use pairing QR from Staff & Pairing.", 9.5F, FontStyle.Regular, _theme.Muted));
+        panel.Controls.Add(MakeLabel("HTTP is enabled only for this private LAN demo. Do not expose this server to the internet.", 9.5F, FontStyle.Regular, _theme.Warning));
         panel.Controls.Add(MakeLabel($"Firewall: {preview.FirewallStatus}", 9.5F, FontStyle.Regular, _theme.Muted));
         panel.Controls.Add(MakeLabel($"Admission safety: {preview.AdmissionStatus}", 9.5F, FontStyle.Regular, _theme.Muted));
         if (preview.Blockers.Length > 0)
@@ -856,7 +893,7 @@ public sealed class NodeManagerForm : Form
         var note = CreateCard(12);
         note.BackColor = _theme.SurfaceForLevel(HealthLevel.Unknown);
         note.Controls.Add(MakeLabel("Physical device testing required", 10.2F, FontStyle.Bold, _theme.Unknown));
-        note.Controls.Add(MakeLabel("Desktop checks cannot prove Android CA trust, hotspot routing, camera permissions, or scanner pairing. Test each phone before using the Node for admission.", 9.2F, FontStyle.Regular, _theme.Muted));
+        note.Controls.Add(MakeLabel("Desktop checks cannot prove phone-to-laptop routing, camera permission, pairing, or a real ticket scan. Test the scanner on the demo network before presenting.", 9.2F, FontStyle.Regular, _theme.Muted));
         return note;
     }
 
@@ -1141,7 +1178,7 @@ public sealed class NodeManagerForm : Form
             _lastUpdated.Text = "Status not verified";
         }
 
-        SyncSelectedMode();
+        SyncSelectedLanAdapter();
         RenderCurrentPage();
     }
 
@@ -1206,11 +1243,20 @@ public sealed class NodeManagerForm : Form
 
     private async Task PreviewNetworkChangeAsync()
     {
-        _networkPreview = null;
-        await RunOperationAsync("Checking adapter, firewall, certificate, and admission safety", async token =>
+        var adapter = GetSelectedLanAdapter();
+        if (adapter is null)
         {
-            _networkPreview = await _manager!.PreviewNetworkChangeAsync(_selectedMode, token);
-        }, refreshAfter: true);
+            MessageBox.Show(this, "Connect this PC to the same Wi-Fi or hotspot as the scanner, then refresh the network list.",
+                "No LAN network selected", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        _networkPreview = null;
+        await RunOperationAsync("Checking the selected LAN and Node safety", async token =>
+        {
+            _networkPreview = await _manager!.PreviewLanDemoNetworkChangeAsync(adapter, token);
+        }, refreshAfter: false);
+        if (_networkPreview is not null) _status = _networkPreview;
+        RenderCurrentPage();
     }
 
     private async Task ApplyNetworkChangeAsync()
@@ -1220,21 +1266,21 @@ public sealed class NodeManagerForm : Form
             return;
         }
 
-        var message = $"Apply the {_networkPreview.NetworkMode} network binding?\n\n"
+        var adapter = GetSelectedLanAdapter();
+        if (adapter is null) return;
+        var message = $"Start the Event Node on this network?\n\n"
             + $"Node address: {_networkPreview.CurrentBindAddress} → {_networkPreview.TargetBindAddress}\n"
-            + $"HTTPS URL: {_networkPreview.NodeUrl}\n\n"
-            + $"Saved profile: {_networkPreview.TargetProfileName} · {_networkPreview.TargetAppUrl}\n\n"
-            + "The existing manager will revalidate admission safety and update only the Node bind address and HTTPS URL. It will not run migrations, recreate PostgreSQL, or remove volumes. Scanner connections may be interrupted during the Node restart.";
-        if (MessageBox.Show(this, message, "Confirm network change", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+            + $"Scanner URL: {_networkPreview.NodeUrl}\n\n"
+            + "Ingress will reuse the existing database and volumes. The manager rechecks migrations, admission state, LAN firewall scope, and the laptop-only operator port before starting the Node.";
+        if (MessageBox.Show(this, message, "Start Event Node", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
         {
             return;
         }
 
-        await RunOperationAsync("Applying the prepared network profile", async token =>
+        await RunOperationAsync("Starting the Event Node on the selected LAN", async token =>
         {
-            await _manager!.ApplyNetworkChangeAsync(_selectedMode, confirmationAccepted: true, token);
+            await _manager!.ApplyLanDemoNetworkChangeAsync(adapter, confirmationAccepted: true, token);
             _networkPreview = null;
-            _modeSelectionTouched = false;
         });
     }
 
@@ -1245,17 +1291,36 @@ public sealed class NodeManagerForm : Form
             return;
         }
 
-        var mode = ModeFromStatus();
-        var message = "Start or resume the Event Node on its current prepared network?\n\n"
-            + "The existing Network Manager rechecks the database, migrations, admission window, certificate, and loopback-only operator port. It starts ingress-node only and preserves PostgreSQL and its volume.";
-        if (MessageBox.Show(this, message, "Confirm Node start", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+        var adapter = GetSelectedLanAdapter();
+        if (adapter is null)
         {
+            ShowPage(ManagerPage.Network);
             return;
         }
 
+        NodeManagerStatus? preview = null;
+        await RunOperationAsync("Checking the selected LAN and Node safety", async token =>
+        {
+            preview = await _manager!.PreviewLanDemoNetworkChangeAsync(adapter, token);
+        }, refreshAfter: false);
+        if (preview is null) return;
+        _status = preview;
+        RenderCurrentPage();
+        if (!preview.CanApplyNetworkChange)
+        {
+            _networkPreview = preview;
+            MessageBox.Show(this, string.Join(Environment.NewLine, preview.Blockers), "Server cannot start yet", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            if (!preview.FirewallAllowed) ShowPage(ManagerPage.Network);
+            return;
+        }
+
+        var message = $"Start the Event Node on {adapter.Name} ({adapter.Address})?\n\n"
+            + $"Scanner API: http://{adapter.Address}:{preview.LanHttpPort}/api/v1\n\n"
+            + "The manager rechecks database health, migrations, admission state, firewall scope, and the loopback-only operator port. It keeps PostgreSQL and its existing data.";
+        if (MessageBox.Show(this, message, "Start Event Node", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
         await RunOperationAsync("Starting the Event Node", async token =>
         {
-            await _manager!.StartNodeAsync(mode, confirmationAccepted: true, token);
+            await _manager!.StartLanDemoNodeAsync(adapter, confirmationAccepted: true, token);
         });
     }
 
@@ -1293,6 +1358,16 @@ public sealed class NodeManagerForm : Form
         });
     }
 
+    private async Task ConfigureLanFirewallAsync()
+    {
+        var adapter = GetSelectedLanAdapter();
+        if (adapter is null) return;
+        await RunOperationAsync("Adding a LAN-scoped firewall rule (Windows may ask for administrator approval)", async token =>
+        {
+            await _manager!.ConfigureLanFirewallAsync(adapter, _status.LanHttpPort, token);
+        });
+    }
+
     private async Task ShowRecentLogsAsync()
     {
         string[]? lines = null;
@@ -1321,14 +1396,15 @@ public sealed class NodeManagerForm : Form
 
         var port = _status.OperatorPort > 0 ? _status.OperatorPort : 8444;
         var normalizedPath = path.StartsWith('/') ? path : "/" + path;
-        var uri = new UriBuilder(Uri.UriSchemeHttps, "127.0.0.1", port, "/node/operator" + normalizedPath).Uri;
+        var scheme = _status.NodeUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ? Uri.UriSchemeHttp : Uri.UriSchemeHttps;
+        var uri = new UriBuilder(scheme, "127.0.0.1", port, "/node/operator" + normalizedPath).Uri;
         try
         {
             Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
         }
         catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception)
         {
-            MessageBox.Show(this, "Windows could not open the default browser. Copy this local HTTPS address:\n" + uri,
+            MessageBox.Show(this, "Windows could not open the default browser. Copy this local operator address:\n" + uri,
                 "Browser unavailable", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
     }
@@ -1348,6 +1424,24 @@ public sealed class NodeManagerForm : Form
         }
     }
 
+    private void CopyScannerAddress()
+    {
+        if (_status.NodeUrl is "Unknown" or "unavailable" || !_status.NodeUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+        {
+            MessageBox.Show(this, "Start the server on a detected LAN first.", "Scanner address unavailable", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        try
+        {
+            Clipboard.SetText(_status.NodeUrl.TrimEnd('/') + "/api/v1");
+            MessageBox.Show(this, "The scanner API address was copied.", "Copied", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (System.Runtime.InteropServices.ExternalException)
+        {
+            MessageBox.Show(this, _status.NodeUrl.TrimEnd('/') + "/api/v1", "Scanner API address", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+    }
+
     private void ShowSchedulerDetails()
     {
         var item = _status.GetIndicator("Scheduler");
@@ -1356,36 +1450,40 @@ public sealed class NodeManagerForm : Form
         MessageBox.Show(this, message, "Scheduler status", MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 
-    private bool CanStartNode() => _manager is not null
-        && _status.CanApplyNetworkChange
-        && !_status.NodeHealthy
-        && ModeFromStatus() != NetworkMode.AutoDetect;
+    private bool CanStartNode() => _manager is not null && !_busy && GetSelectedLanAdapter() is not null
+        && (!_status.NodeHealthy || !_status.LanProbeReachable || !_status.OperatorPortIsolated);
 
     private bool CanOpenOperatorConsole() => _status.NodeStateKnown && _status.NodeHealthy
         && _status.OperatorPortStateKnown && _status.OperatorPortIsolated;
 
-    private NetworkMode ModeFromStatus() => _status.NetworkMode switch
+    private static bool IsUsableLanAdapter(NetworkAdapterStatus adapter)
     {
-        "Phone Hotspot" => NetworkMode.PhoneHotspot,
-        "Laptop Hotspot" => NetworkMode.LaptopHotspot,
-        _ => NetworkMode.AutoDetect,
-    };
-
-    private void SyncSelectedMode()
-    {
-        var statusMode = ModeFromStatus();
-        if (!_modeSelectionTouched && statusMode != NetworkMode.AutoDetect)
-        {
-            _selectedMode = statusMode;
-        }
+        if (!adapter.IsUp || adapter.InterfaceIndex < 1 || !System.Net.IPAddress.TryParse(adapter.Address, out var ip)
+            || ip.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork) return false;
+        var bytes = ip.GetAddressBytes();
+        return bytes[0] == 10 || (bytes[0] == 172 && bytes[1] is >= 16 and <= 31) || (bytes[0] == 192 && bytes[1] == 168);
     }
 
-    private static string ModeLabel(NetworkMode mode) => mode switch
+    private NetworkAdapterStatus? GetSelectedLanAdapter()
     {
-        NetworkMode.PhoneHotspot => "Phone Hotspot",
-        NetworkMode.LaptopHotspot => "Laptop Hotspot",
-        _ => "Auto Detect",
-    };
+        var selected = _status.Adapters.FirstOrDefault(adapter => IsUsableLanAdapter(adapter)
+            && adapter.InterfaceIndex == _selectedInterfaceIndex
+            && string.Equals(adapter.Address, _selectedBindAddress, StringComparison.Ordinal));
+        if (selected is not null) return selected;
+        var current = _status.Adapters.FirstOrDefault(adapter => IsUsableLanAdapter(adapter)
+            && string.Equals(adapter.Address, _status.CurrentBindAddress, StringComparison.Ordinal));
+        if (current is not null) return current;
+        var candidates = _status.Adapters.Where(IsUsableLanAdapter).ToArray();
+        return candidates.Length == 1 ? candidates[0] : null;
+    }
+
+    private void SyncSelectedLanAdapter()
+    {
+        var selected = GetSelectedLanAdapter();
+        if (selected is null) return;
+        _selectedInterfaceIndex = selected.InterfaceIndex;
+        _selectedBindAddress = selected.Address;
+    }
 
     private void UpdateHeaderStatus()
     {

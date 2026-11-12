@@ -13,7 +13,7 @@ public static class SafeDiagnosticsBuilder
             $"Generated UTC: {DateTimeOffset.UtcNow:yyyy-MM-dd HH:mm:ss}",
             $"Network mode: {status.NetworkMode}",
             $"Active adapter address: {status.LanAddress}",
-            $"Saved network profile: {status.TargetProfileName}; matches: {status.TargetProfileMatches}",
+            $"Selected interface address: {status.TargetBindAddress}",
             $"Target Node URL: {GetSafeOrigin(status.TargetAppUrl)}",
             $"Node URL: {GetSafeOrigin(status.NodeUrl)}",
             $"Docker / WSL2: {status.DockerStatus}",
@@ -22,7 +22,7 @@ public static class SafeDiagnosticsBuilder
             $"Migrations: {status.MigrationStatus}",
             $"Migration service: {status.MigrationStatus}",
             $"Scheduler: {status.SchedulerStatus}; heartbeat verified: {status.SchedulerHeartbeatVerified}",
-            $"HTTPS certificate: {status.CertificateStatus}; expires UTC: {status.CertificateExpiresAtUtc ?? "unknown"}",
+            $"LAN transport: {status.LanDemoStatus}",
             $"Windows Firewall: {status.FirewallStatus}",
             $"Operator port: {status.OperatorPortStatus}",
             $"Admission state: {status.AdmissionStatus}",
@@ -32,7 +32,7 @@ public static class SafeDiagnosticsBuilder
         };
 
         lines.AddRange(status.Adapters.Select(adapter =>
-            $"Adapter: {adapter.Name} · {adapter.Mode} · {adapter.Address}/{adapter.PrefixLength} · {adapter.NetworkCategory} · up: {adapter.IsUp}"));
+            $"Adapter: {adapter.Name} · index {adapter.InterfaceIndex} · {adapter.Mode} · {adapter.Address}/{adapter.PrefixLength} · {adapter.NetworkCategory} · up: {adapter.IsUp}"));
         lines.AddRange(status.Blockers.Select(blocker => $"Network change blocked: {blocker}"));
         lines.AddRange(status.SafeStopBlockers.Select(blocker => $"Safe Stop blocked: {blocker}"));
         lines.AddRange(status.Warnings.Select(warning => $"Note: {warning}"));
@@ -46,7 +46,8 @@ public static class SafeDiagnosticsBuilder
 
     private static string GetSafeOrigin(string value)
     {
-        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps)
+        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp))
         {
             return "unknown";
         }

@@ -33,6 +33,7 @@ COPY --from=assets /src/public/build ./public/build
 COPY --from=composer-bin /usr/bin/composer /usr/local/bin/composer
 COPY docker/node-entrypoint.sh /usr/local/bin/node-entrypoint
 COPY docker/node-nginx.conf.template /etc/nginx/node.conf.template
+COPY docker/node-nginx-lan-demo.conf.template /etc/nginx/node-lan-demo.conf.template
 COPY docker/node-supervisord.conf /etc/supervisord-node.conf
 COPY docker/node-php-fpm.conf /usr/local/etc/php-fpm.d/www.conf
 COPY docker/node-php.ini /usr/local/etc/php/conf.d/99-ingress-node.ini

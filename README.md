@@ -113,7 +113,7 @@ Demo mode is for local development only. The `.env.example` opt-in creates predi
 
 Do not create cloud administrators with Tinker or public registration. From a trusted Windows checkout, use `api\scripts\create_render_admin.ps1` for the first administrator. Use `api\scripts\provision_render_staging_account.ps1` for synthetic organizer, staff, or student accounts and reference venues. Use `api\scripts\register_render_node.ps1` to register an Event Node. Each script requires the cloud HTTPS origin, Neon direct URL with verified TLS, and a local trusted CA bundle; passwords and database secrets are prompted locally. Follow [Deployment and Operations](docs/deployment.md) and run these scripts only against the designated staging database.
 
-> **Transport security**: the legacy web demo can use HTTP on an isolated development LAN. The current mobile scanner requires HTTPS in every build. Production Cloud and Event Node traffic must use trusted HTTPS certificates. Do not send passwords, bearer tokens, QR credentials, or identity data over cleartext connections. See ADR 009 and ADR 020 in `docs/design-decisions.md`.
+> **Transport security**: the dedicated `lanDemo` Android build and Event Node overlay use HTTP only on an isolated private LAN for this capstone demo. HTTP exposes staff passwords, bearer tokens, pairing codes, ticket credentials, and identity data to other devices on that LAN. Never use it on public or shared networks. Cloud and standard Event Node deployments continue to require trusted HTTPS. See [LAN capstone demo](docs/lan-capstone-demo.md) and ADR 009 and ADR 020 in `docs/design-decisions.md`.
 
 ---
 
@@ -236,8 +236,8 @@ cd mobile
 npm ci
 npx expo start
 ```
-- The app contains only Event Node staff login, pairing, assigned events and gates, scan preview and confirmation, and walk-in flows. It requires HTTPS and the venue LAN.
-- `preview` and `production` use Android system certificate trust. For an isolated venue demo with a private certificate, configure the exact Node host and public CA for the separate `lanDemo` profile. See [Staff scanner build instructions](mobile/README.md).
+- The app contains only Event Node staff login, pairing, assigned events and gates, scan preview and confirmation, and walk-in flows. It connects to the venue LAN.
+- `preview` and `production` require HTTPS and use Android system certificate trust. The dedicated `lanDemo` profile allows HTTP to a private IPv4 Node address, so the same APK can pair with changing addresses without custom certificates. See [Staff scanner build instructions](mobile/README.md).
 
 ---
 
@@ -255,8 +255,8 @@ npx eas-cli@latest build --platform android --profile preview
 - **Build Creation**: EAS Build compiles the native Android package in the cloud, so an internet connection is required while generating and downloading the APK.
 - **No Expo Go or Metro Dependency**: The resulting `.apk` embeds the JavaScript bundle. Once installed, it launches directly on Android without requiring Expo Go or a running Metro bundler.
 - **Cloud API**: The staff scanner has no Cloud API URL or attendee account session.
-- **Event Node access**: Staff pair with the local Event Node over venue Wi-Fi. The node must use a certificate trusted by the selected Android profile. Use the separate `lanDemo` profile for a custom CA scoped to one exact Node host.
-- **Transport**: HTTP is disabled in every build. The scanner rejects non-HTTPS Event Node addresses.
+- **Event Node access**: Staff pair with the local Event Node over venue Wi-Fi. Use `preview` or `production` with trusted HTTPS for standard deployments; use `lanDemo` for the isolated capstone LAN workflow.
+- **Transport**: HTTP is enabled only in the dedicated `lanDemo` APK and only for private IPv4 Node addresses. It remains disabled in `preview` and `production`.
 
 ---
 ## Documentation

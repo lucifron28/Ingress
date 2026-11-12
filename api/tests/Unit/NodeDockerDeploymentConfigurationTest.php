@@ -76,6 +76,38 @@ class NodeDockerDeploymentConfigurationTest extends TestCase
         );
     }
 
+    public function test_lan_demo_accepts_http_only_for_the_selected_private_node_address(): void
+    {
+        $configuration = $this->validConfiguration();
+        $configuration['ingress']['lan_demo'] = true;
+        $configuration['ingress']['node_bind_address'] = '192.168.55.158';
+        $configuration['app']['url'] = 'http://192.168.55.158:8000';
+        $configuration['session']['secure'] = false;
+
+        $this->assertSame([], NodeDockerDeploymentConfiguration::validate($configuration));
+    }
+
+    public function test_http_node_url_requires_explicit_lan_demo_and_matching_private_bind_address(): void
+    {
+        $configuration = $this->validConfiguration();
+        $configuration['ingress']['node_bind_address'] = '192.168.55.158';
+        $configuration['app']['url'] = 'http://192.168.55.158:8000';
+
+        $this->assertContains(
+            'APP_URL must be an HTTPS node origin.',
+            NodeDockerDeploymentConfiguration::validate($configuration),
+        );
+
+        $configuration['ingress']['lan_demo'] = true;
+        $configuration['app']['url'] = 'http://8.8.8.8:8000';
+        $errors = NodeDockerDeploymentConfiguration::validate($configuration);
+
+        $this->assertContains(
+            'APP_URL must be an HTTP origin matching the selected private LAN address.',
+            $errors,
+        );
+    }
+
     /** @return array<string, mixed> */
     private function validConfiguration(): array
     {
@@ -90,6 +122,8 @@ class NodeDockerDeploymentConfigurationTest extends TestCase
             ],
             'ingress' => [
                 'mode' => 'node',
+                'lan_demo' => false,
+                'node_bind_address' => '192.168.1.50',
                 'node_id' => 'venue-node-1',
                 'node_sync_key' => base64_encode(str_repeat('s', 32)),
                 'cloud_sync_url' => 'https://ingress-pp2u.onrender.com/api/v1',

@@ -39,10 +39,11 @@ finally {
 }
 
 $executable = Join-Path $publishPath 'Ingress.NodeManager.exe'
-$module = Join-Path $publishPath 'scripts\IngressNetworkManager.psm1'
-if (-not (Test-Path -LiteralPath $executable) -or -not (Test-Path -LiteralPath $module)) {
-    throw 'The executable or bundled Network Manager module is missing from the package.'
+$requiredScripts = @('IngressNetworkManager.ps1', 'IngressNetworkManager.psm1', 'IngressLanFirewall.ps1')
+$missingScripts = @($requiredScripts | Where-Object { -not (Test-Path -LiteralPath (Join-Path $publishPath "scripts\$_") -PathType Leaf) })
+if (-not (Test-Path -LiteralPath $executable -PathType Leaf) -or $missingScripts.Count -gt 0) {
+    throw "The published package is missing required files: $($missingScripts -join ', ')."
 }
 
 Write-Output "Published: $executable"
-Write-Output "Network Manager: $module"
+Write-Output "Bundled scripts: $($requiredScripts -join ', ')"

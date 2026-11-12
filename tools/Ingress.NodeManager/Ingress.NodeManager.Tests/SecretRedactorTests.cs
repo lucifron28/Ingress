@@ -29,6 +29,14 @@ public sealed class SecretRedactorTests
     }
 
     [Fact]
+    public void RemovesAnsiFormattingFromOperatorErrors()
+    {
+        var safe = SecretRedactor.Redact("\u001b[31mERROR\u001b[0m: Docker is unavailable");
+
+        Assert.Equal("ERROR: Docker is unavailable", safe);
+    }
+
+    [Fact]
     public void SafeLogFormatterOmitsTicketAndPairingLines()
     {
         var safe = SafeLogFormatter.Format(

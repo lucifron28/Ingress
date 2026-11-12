@@ -3,11 +3,12 @@ import { router } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useNodeStaff } from '../context/NodeStaffContext';
-import { getNodeSession, parseNodePairingCode } from '../services/node-session';
+import { getNodeSession, isLanDemoBuild, parseNodePairingCode } from '../services/node-session';
 import type { NodePairingCode, NodeSession } from '../services/node-session';
 
 export default function NodeStaffLoginScreen() {
   const node = useNodeStaff();
+  const lanDemo = isLanDemoBuild();
   const [saved, setSaved] = useState<NodeSession | null>(null);
   const [url, setUrl] = useState('');
   const [email, setEmail] = useState('');
@@ -93,7 +94,9 @@ export default function NodeStaffLoginScreen() {
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.card}>
           <Text style={styles.title}>Staff scanner sign in</Text>
-          <Text style={styles.body}>Enter the HTTPS Event Node address and the local credential provided by your event operator. Confirm the address with the operator before signing in.</Text>
+          <Text style={styles.body}>{lanDemo
+            ? 'Connect to the laptop on the same Wi-Fi or hotspot. Enter its current IPv4 address or scan the operator pairing QR.'
+            : 'Enter the HTTPS Event Node address and the local credential provided by your event operator. Confirm the address with the operator before signing in.'}</Text>
           <Text style={styles.notice}>Scanning requires an activated event and a connection to the venue node.</Text>
           {saved && <Pressable accessibilityRole="button" style={styles.secondary} disabled={busy} onPress={resume}><Text style={styles.secondaryText}>Continue as {saved.user.name}</Text></Pressable>}
           {Platform.OS !== 'web' && !scanning && !pairCode && <Pressable accessibilityRole="button" style={styles.secondary} disabled={busy} onPress={startPairing}><Text style={styles.secondaryText}>Scan pairing code</Text></Pressable>}
@@ -109,7 +112,8 @@ export default function NodeStaffLoginScreen() {
             <Pressable accessibilityRole="button" disabled={busy} style={styles.back} onPress={() => setPairCode(null)}><Text style={styles.secondaryText}>Cancel pairing</Text></Pressable>
           </View>}
           <Text style={styles.label}>Event Node API address</Text>
-          <TextInput accessibilityLabel="Event Node API address" style={styles.input} value={url} onChangeText={setUrl} autoCapitalize="none" autoCorrect={false} keyboardType="url" placeholder="https://node.example/api/v1" editable={!busy} />
+          <TextInput accessibilityLabel="Event Node API address" style={styles.input} value={url} onChangeText={setUrl} autoCapitalize="none" autoCorrect={false} keyboardType="url" placeholder={lanDemo ? '192.168.1.50' : 'https://node.example/api/v1'} editable={!busy} />
+          {lanDemo && <Text style={styles.notice}>LAN demo uses HTTP. The scanner fills in port 8000 if you enter only the laptop IP.</Text>}
           <Text style={styles.label}>Staff email</Text>
           <TextInput accessibilityLabel="Staff email" style={styles.input} value={email} onChangeText={setEmail} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" editable={!busy} />
           <Text style={styles.label}>Local staff password</Text>
