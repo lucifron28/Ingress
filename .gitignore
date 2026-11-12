@@ -8,6 +8,13 @@
 /mobile/node_modules/
 node_modules/
 
+# .NET build and local publish output
+**/bin/
+**/obj/
+*.csproj.user
+/tools/Ingress.NodeManager/publish/
+/tools/Ingress.NodeManager/artifacts/
+
 # Environment files
 *.env
 *.env.backup

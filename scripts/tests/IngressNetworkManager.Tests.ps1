@@ -10,7 +10,7 @@ function New-TestAdapter {
 function New-ReadyGateFacts {
     [pscustomobject] @{
         DockerReady = $true; ComposeReady = $true; DatabaseHealthy = $true; MigrationsComplete = $true
-        SessionStateKnown = $true; ActiveAdmissionSession = $false; CertificateMatch = $true
+        SessionStateKnown = $true; ActiveAdmissionSession = $false; CertificateMatch = $true; ProfileMatch = $true
         FirewallStateKnown = $true; FirewallAllowed = $true; ComposeValid = $true; OperatorPortIsolated = $true
         NodeStateKnown = $true; NodeStateSafe = $true; LanDemoHostMatch = $true; LanDemoTrustVerified = $false
     }
@@ -112,6 +112,69 @@ Describe 'Ingress Network Manager safety' {
         (Test-IngressCertificateHost 'DNS:*.example.test' 'tablet.scanner.example.test') | Should Be $false
     }
 
+    It 'redacts secrets, ticket URLs, and pairing tokens from command output' {
+        $safe = Protect-IngressSensitiveText -Text 'DB_PASSWORD=database-secret FIREBASE_API_KEY=firebase-api-secret Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.payload.signature https://node.example/tickets/123/pass?code=ticket-secret PAIRING_TOKEN=pair-secret https://node.example/api?token=query-secret'
+
+        $safe | Should Not Match 'database-secret|firebase-api-secret|payload|ticket-secret|pair-secret|query-secret'
+        $safe | Should Match '\[REDACTED\]'
+    }
+
+    It 'removes user information and query strings from displayed node URLs' {
+        $module = Get-Module IngressNetworkManager
+        $safeUrl = & $module { param($url) Get-IngressSafeDisplayUrl -Url $url } 'https://user:password@node.example/api/v1?token=private'
+
+        $safeUrl | Should Be 'https://node.example'
+        $safeUrl | Should Not Match 'user|password|private'
+    }
+
+    It 'discovers only whitelisted profiles without requiring Python' {
+        $script:capturedProfileArguments = @()
+        $module = Get-Module IngressNetworkManager
+        $runner = {
+            param($executable, $arguments)
+            $script:capturedProfileArguments = @($arguments)
+            [pscustomobject] @{
+                ExitCode = 0
+                Output = '{"Known":true,"Profiles":[{"Name":"Phone Hotspot","Mode":"Phone Hotspot","Address":"192.168.55.158","AppUrl":"https://192.168.55.158","IsConfigured":true},{"Name":"Laptop Hotspot","Mode":"Laptop Hotspot","Address":"192.168.137.1","AppUrl":"https://192.168.137.1","IsConfigured":true}]}'
+            }
+        }
+
+        $profiles = & $module { param($commandRunner) Get-IngressSavedNetworkProfiles -Distro 'Ubuntu-26.04' -CommandRunner $commandRunner } $runner
+
+        $profiles.Known | Should Be $true
+        @($profiles.Profiles).Count | Should Be 2
+        ($script:capturedProfileArguments -join ' ') | Should Match 'bash.*--noprofile.*--norc.*-c'
+        ($script:capturedProfileArguments -join ' ') | Should Not Match 'python3'
+        ($script:capturedProfileArguments -join ' ') | Should Not Match 'source '
+    }
+
+    It 'updates the bind and Node URL through Bash without invoking Python and rejects invalid addresses before execution' {
+        $script:capturedBindArguments = @()
+        $module = Get-Module IngressNetworkManager
+        $context = [pscustomobject] @{ Distro = 'Ubuntu-26.04'; EnvironmentFile = '/home/ron/api/node-compose.env' }
+        $runner = {
+            param($executable, $arguments)
+            $script:capturedBindArguments = @($arguments)
+            [pscustomobject] @{ ExitCode = 0; Output = 'updated INGRESS_NODE_BIND_ADDRESS and APP_URL' }
+        }
+
+        $updated = & $module { param($fixtureContext, $commandRunner) Write-IngressNodeBindAddress -Context $fixtureContext -Address '192.168.55.158' -AppUrl 'https://192.168.55.158' -CommandRunner $commandRunner } $context $runner
+
+        $updated | Should Be 'updated INGRESS_NODE_BIND_ADDRESS and APP_URL'
+        ($script:capturedBindArguments -join ' ') | Should Match 'bash.*--noprofile.*--norc.*-c'
+        ($script:capturedBindArguments -join ' ') | Should Not Match 'python3'
+        $script:capturedBindArguments[-2] | Should Be '192.168.55.158'
+        $script:capturedBindArguments[-1] | Should Be 'https://192.168.55.158'
+        $script:capturedBindArguments = @()
+        (Test-IngressThrows {
+            & $module { param($fixtureContext, $commandRunner) Write-IngressNodeBindAddress -Context $fixtureContext -Address '8.8.8.8' -AppUrl 'https://8.8.8.8' -CommandRunner $commandRunner } $context $runner
+        }) | Should Be $true
+        (Test-IngressThrows {
+            & $module { param($fixtureContext, $commandRunner) Write-IngressNodeBindAddress -Context $fixtureContext -Address '192.168.55.158' -AppUrl 'https://untrusted.example' -CommandRunner $commandRunner } $context $runner
+        }) | Should Be $true
+        $script:capturedBindArguments.Count | Should Be 0
+    }
+
     It 'blocks apply when admission state is active or unknown' {
         $facts = New-ReadyGateFacts
         (Test-IngressApplyGate $facts).CanApply | Should Be $true
@@ -119,6 +182,45 @@ Describe 'Ingress Network Manager safety' {
         (Test-IngressApplyGate $facts).CanApply | Should Be $false
         $facts.SessionStateKnown = $true; $facts.ActiveAdmissionSession = $true
         (Test-IngressApplyGate $facts).CanApply | Should Be $false
+    }
+
+    It 'blocks apply when no valid saved profile matches the selected network' {
+        $facts = New-ReadyGateFacts
+        $facts.ProfileMatch = $false
+        $gate = Test-IngressApplyGate $facts
+        $gate.CanApply | Should Be $false
+        ($gate.Blockers -join ' ') | Should Match 'saved profile matches'
+    }
+
+    It 'blocks safe stop when admission or synchronization state is unknown or pending' {
+        $safeFacts = [pscustomobject] @{
+            NodeStateKnown = $true; NodeHealthy = $true; DatabaseHealthy = $true
+            AdmissionStateKnown = $true; AdmissionsPossible = $false
+            PendingSyncStateKnown = $true; PendingSyncRecords = 0
+            AuthorityStateKnown = $true; AuthorityUncertain = $false; OperatorPortIsolated = $true
+        }
+        (Test-IngressSafeStopGate -Facts $safeFacts).CanStop | Should Be $true
+
+        $unknownAdmission = $safeFacts.PSObject.Copy()
+        $unknownAdmission.AdmissionStateKnown = $false
+        (Test-IngressSafeStopGate -Facts $unknownAdmission).CanStop | Should Be $false
+
+        $pending = $safeFacts.PSObject.Copy()
+        $pending.PendingSyncRecords = 2
+        $pendingGate = Test-IngressSafeStopGate -Facts $pending
+        $pendingGate.CanStop | Should Be $false
+        ($pendingGate.Blockers -join ' ') | Should Match 'pending records remain unsynchronized'
+
+        $unknownSync = $safeFacts.PSObject.Copy()
+        $unknownSync.PendingSyncStateKnown = $false
+        (Test-IngressSafeStopGate -Facts $unknownSync).CanStop | Should Be $false
+    }
+
+    It 'stops only ingress-node without removing containers or PostgreSQL volumes' {
+        $arguments = New-IngressNodeStopArguments 'ingress-node' '/home/ron/projects/ingress/api' '/home/ron/projects/ingress/api/node-compose.env' @('/home/ron/projects/ingress/api/compose.node.yaml')
+
+        ($arguments -join ' ') | Should Match 'stop --timeout 30 ingress-node$'
+        ($arguments -join ' ') | Should Not Match 'down|--volumes|-v|rm|ingress-db|ingress-scheduler'
     }
 
     It 'blocks restart while the Event Node is unhealthy or in an unknown state' {
@@ -134,9 +236,50 @@ Describe 'Ingress Network Manager safety' {
         $write = { param($address) $calls.Add("write:$address") }
         $apply = { param($force) $calls.Add("apply:$force") }
         $blocked = [pscustomobject] @{ CanApply = $false }
-        $result = Invoke-IngressPlannedChange $blocked $true $true '192.168.55.158' $write $apply
+        $result = Invoke-IngressPlannedChange -Gate $blocked -BindChanged $true -NodeRunning $true `
+            -TargetAddress '192.168.55.158' -TargetAppUrl 'https://192.168.55.158' `
+            -WriteBinding $write -ApplyNode $apply
         $result.Outcome | Should Be 'Blocked'
         $calls.Count | Should Be 0
+    }
+
+    It 'restores the previous network settings if the scoped Node apply fails' {
+        $calls = New-Object 'System.Collections.Generic.List[string]'
+        $write = { param($address, $appUrl) $calls.Add("write:$address|$appUrl") }
+        $apply = { param($force) $calls.Add("apply:$force"); throw 'fixture compose failure' }
+        $gate = [pscustomobject] @{ CanApply = $true }
+
+        (Test-IngressThrows {
+            Invoke-IngressPlannedChange -Gate $gate -BindChanged $true -NodeRunning $true `
+                -TargetAddress '192.168.137.1' -TargetAppUrl 'https://192.168.137.1' `
+                -PreviousAddress '192.168.55.158' -PreviousAppUrl 'https://192.168.55.158' `
+                -WriteBinding $write -ApplyNode $apply
+        }) | Should Be $true
+
+        ($calls -join ';') | Should Be 'write:192.168.137.1|https://192.168.137.1;apply:True;write:192.168.55.158|https://192.168.55.158'
+    }
+
+    It 'passes the selected HTTPS profile into Compose configuration preview' {
+        $script:composeArguments = @()
+        $runner = {
+            param($executable, $arguments)
+            $script:composeArguments = @($arguments)
+            [pscustomobject] @{
+                ExitCode = 0
+                Output = '{"services":{"ingress-node":{"ports":[{"target":8443,"protocol":"tcp","host_ip":"192.168.137.1","published":"443"},{"target":8444,"protocol":"tcp","host_ip":"127.0.0.1","published":"8444"}],"environment":{"APP_URL":"https://192.168.137.1"}},"ingress-db":{"environment":{"POSTGRES_USER":"ingress","POSTGRES_DB":"ingress"}}},"secrets":{"node_tls_certificate":{"file":"/tmp/node.crt"}}}'
+            }
+        }
+        $context = [pscustomobject] @{
+            Distro = 'Ubuntu-26.04'; Project = 'ingress-node'; WorkingDirectory = '/home/ron/api'
+            EnvironmentFile = '/home/ron/api/node-compose.env'; ComposeFiles = @('/home/ron/api/compose.node.yaml')
+        }
+        $module = Get-Module IngressNetworkManager
+
+        $summary = & $module { param($fixtureContext, $commandRunner) Get-IngressComposeSummary -Context $fixtureContext -BindAddress '192.168.137.1' -AppUrl 'https://192.168.137.1' -CommandRunner $commandRunner } $context $runner
+
+        $summary.Valid | Should Be $true
+        $summary.AppUrl | Should Be 'https://192.168.137.1'
+        ($script:composeArguments -join ' ') | Should Match 'APP_URL=https://192\.168\.137\.1'
     }
 
     It 'targets only ingress-node and disables dependency recreation' {
@@ -145,32 +288,30 @@ Describe 'Ingress Network Manager safety' {
         ($arguments -join ' ') | Should Not Match 'down|-v|ingress-db|ingress-scheduler'
     }
 
-    It 'updates only the WSL env binding and preserves file mode on a temporary fixture' {
+    It 'updates the WSL env binding and APP_URL while preserving mode on a temporary fixture' {
         $distro = 'Ubuntu-26.04'
         $tempDirectory = (& wsl.exe -d $distro --exec mktemp -d 2>$null | Out-String).Trim()
         if ($LASTEXITCODE -ne 0 -or $tempDirectory -notmatch '^/tmp/tmp\.') { throw 'Could not create a safe temporary WSL fixture.' }
         $environmentFile = "$tempDirectory/node-compose.env"
         $original = 'APP_URL=https://fixture.example' + [Environment]::NewLine + 'INGRESS_NODE_BIND_ADDRESS=10.0.0.2' + [Environment]::NewLine + 'FIXTURE_VALUE=keep-me' + [Environment]::NewLine
-        $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($original))
-        $python = 'import base64,sys; open(sys.argv[1],"wb").write(base64.b64decode(sys.argv[2]))'
         try {
-            & wsl.exe -d $distro --exec python3 -c $python $environmentFile $encoded 2>$null | Out-Null
+            & wsl.exe -d $distro --exec bash -c 'printf "%s" "$1" > "$2"' bash $original $environmentFile 2>$null | Out-Null
             if ($LASTEXITCODE -ne 0) { throw 'Could not write the temporary env fixture.' }
             & wsl.exe -d $distro --exec chmod 600 $environmentFile 2>$null | Out-Null
             if ($LASTEXITCODE -ne 0) { throw 'Could not set the temporary env fixture mode.' }
             $context = [pscustomobject] @{ Distro = $distro; EnvironmentFile = $environmentFile }
             $module = Get-Module IngressNetworkManager
-            $null = & $module { param($fixtureContext) Write-IngressNodeBindAddress -Context $fixtureContext -Address '192.168.1.24' } $context
+            $null = & $module { param($fixtureContext) Write-IngressNodeBindAddress -Context $fixtureContext -Address '192.168.1.24' -AppUrl 'https://192.168.1.24' } $context
             $actual = (& wsl.exe -d $distro --exec cat $environmentFile 2>$null | Out-String)
             if ($LASTEXITCODE -ne 0) { throw 'Could not read the temporary env fixture after update.' }
-            $expected = 'APP_URL=https://fixture.example' + [Environment]::NewLine + 'INGRESS_NODE_BIND_ADDRESS=192.168.1.24' + [Environment]::NewLine + 'FIXTURE_VALUE=keep-me' + [Environment]::NewLine
+            $expected = 'APP_URL=https://192.168.1.24' + [Environment]::NewLine + 'INGRESS_NODE_BIND_ADDRESS=192.168.1.24' + [Environment]::NewLine + 'FIXTURE_VALUE=keep-me' + [Environment]::NewLine
             $actual | Should Be $expected
             ((& wsl.exe -d $distro --exec stat -c '%a' $environmentFile 2>$null | Out-String).Trim()) | Should Be '600'
             $linkFile = "$tempDirectory/node-compose.env-link"
             & wsl.exe -d $distro --exec ln -s -- $environmentFile $linkFile 2>$null | Out-Null
             if ($LASTEXITCODE -ne 0) { throw 'Could not create the temporary symlink fixture.' }
             $linkContext = [pscustomobject] @{ Distro = $distro; EnvironmentFile = $linkFile }
-            (Test-IngressThrows { $null = & $module { param($fixtureContext) Write-IngressNodeBindAddress -Context $fixtureContext -Address '192.168.1.25' } $linkContext }) | Should Be $true
+            (Test-IngressThrows { $null = & $module { param($fixtureContext) Write-IngressNodeBindAddress -Context $fixtureContext -Address '192.168.1.25' -AppUrl 'https://192.168.1.25' } $linkContext }) | Should Be $true
             & wsl.exe -d $distro --exec test -L $linkFile 2>$null
             $LASTEXITCODE | Should Be 0
             (& wsl.exe -d $distro --exec cat $environmentFile 2>$null | Out-String) | Should Be $expected

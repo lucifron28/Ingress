@@ -7,6 +7,45 @@ on:
     branches: [ main ]
 
 jobs:
+  windows-node-manager:
+    name: Windows Node Manager
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v7
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Run Node Manager tests
+        run: dotnet test tools/Ingress.NodeManager/Ingress.NodeManager.slnx --configuration Release
+
+      - name: Publish self-contained Windows x64 app
+        shell: pwsh
+        run: |
+          $publishPath = Join-Path $env:RUNNER_TEMP 'IngressNodeManager'
+          $publishArguments = @(
+            'tools/Ingress.NodeManager/Ingress.NodeManager/Ingress.NodeManager.csproj',
+            '--configuration', 'Release',
+            '--runtime', 'win-x64',
+            '--self-contained', 'true',
+            '-p:PublishSingleFile=true',
+            '-p:IncludeNativeLibrariesForSelfExtract=true',
+            '-p:EnableCompressionInSingleFile=true',
+            '-p:DebugType=None',
+            '-p:DebugSymbols=false',
+            '--output', $publishPath
+          )
+          dotnet publish @publishArguments
+          if (-not (Test-Path (Join-Path $publishPath 'Ingress.NodeManager.exe'))) {
+            throw 'The Windows x64 executable was not published.'
+          }
+          if (-not (Test-Path (Join-Path $publishPath 'scripts/IngressNetworkManager.psm1'))) {
+            throw 'The packaged PowerShell Network Manager module is missing.'
+          }
+
   backend-tests:
     name: Backend Tests (PHP 8.4)
     runs-on: ubuntu-24.04
