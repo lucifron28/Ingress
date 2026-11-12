@@ -1208,6 +1208,16 @@ function Get-IngressModeFromSavedAddress {
     return $null
 }
 
+function Test-IngressApplyConfirmation {
+    param(
+        [switch] $ConfirmApply,
+        [scriptblock] $Prompt = { Read-Host 'Type APPLY to update the bind address and HTTPS URL, then start/recreate only ingress-node' }
+    )
+
+    if ($ConfirmApply) { return $true }
+    return ((& $Prompt) -ceq 'APPLY')
+}
+
 function Invoke-IngressNetworkManager {
     [CmdletBinding()]
     param(
@@ -1584,7 +1594,7 @@ function Invoke-IngressNetworkManager {
         return $statusObject
     }
 
-    if ((Read-Host 'Type APPLY to update the bind address and HTTPS URL, then start/recreate only ingress-node') -cne 'APPLY') {
+    if (-not (Test-IngressApplyConfirmation -ConfirmApply:$ConfirmApply)) {
         Write-Host 'Cancelled. No environment or Docker changes were made.'
         return $statusObject
     }
