@@ -776,8 +776,11 @@ function Get-IngressActualPortStatus {
     if (($node.ExitCode -ne 0 -and -not $LanDemo) -or $operator.ExitCode -ne 0) {
         return [pscustomobject] @{ Known = $false; NodeBinding = ''; OperatorBinding = ''; NodeMatches = $false; OperatorIsolated = $false }
     }
-    $nodeBindings = if ($node.ExitCode -eq 0) { @($node.Output -split '\r?\n' | ForEach-Object { $_.Trim() } | Where-Object { $_ }) } else { @() }
-    $operatorBindings = @($operator.Output -split '\r?\n' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    $nodeBindings = [string[]] @()
+    if ($node.ExitCode -eq 0) {
+        $nodeBindings = [string[]] @($node.Output -split '\r?\n' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    }
+    $operatorBindings = [string[]] @($operator.Output -split '\r?\n' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
     $operatorIsolated = $operatorBindings.Count -eq 1 -and $operatorBindings[0] -eq ('127.0.0.1:' + $OperatorPort)
     $nodeMatches = $nodeBindings.Count -eq 1 -and $nodeBindings[0] -eq ($Address + ':' + $publishedPort)
     return [pscustomobject] @{
