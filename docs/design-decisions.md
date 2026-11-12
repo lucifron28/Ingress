@@ -138,7 +138,7 @@ The staff scanner needs camera barcode scanning, local Event Node authentication
    File-based route navigation, native hardware keystore encryption (Android Keystore / iOS Keychain), and managed `expo-camera` barcode scanning.
 
 ### Decision
-Use Expo SDK `58.0.23`, React Native `0.88.1`, Expo Router `58.0.30`, and `expo-secure-store` for the staff-only Event Node scanner. The app requires HTTPS and has no Cloud API URL. Android preview and production builds use system certificate authorities. The separate LAN-demo APK can trust one supplied public CA for one exact Event Node host without enabling cleartext traffic.
+Use Expo SDK `58.0.23`, React Native `0.88.1`, Expo Router `58.0.30`, and `expo-secure-store` for the staff-only Event Node scanner. The app has no Cloud API URL. Android preview and production builds use system certificate authorities and HTTPS. The dedicated capstone `lanDemo` APK permits private IPv4 HTTP only for the isolated Docker Event Node workflow described in [LAN capstone demo](lan-capstone-demo.md).
 
 ---
 
@@ -210,7 +210,7 @@ The prototype runs the Event Node on a laptop and phones connect over a local Wi
 
 ### Decision
 
-**Historical local-development choice.** The former mobile client could opt into cleartext HTTP for local development. Phase 8 removed that option: the current scanner requires HTTPS in development and release builds. Android's `preview` and `production` profiles use system CA trust; the separate `lanDemo` profile can add one public CA for one exact Event Node hostname or IPv4 address. It does not enable cleartext traffic. See ADR 020 and [Staff scanner build instructions](../mobile/README.md).
+**Current capstone demo exception.** The standard Android `preview` and `production` profiles require HTTPS. The separate `lanDemo` profile allows HTTP to private IPv4 addresses solely for the controlled capstone Docker workflow. HTTP exposes credentials and ticket data to other devices on the network, so this is not a production or shared-network setting. See [LAN capstone demo](lan-capstone-demo.md).
 
 **Production.** Event Node traffic must use HTTPS/TLS. Passwords, Sanctum bearer tokens, QR credentials, and attendee identity data all cross this link, and over plaintext HTTP on an untrusted network they are readable and modifiable in transit. A production deployment must:
 
@@ -356,7 +356,7 @@ Students never configure an Event Node URL.
 ## ADR 016: Scanner QR Pairing and Event-Local Staff Authentication
 
 ### Status
-Implemented with one-use scanner pairing and Event Node staff credentials. The current scanner requires HTTPS in every build; Android LAN-demo CA scoping is defined in ADR 020.
+Implemented with one-use scanner pairing and Event Node staff credentials. Standard scanner profiles require HTTPS; the isolated capstone `lanDemo` profile supports the private-LAN HTTP exception in ADR 009.
 
 ### Context
 Manual IP entry is acceptable for the prototype but is poor event-day UX. Scanner authentication also cannot depend only on public internet if the system is intended to operate during an upstream outage.
@@ -464,9 +464,9 @@ The Expo app previously combined student accounts, ticket discovery and wallets,
 ### Decision
 Keep the native app focused on Event Node staff workflows: local sign-in or one-use pairing, assigned events and gates, scan preview followed by explicit confirmation, walk-ins, and secure session storage. Remove attendee routes, Cloud API authentication, event discovery, wallet and transfer services, and mobile demo credentials. Student registration, account tickets, and transfers remain web flows. A previously downloaded PDF may be displayed offline; the Event Node remains the only admission authority.
 
-The scanner requires HTTPS in all app builds. Android `preview` and `production` use system CA trust. A separate `lanDemo` APK may add one public CA for one exact configured Node hostname or IPv4 address. This profile retains normal TLS hostname validation, leaves cleartext disabled, and must not use the private CA key in the app.
+Android `preview` and `production` use system CA trust and HTTPS. The dedicated `lanDemo` APK permits HTTP to private IPv4 Node addresses for an isolated capstone demo. The Node Manager binds only the selected LAN address, scopes the firewall rule to that network, and keeps the operator port on laptop loopback. This exception does not change the other build profiles.
 
 ### Consequences
-Automated tests cover the staff-only route tree, Node session security, build profiles, and scoped certificate configuration. Expo prebuild can verify generated Android policy, but only physical-device testing can confirm the phone's runtime trust behavior and venue workflow.
+Automated tests cover the staff-only route tree, Node session security, and isolated transport profiles. Only physical-device testing can confirm phone reachability, camera pairing, and the venue workflow.
 
 ---

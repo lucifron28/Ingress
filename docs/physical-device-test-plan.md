@@ -22,7 +22,7 @@ For an Event Node failure after authority activation, stop all gates. Preserve t
 1. Use the current Render cloud at `https://ingress-pp2u.onrender.com` and one Windows Event Node. Each runtime needs its own PostgreSQL 18 database and unique `APP_KEY`; never point the cloud and node at the same database. Do not reuse the legacy single-database demo. Safe legacy database migration is not implemented.
 2. Configure the cloud with `INGRESS_RUNTIME=cloud`, `APP_DEBUG=false`, `INGRESS_DEMO_MODE=false`, a cloud-only authority private key, an exact CORS allowlist if needed, and the Firebase web settings. Resend is optional. If invitation mail is enabled, run `send_render_mail_test.ps1` with Resend's shared development sender to check static delivery to the Resend account owner's inbox.
 3. Provision synthetic staging users through `provision_render_staging_account.ps1`. A synthetic student uses `@example.test` and an ID beginning `STAGE-`; its account remains unverified. Use the website to test public registration, ticket display, and PDF download. The synthetic student cannot exercise Firebase verification or verified-student ticket transfer. Do not mark a real student verified to bypass Firebase identity checks.
-4. Configure one Windows Event Node using a single profile from [Deployment and Operations](deployment.md#configure-a-windows-event-node): Docker Desktop with WSL2, native WSL2 with Nginx, or native Windows IIS. Use a stable campus DNS name, reserved LAN address, and a publicly trusted certificate when possible. Android release builds do not trust user-installed CA roots by default. A public certificate issued with DNS-01 validation can use split-horizon DNS to resolve the node hostname to its LAN address on campus. Restrict the HTTPS listener to the staff subnet and keep PostgreSQL unreachable from attendee devices. For a venue demo that cannot use a public certificate, use the isolated host-scoped `lanDemo` profile documented in [Staff scanner build instructions](../mobile/README.md); test that profile on a physical device before relying on it.
+4. For standard staging, configure one Windows Event Node using a profile from [Deployment and Operations](deployment.md#configure-a-windows-event-node), a stable campus DNS name, reserved LAN address, and publicly trusted certificate. Restrict the HTTPS listener to staff devices and keep PostgreSQL unreachable from attendee devices. For the capstone LAN demo, follow [LAN capstone demo](lan-capstone-demo.md) and use its Docker overlay plus `lanDemo` APK on an isolated private network.
 5. For Docker, confirm the separate `ingress-scheduler` container is running; do not create a duplicate Windows scheduled task. For native WSL, confirm Linux cron is enabled and the Windows startup task starts the required services. For IIS, configure **Task Scheduler** to run Laravel's scheduler at startup and every minute. Confirm `/up` and the node API respond over HTTPS from staff Wi-Fi. After closing and reopening the mobile app, confirm the saved node token does not activate scanner access on its own. Tap **Continue as** to make a fresh `/me` request over the venue LAN; if the node is unavailable, scanner access stays inactive. Keep the venue LAN working when WAN is unavailable.
 6. Before using real attendee information, obtain an institution-approved retention schedule and operator-owned deletion procedure. Automatic snapshot and roster retention is not implemented. Use synthetic records until that policy exists.
 7. Prepare two synthetic events with two or more gates, staff assigned to specific gates, and a small capacity. Set one event to prohibit re-entry and the other to allow it. Enable the approved ID-check policy on one event. Finalize all policies before snapshot preparation. Prepare synthetic student, guest, alumni, and walk-in cases.
@@ -42,9 +42,18 @@ The following items are separate from CI and remain pending until someone runs t
 - [ ] With WAN disconnected and staff Wi-Fi intact, the Event Node remains available for admission. After WAN returns, the scheduler retries synchronization without duplicate records.
 - [ ] A protected database backup is written outside the container and checkout, then copied to encrypted off-host storage. Restore is practiced only in an isolated test copy or after the original node is retired.
 
+### Capstone LAN-demo device checks
+
+These checks are separate from HTTPS staging. Use only the private network dedicated to the demonstration:
+
+- [ ] Ingress Node Manager detects the current adapter and private IP, starts the Node on that address, and shows the matching scanner URL.
+- [ ] The installed `lanDemo` APK pairs by QR and manual IP entry, stores the selected endpoint, and completes an explicitly confirmed ticket scan.
+- [ ] Duplicate scans are rejected; changing to a second hotspot/address requires selecting the new adapter and pairing again, not rebuilding the APK.
+- [ ] With WAN disconnected but the laptop and phone still joined to the same LAN, the Node remains reachable and duplicate-admission prevention still works.
+
 ## 2. Build and install the Android staff scanner APK
 
-The `preview` EAS profile creates an internal Android APK with system CA trust. The `lanDemo` profile creates an internal APK that also trusts a supplied public CA for one exact Event Node host. The `production` profile creates a store AAB and is not the profile for direct device installation. The scanner has no Cloud API URL or student-account configuration. All profiles require HTTPS for Event Node requests.
+The `preview` EAS profile creates an internal Android APK with system CA trust and HTTPS. The `lanDemo` profile creates the capstone APK and permits HTTP only to private IPv4 Node addresses. The `production` profile creates a store AAB with HTTPS and is not the profile for direct device installation. The scanner has no Cloud API URL or student-account configuration.
 
 Build the default preview APK in PowerShell:
 
@@ -54,7 +63,13 @@ npx eas-cli@latest login
 npx eas-cli@latest build --platform android --profile preview
 ```
 
-If the venue needs its own CA, add `INGRESS_LAN_DEMO_CA_CERT` as a **Sensitive File** and `INGRESS_LAN_DEMO_NODE_HOST` as a plain-text variable to the EAS **preview** environment, then build with `npx eas-cli@latest build --platform android --profile lanDemo`. The CA must be public, currently valid, and issued for the configured Event Node hostname or IP. See [Staff scanner build instructions](../mobile/README.md) for the certificate and host rules. Never add the CA private key to EAS or source control.
+Build the LAN demo APK without adding EAS variables or certificates:
+
+```powershell
+npx eas-cli@latest build --platform android --profile lanDemo
+```
+
+The server IP is selected by the Node Manager at runtime and carried by the pairing QR, so changing hotspots does not require rebuilding the APK.
 
 Download the APK from the EAS build page. With Android Platform Tools installed and USB debugging enabled, install it from PowerShell:
 
@@ -89,13 +104,13 @@ If either receipt is missing or mismatched, do not activate authority. Before gr
 
 1. On the node, run `php artisan ingress:list-node-staff` and verify each test staff account and gate assignment.
 2. Provision a node-local staff credential with `php artisan ingress:provision-node-staff CLOUD_USER_ID`. Deliver the generated password privately.
-3. Generate a one-use pairing QR on the node with `php artisan ingress:pair-node-staff CLOUD_USER_ID --url=https://NODE_HOST/api/v1`. Show it only to that staff member. It expires after three minutes; do not photograph or share it.
-4. In the Android app, select **Scan pairing code**. Confirm the node ID and HTTPS address with the operator before accepting. Confirm the staff session works after closing and reopening the app while the phone remains on the venue LAN.
+3. Generate a one-use pairing QR on the node with `php artisan ingress:pair-node-staff CLOUD_USER_ID --url=https://NODE_HOST/api/v1` for standard HTTPS staging. For the Docker LAN demo, use the current `http://LAN_IP:8000/api/v1` address shown by Node Manager. Show it only to that staff member; it expires after three minutes.
+4. In the Android app, select **Scan pairing code**. Confirm the node ID and address with the operator before accepting. Confirm the staff session works after closing and reopening the app while the phone remains on the same LAN.
 5. Repeat for a second staff member assigned to another gate. Confirm staff assigned to Gate A cannot operate Gate B. Try an expired or already-used pairing code and confirm it is rejected; issue a fresh code afterward.
 
 ## 6. Exercise offline admission across gates
 
-1. Connect the Event Node and all test phones to the staff Wi-Fi. Confirm the stable node DNS name resolves to the reserved LAN address and its HTTPS certificate is trusted. Verify client isolation is off for the staff subnet and attendee devices cannot reach the node database.
+1. Connect the Event Node and all test phones to the staff Wi-Fi. For standard staging, confirm the stable node DNS name and trusted HTTPS certificate. For the LAN demo, confirm the current private IP in Node Manager and that the phone joins the same isolated Wi-Fi. Verify client isolation is off and attendee devices cannot reach the node database.
 2. Disconnect the router's WAN/internet connection while preserving the local Wi-Fi and Event Node. Confirm the staff scanner can still open the node event and a previously downloaded ticket PDF can still display its QR.
 3. Scan a ticket and stop at the preview screen. Cancel or back out and confirm no movement was recorded.
 4. Scan again and explicitly confirm entry. Scan the same ticket at the second gate; it must report already inside and create no second entry. Confirm the gate and staff shown in the response are correct.
