@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="Ingress.NodeManager.Core/Ingress.NodeManager.Core.csproj" />
+  <Project Path="Ingress.NodeManager.Tests/Ingress.NodeManager.Tests.csproj" />
+  <Project Path="Ingress.NodeManager/Ingress.NodeManager.csproj" />
+</Solution>
