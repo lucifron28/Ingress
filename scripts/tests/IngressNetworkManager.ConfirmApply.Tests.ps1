@@ -1,5 +1,5 @@
-$modulePath = Join-Path $PSScriptRoot '..\IngressNetworkManager.psm1'
-Import-Module $modulePath -Force
+$script:modulePath = Join-Path $PSScriptRoot '..\IngressNetworkManager.psm1'
+Import-Module $script:modulePath -Force
 
 function New-ApplyConfirmationFixture {
     $adapter = [pscustomobject] @{
@@ -150,11 +150,11 @@ function Install-ApplyConfirmationFixtures {
 
 Describe 'Ingress Network Manager apply confirmation' {
     BeforeEach {
-        Import-Module $modulePath -Force
+        Import-Module $script:modulePath -Force
     }
 
     AfterEach {
-        Import-Module $modulePath -Force
+        Import-Module $script:modulePath -Force
     }
 
     It 'applies with -ConfirmApply without prompting on the non-interactive JSON path' {
