@@ -10,7 +10,10 @@ param(
     [switch] $Logs,
     [switch] $SafeStop,
     [switch] $ConfirmApply,
-    [switch] $ConfirmStop
+    [switch] $ConfirmStop,
+    [switch] $LanDemo,
+    [int] $InterfaceIndex = -1,
+    [string] $BindAddress
 )
 
 $ErrorActionPreference = 'Stop'
@@ -19,6 +22,7 @@ Import-Module (Join-Path $PSScriptRoot 'IngressNetworkManager.psm1') -Force
 try {
     $managerParameters = @{
         Status = $Status; DryRun = $DryRun; Apply = $Apply; LanDemoHost = $LanDemoHost
+        LanDemo = $LanDemo; InterfaceIndex = $InterfaceIndex; BindAddress = $BindAddress
         Json = $Json; Logs = $Logs; SafeStop = $SafeStop; ConfirmApply = $ConfirmApply; ConfirmStop = $ConfirmStop
     }
     if ($PSBoundParameters.ContainsKey('Mode')) { $managerParameters.Mode = $Mode }

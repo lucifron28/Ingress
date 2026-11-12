@@ -18,7 +18,8 @@ public static partial class SecretRedactor
             return value ?? string.Empty;
         }
 
-        var redacted = PrivateKeyBlockRegex().Replace(value, "[REDACTED PRIVATE KEY]");
+        var redacted = AnsiEscapeRegex().Replace(value, string.Empty);
+        redacted = PrivateKeyBlockRegex().Replace(redacted, "[REDACTED PRIVATE KEY]");
         redacted = CredentialUrlRegex().Replace(redacted, "$1[REDACTED]$2");
         redacted = JwtRegex().Replace(redacted, "[REDACTED TOKEN]");
         redacted = SensitiveLinkRegex().Replace(redacted, "[REDACTED LINK]");
@@ -36,6 +37,9 @@ public static partial class SecretRedactor
 
     [GeneratedRegex(@"-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex PrivateKeyBlockRegex();
+
+    [GeneratedRegex(@"\x1B(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1B\\))", RegexOptions.CultureInvariant)]
+    private static partial Regex AnsiEscapeRegex();
 
     [GeneratedRegex(@"(\b(?:postgres(?:ql)?|mysql)://[^:/@\s]+:)[^@/\s]+(@)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
     private static partial Regex CredentialUrlRegex();

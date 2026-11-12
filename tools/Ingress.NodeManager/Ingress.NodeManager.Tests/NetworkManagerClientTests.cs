@@ -1,5 +1,6 @@
 using Ingress.NodeManager.Core.Execution;
 using Ingress.NodeManager.Core.Networking;
+using Ingress.NodeManager.Core.Status;
 
 namespace Ingress.NodeManager.Tests;
 
@@ -18,6 +19,40 @@ public sealed class NetworkManagerClientTests
         Assert.Contains("scripts\\IngressNetworkManager.ps1", string.Join('\\', runner.LastRequest.Arguments), StringComparison.OrdinalIgnoreCase);
         Assert.Contains("-Json", runner.LastRequest.Arguments);
         Assert.Contains("-Status", runner.LastRequest.Arguments);
+        Assert.Contains("-LanDemo", runner.LastRequest.Arguments);
+    }
+
+    [Fact]
+    public async Task LanDemoPreviewUsesSelectedInterfaceAndPrivateAddressAsSeparateArguments()
+    {
+        var runner = new RecordingProcessRunner(StatusJson);
+        var client = CreateClient(runner);
+        var adapter = new NetworkAdapterStatus("Wi-Fi", "Wireless", "LAN", "192.168.1.30", 24, "Private", true)
+        {
+            InterfaceIndex = 8,
+        };
+
+        await client.PreviewLanDemoNetworkChangeAsync(adapter, CancellationToken.None);
+
+        var args = runner.LastRequest!.Arguments;
+        Assert.Contains("-LanDemo", args);
+        Assert.Equal("8", args[Array.IndexOf(args.ToArray(), "-InterfaceIndex") + 1]);
+        Assert.Equal("192.168.1.30", args[Array.IndexOf(args.ToArray(), "-BindAddress") + 1]);
+        Assert.Contains("-DryRun", args);
+    }
+
+    [Fact]
+    public async Task LanDemoClientRejectsPublicAddressBeforeLaunchingPowerShell()
+    {
+        var runner = new RecordingProcessRunner(StatusJson);
+        var client = CreateClient(runner);
+        var adapter = new NetworkAdapterStatus("Wi-Fi", "Wireless", "LAN", "8.8.8.8", 24, "Public", true)
+        {
+            InterfaceIndex = 8,
+        };
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.PreviewLanDemoNetworkChangeAsync(adapter, CancellationToken.None));
+        Assert.Equal(0, runner.Calls);
     }
 
     [Fact]

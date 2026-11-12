@@ -19,7 +19,10 @@ public sealed record NetworkAdapterStatus(
     string Address,
     int PrefixLength,
     string NetworkCategory,
-    bool IsUp);
+    bool IsUp)
+{
+    public int InterfaceIndex { get; init; }
+}
 
 public sealed record SavedNetworkProfile(string Name, string Mode, string Address, string AppUrl, bool IsConfigured);
 
@@ -30,6 +33,7 @@ public sealed record NodeManagerStatus
     public string LanAddress { get; init; } = "Unknown";
     public string NodeUrl { get; init; } = "Unknown";
     public string LanMapping { get; init; } = "Unknown";
+    public int LanHttpPort { get; init; } = 8000;
     public string DockerStatus { get; init; } = "Unknown";
     public string CurrentBindAddress { get; init; } = "Unknown";
     public string TargetBindAddress { get; init; } = "Unknown";
@@ -165,6 +169,7 @@ public sealed record NodeManagerStatus
             "Database Migrations" => MigrationIndicator(),
             "Scheduler" => SchedulerIndicator(),
             "HTTPS Certificate" => CertificateIndicator(),
+            "LAN Transport" => LanTransportIndicator(),
             "Windows Firewall" => FirewallIndicator(),
             "Operator Port" => OperatorPortIndicator(),
             "Admission Safety" => AdmissionIndicator(),
@@ -181,9 +186,9 @@ public sealed record NodeManagerStatus
             return new HealthIndicator("Network Mode", HealthLevel.Unknown, "The active adapter and address could not be verified.");
         }
 
-        if (NetworkMode is not ("Phone Hotspot" or "Laptop Hotspot"))
+        if (string.IsNullOrWhiteSpace(NetworkMode) || NetworkMode == "Unknown")
         {
-            return new HealthIndicator("Network Mode", HealthLevel.Unknown, "The active hotspot mode is ambiguous.");
+            return new HealthIndicator("Network Mode", HealthLevel.Unknown, "Choose an active LAN adapter with a private IPv4 address.");
         }
 
         return new HealthIndicator("Network Mode", HealthLevel.Healthy, $"{NetworkMode} · {LanAddress}");
@@ -272,6 +277,17 @@ public sealed record NodeManagerStatus
         }
 
         return new HealthIndicator("HTTPS Certificate", HealthLevel.Healthy, CertificateStatus);
+    }
+
+    private HealthIndicator LanTransportIndicator()
+    {
+        if (SchemaVersion == 0 || !NodeUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
+        {
+            return new HealthIndicator("LAN Transport", HealthLevel.Unknown, "Refresh status to verify the selected private HTTP endpoint.");
+        }
+
+        return new HealthIndicator("LAN Transport", HealthLevel.Warning,
+            "HTTP is enabled only for this private LAN demo. Use a private network and do not expose this port to the internet.");
     }
 
     private HealthIndicator FirewallIndicator()

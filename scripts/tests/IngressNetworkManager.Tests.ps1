@@ -72,6 +72,15 @@ Describe 'Ingress Network Manager safety' {
         (Test-IngressThrows { Resolve-IngressNetworkAdapter -Adapters @($tentative) -Mode 'Phone Hotspot' }) | Should Be $true
     }
 
+    It 'selects a connected adapter by its current interface index and private IPv4 address' {
+        $wifi = New-TestAdapter -Name 'Wi-Fi' -Mode 'Phone Hotspot' -Address '192.168.1.24' -InterfaceIndex 7
+        $ethernet = New-TestAdapter -Name 'Ethernet' -Mode 'LAN' -Address '10.1.0.20' -InterfaceIndex 12
+        (Resolve-IngressNetworkAdapter -Adapters @($wifi, $ethernet) -Mode 'Auto Detect' -InterfaceIndex 12 -SelectedAddress '10.1.0.20').Name | Should Be 'Ethernet'
+        (Test-IngressThrows { Resolve-IngressNetworkAdapter -Adapters @($wifi, $ethernet) -Mode 'Auto Detect' -InterfaceIndex 12 -SelectedAddress '192.168.1.24' }) | Should Be $true
+        $vpn = New-TestAdapter -Name 'Radmin VPN' -Mode '' -Address '10.0.0.12' -InterfaceIndex 31
+        (Test-IngressThrows { Resolve-IngressNetworkAdapter -Adapters @($vpn) -Mode 'Auto Detect' -InterfaceIndex 31 -SelectedAddress '10.0.0.12' }) | Should Be $true
+    }
+
     It 'requires a same-subnet remote scope and the HTTPS port' {
         (Get-IngressIPv4Range '192.168.55.158/24').Cidr | Should Be '192.168.55.0/24'
         (Get-IngressIPv4Range '192.168.55.0/255.255.255.0').Cidr | Should Be '192.168.55.0/24'
@@ -101,6 +110,37 @@ Describe 'Ingress Network Manager safety' {
         (Test-IngressFirewallPolicy -Rules @($wideAddresses) -Candidate $candidate -Port 443).Allowed | Should Be $false
         $wideInterfaces = $rule.PSObject.Copy(); $wideInterfaces.InterfaceAliases = @('Any', 'Wi-Fi')
         (Test-IngressFirewallPolicy -Rules @($wideInterfaces) -Candidate $candidate -Port 443).Allowed | Should Be $false
+    }
+
+    It 'allows only a narrow private HTTP rule for the selected LAN adapter' {
+        $candidate = Resolve-IngressNetworkAdapter -Adapters @((New-TestAdapter -Name 'Wi-Fi' -Mode 'LAN' -Address '192.168.55.158')) -Mode 'LAN'
+        $rule = [pscustomobject] @{
+            Name = 'Ingress Event Node LAN Demo'; Enabled = $true; Direction = 'Inbound'; Action = 'Allow'
+            Profiles = @('Public'); EdgeTraversalPolicy = 'Block'; Protocol = 'TCP'; LocalPorts = @('8000')
+            LocalAddresses = @('192.168.55.158'); RemoteAddresses = @('192.168.55.0/24')
+            ApplicationPrograms = @('C:\Program Files\Docker\Docker\resources\com.docker.backend.exe')
+            ApplicationPackages = @(''); Services = @('Any')
+            InterfaceAliases = @('Wi-Fi'); InterfaceTypes = @('Any')
+        }
+        (Test-IngressFirewallPolicy -Rules @($rule) -Candidate $candidate -Port 8000 -RuleName 'Ingress Event Node LAN Demo').Allowed | Should Be $true
+        (Test-IngressFirewallPolicy -Rules @($rule) -Candidate $candidate -Port 443 -RuleName 'Ingress Event Node LAN Demo').Allowed | Should Be $false
+        $broad = $rule.PSObject.Copy(); $broad.RemoteAddresses = @('Any')
+        (Test-IngressFirewallPolicy -Rules @($broad) -Candidate $candidate -Port 8000 -RuleName 'Ingress Event Node LAN Demo').Allowed | Should Be $false
+        (Test-IngressFirewallPolicy -Rules @($rule) -Candidate $candidate -Port 8000 -RuleName 'Ingress Event Node LAN Demo' -FirewallProfileEnabled $false).Allowed | Should Be $false
+    }
+
+    It 'blocks LAN demo restarts while admissions are active or unknown' {
+        $facts = [pscustomobject] @{
+            DockerReady = $true; ComposeReady = $true; DatabaseHealthy = $true; MigrationsComplete = $true
+            SessionStateKnown = $true; ActiveAdmissionSession = $false; FirewallStateKnown = $true; FirewallAllowed = $true
+            ComposeValid = $true; OperatorPortIsolated = $true; NodeStateKnown = $true; NodeStateSafe = $true
+        }
+        (Test-IngressLanDemoApplyGate -Facts $facts).CanApply | Should Be $true
+        $facts.ActiveAdmissionSession = $true
+        (Test-IngressLanDemoApplyGate -Facts $facts).CanApply | Should Be $false
+        $facts.ActiveAdmissionSession = $false
+        $facts.SessionStateKnown = $false
+        (Test-IngressLanDemoApplyGate -Facts $facts).CanApply | Should Be $false
     }
 
     It 'requires an exact certificate SAN host' {
@@ -163,8 +203,9 @@ Describe 'Ingress Network Manager safety' {
         $updated | Should Be 'updated INGRESS_NODE_BIND_ADDRESS and APP_URL'
         ($script:capturedBindArguments -join ' ') | Should Match 'bash.*--noprofile.*--norc.*-c'
         ($script:capturedBindArguments -join ' ') | Should Not Match 'python3'
-        $script:capturedBindArguments[-2] | Should Be '192.168.55.158'
-        $script:capturedBindArguments[-1] | Should Be 'https://192.168.55.158'
+        $script:capturedBindArguments[-3] | Should Be '192.168.55.158'
+        $script:capturedBindArguments[-2] | Should Be 'https://192.168.55.158'
+        $script:capturedBindArguments[-1] | Should Be 'false'
         $script:capturedBindArguments = @()
         (Test-IngressThrows {
             & $module { param($fixtureContext, $commandRunner) Write-IngressNodeBindAddress -Context $fixtureContext -Address '8.8.8.8' -AppUrl 'https://8.8.8.8' -CommandRunner $commandRunner } $context $runner
@@ -282,10 +323,34 @@ Describe 'Ingress Network Manager safety' {
         ($script:composeArguments -join ' ') | Should Match 'APP_URL=https://192\.168\.137\.1'
     }
 
+    It 'requires the Compose version needed by the LAN demo overlay' {
+        $context = [pscustomobject] @{
+            Distro = 'Ubuntu-26.04'; WorkingDirectory = '/home/ron/api'; ComposeVersion = 'v2.24.3'
+            ComposeFiles = @('/home/ron/api/compose.node.yaml')
+        }
+        $runner = { param($executable, $arguments) [pscustomobject] @{ ExitCode = 0; Output = '' } }
+        $module = Get-Module IngressNetworkManager
+
+        (Test-IngressThrows {
+            & $module { param($fixtureContext, $commandRunner) Add-IngressLanDemoComposeFile -Context $fixtureContext -CommandRunner $commandRunner } $context $runner
+        }) | Should Be $true
+
+        $context.ComposeVersion = 'v2.24.4'
+        $result = & $module { param($fixtureContext, $commandRunner) Add-IngressLanDemoComposeFile -Context $fixtureContext -CommandRunner $commandRunner } $context $runner
+        $result.ComposeFiles[-1] | Should Be '/home/ron/api/compose.node.lan-demo.yaml'
+        $result.LanDemoBuildRequired | Should Be $true
+
+        $result = & $module { param($fixtureContext, $commandRunner) Add-IngressLanDemoComposeFile -Context $fixtureContext -CommandRunner $commandRunner } $context $runner
+        $result.LanDemoBuildRequired | Should Be $false
+    }
+
     It 'targets only ingress-node and disables dependency recreation' {
         $arguments = New-IngressComposeUpArguments 'ingress-node' '/home/test/api' '/home/test/api/node-compose.env' @('/home/test/api/compose.node.yaml') $true
         ($arguments -join ' ') | Should Match 'up -d --no-deps --force-recreate ingress-node$'
         ($arguments -join ' ') | Should Not Match 'down|-v|ingress-db|ingress-scheduler'
+        $buildArguments = New-IngressComposeUpArguments 'ingress-node' '/home/test/api' '/home/test/api/node-compose.env' @('/home/test/api/compose.node.yaml') $true -Build
+        ($buildArguments -join ' ') | Should Match 'up -d --build --no-deps --force-recreate ingress-node$'
+        ($buildArguments -join ' ') | Should Not Match 'down|-v|ingress-db|ingress-scheduler'
     }
 
     It 'updates the WSL env binding and APP_URL while preserving mode on a temporary fixture' {

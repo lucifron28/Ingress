@@ -1,3 +1,5 @@
+using System.ComponentModel;
+using System.Diagnostics;
 using System.Text.Json;
 using Ingress.NodeManager.Core.Execution;
 using Ingress.NodeManager.Core.Security;
@@ -20,7 +22,61 @@ public sealed class NetworkManagerClient(IProcessRunner processRunner, NodeManag
 
     public async Task<NodeManagerStatus> GetStatusAsync(CancellationToken cancellationToken)
     {
-        return await RunAsync(["-Status"], cancellationToken).ConfigureAwait(false);
+        return await RunAsync(["-LanDemo", "-Status"], cancellationToken).ConfigureAwait(false);
+    }
+
+    public Task<NodeManagerStatus> PreviewLanDemoNetworkChangeAsync(NetworkAdapterStatus adapter, CancellationToken cancellationToken)
+    {
+        ValidateLanAdapter(adapter);
+        return RunAsync(["-LanDemo", "-InterfaceIndex", adapter.InterfaceIndex.ToString(), "-BindAddress", adapter.Address, "-DryRun"], cancellationToken);
+    }
+
+    public Task<NodeManagerStatus> ApplyLanDemoNetworkChangeAsync(NetworkAdapterStatus adapter, bool confirmationAccepted, CancellationToken cancellationToken)
+    {
+        if (!confirmationAccepted) throw new InvalidOperationException("Network changes require explicit confirmation.");
+        ValidateLanAdapter(adapter);
+        return RunAsync(["-LanDemo", "-InterfaceIndex", adapter.InterfaceIndex.ToString(), "-BindAddress", adapter.Address, "-Apply", "-ConfirmApply"], cancellationToken);
+    }
+
+    public Task<NodeManagerStatus> StartLanDemoNodeAsync(NetworkAdapterStatus adapter, bool confirmationAccepted, CancellationToken cancellationToken)
+    {
+        if (!confirmationAccepted) throw new InvalidOperationException("Starting or resuming the Event Node requires explicit confirmation.");
+        ValidateLanAdapter(adapter);
+        return RunAsync(["-LanDemo", "-InterfaceIndex", adapter.InterfaceIndex.ToString(), "-BindAddress", adapter.Address, "-Apply", "-ConfirmApply"], cancellationToken);
+    }
+
+    public async Task ConfigureLanFirewallAsync(NetworkAdapterStatus adapter, int port, CancellationToken cancellationToken)
+    {
+        ValidateLanAdapter(adapter);
+        if (port is < 1 or > 65535) throw new ArgumentOutOfRangeException(nameof(port));
+        var script = Path.Combine(installation.RepositoryRoot, "scripts", "IngressLanFirewall.ps1");
+        if (!File.Exists(script)) throw new InvalidOperationException("The bundled LAN firewall helper could not be found.");
+        var startInfo = new ProcessStartInfo(installation.PowerShellExecutable)
+        {
+            UseShellExecute = true,
+            Verb = "runas",
+            WindowStyle = ProcessWindowStyle.Hidden,
+        };
+        foreach (var argument in new[]
+        {
+            "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script,
+            "-InterfaceIndex", adapter.InterfaceIndex.ToString(), "-Address", adapter.Address, "-Port", port.ToString(),
+        }) startInfo.ArgumentList.Add(argument);
+        Process process;
+        try
+        {
+            process = Process.Start(startInfo) ?? throw new InvalidOperationException("Windows could not start the firewall setup helper.");
+        }
+        catch (Win32Exception exception) when (exception.NativeErrorCode == 1223)
+        {
+            throw new InvalidOperationException("Firewall setup was cancelled. The Event Node was not started.", exception);
+        }
+
+        using (process)
+        {
+            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+            if (process.ExitCode != 0) throw new InvalidOperationException("Windows Firewall did not confirm the scoped LAN rule. The Event Node was not started.");
+        }
     }
 
     public async Task<NodeManagerStatus> PreviewNetworkChangeAsync(NetworkMode mode, CancellationToken cancellationToken)
@@ -66,12 +122,12 @@ public sealed class NetworkManagerClient(IProcessRunner processRunner, NodeManag
             throw new InvalidOperationException("Stopping the Event Node requires explicit confirmation.");
         }
 
-        return await RunAsync(["-SafeStop", "-Apply", "-ConfirmStop"], cancellationToken).ConfigureAwait(false);
+        return await RunAsync(["-LanDemo", "-SafeStop", "-Apply", "-ConfirmStop"], cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<NodeManagerStatus> PreviewSafeStopNodeAsync(CancellationToken cancellationToken)
     {
-        return await RunAsync(["-SafeStop", "-DryRun"], cancellationToken).ConfigureAwait(false);
+        return await RunAsync(["-LanDemo", "-SafeStop", "-DryRun"], cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<string[]> GetRecentLogsAsync(CancellationToken cancellationToken)
@@ -182,4 +238,27 @@ public sealed class NetworkManagerClient(IProcessRunner processRunner, NodeManag
         NetworkMode.AutoDetect => "Auto Detect",
         _ => throw new ArgumentOutOfRangeException(nameof(mode)),
     };
+
+    private static void ValidateLanAdapter(NetworkAdapterStatus adapter)
+    {
+        ArgumentNullException.ThrowIfNull(adapter);
+        if (!adapter.IsUp || adapter.InterfaceIndex < 1 || !IsPrivateIpv4(adapter.Address))
+        {
+            throw new InvalidOperationException("Select an active network adapter with a private IPv4 address.");
+        }
+    }
+
+    private static bool IsPrivateIpv4(string address)
+    {
+        if (!System.Net.IPAddress.TryParse(address, out var parsed)
+            || parsed.AddressFamily != System.Net.Sockets.AddressFamily.InterNetwork)
+        {
+            return false;
+        }
+
+        var bytes = parsed.GetAddressBytes();
+        return bytes[0] == 10
+            || (bytes[0] == 172 && bytes[1] is >= 16 and <= 31)
+            || (bytes[0] == 192 && bytes[1] == 168);
+    }
 }

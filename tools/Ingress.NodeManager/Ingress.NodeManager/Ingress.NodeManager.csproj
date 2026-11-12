@@ -4,6 +4,7 @@
     <ProjectReference Include="..\Ingress.NodeManager.Core\Ingress.NodeManager.Core.csproj" />
     <Content Include="..\..\..\scripts\IngressNetworkManager.ps1" Link="scripts\IngressNetworkManager.ps1" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\..\scripts\IngressNetworkManager.psm1" Link="scripts\IngressNetworkManager.psm1" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\..\scripts\IngressLanFirewall.ps1" Link="scripts\IngressLanFirewall.ps1" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <PropertyGroup>
