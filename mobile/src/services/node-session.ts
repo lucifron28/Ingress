@@ -1,4 +1,5 @@
 import { fetch as expoFetch } from 'expo/fetch';
+import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
@@ -53,6 +54,7 @@ export interface NodeSession {
 }
 
 const NODE_SESSION_KEY = 'ingress_node_staff_session_v1';
+const NODE_LAN_DEMO_PORT = '8000';
 const NODE_OPTIONS = { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY };
 let nodeQueue: Promise<void> = Promise.resolve();
 let onUnauthorized: ((token: string) => void) | null = null;
@@ -63,10 +65,45 @@ function serialize<T>(operation: () => Promise<T>): Promise<T> {
   return result;
 }
 
+export function isLanDemoBuild(): boolean {
+  return Constants.expoConfig?.extra?.ingressLanDemo === true;
+}
+
+function isPrivateIpv4(host: string): boolean {
+  const octets = host.split('.').map(Number);
+  if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) {
+    return false;
+  }
+
+  return octets[0] === 10
+    || (octets[0] === 172 && octets[1] >= 16 && octets[1] <= 31)
+    || (octets[0] === 192 && octets[1] === 168);
+}
+
 export function normalizeNodeUrl(input: string): string {
-  const url = new URL(input.trim());
-  if (url.protocol !== 'https:' || !url.hostname || url.username || url.password || url.search || url.hash || input.length > 512 || !/^(?:\/[A-Za-z0-9_-]+)*\/api\/v1\/?$/.test(url.pathname)) {
-    throw new Error('Enter the HTTPS Event Node API address ending in /api/v1.');
+  const value = input.trim();
+  if (!value || value.length > 512) {
+    throw new Error('Enter the HTTPS Event Node API address, or a private IPv4 address for the LAN demo.');
+  }
+
+  const lanDemo = isLanDemoBuild();
+  const candidate = lanDemo && !/^[a-z][a-z\d+.-]*:\/\//i.test(value) ? `http://${value}` : value;
+  let url: URL;
+  try {
+    url = new URL(candidate);
+  } catch {
+    throw new Error('Enter the HTTPS Event Node API address, or a private IPv4 address for the LAN demo.');
+  }
+
+  const httpLanAddress = lanDemo && url.protocol === 'http:' && isPrivateIpv4(url.hostname);
+  if (httpLanAddress) {
+    if (!url.port) url.port = NODE_LAN_DEMO_PORT;
+    if (url.pathname === '/') url.pathname = '/api/v1';
+  }
+
+  if ((!httpLanAddress && url.protocol !== 'https:') || !url.hostname || url.username || url.password || url.search || url.hash ||
+      !/^(?:\/[A-Za-z0-9_-]+)*\/api\/v1\/?$/.test(url.pathname)) {
+    throw new Error('Enter the HTTPS Event Node API address, or a private IPv4 address for the LAN demo.');
   }
   return url.toString().replace(/\/+$/, '');
 }
@@ -142,7 +179,7 @@ async function request<T>(url: string, path: string, token: string | null, optio
     return data as T;
   } catch (error: unknown) {
     if (error instanceof NodeApiError) throw error;
-    throw new NodeApiError('Cannot reach the Event Node. Check the venue network and certificate.', 0);
+    throw new NodeApiError('Cannot reach the Event Node. Check the server address and venue network.', 0);
   } finally {
     clearTimeout(timeout);
   }

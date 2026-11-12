@@ -1,5 +1,3 @@
-const { validateLanDemoCa, validateLanDemoHost } = require('./plugins/ingress-network-security');
-
 module.exports = ({ config }) => {
   const releaseBuild = process.env.INGRESS_RELEASE_BUILD === 'true';
   const lanDemoValue = process.env.INGRESS_LAN_DEMO;
@@ -12,13 +10,6 @@ module.exports = ({ config }) => {
   }
 
   const lanDemo = releaseBuild && lanDemoValue === 'true';
-  let nodeHost = null;
-
-  if (lanDemo) {
-    validateLanDemoCa(process.env.INGRESS_LAN_DEMO_CA_CERT);
-    nodeHost = validateLanDemoHost(process.env.INGRESS_LAN_DEMO_NODE_HOST);
-  }
-
   const android = { ...config.android };
   const blockedPermissions = new Set(android.blockedPermissions ?? []);
   if (releaseBuild) blockedPermissions.add('android.permission.SYSTEM_ALERT_WINDOW');
@@ -29,9 +20,12 @@ module.exports = ({ config }) => {
     android,
     plugins: [
       ...(config.plugins ?? []),
-      ['expo-build-properties', { android: { usesCleartextTraffic: false } }],
-      ['./plugins/with-ingress-lan-demo-ca.js', lanDemo ? { lanDemo, nodeHost } : { lanDemo }],
+      ['expo-build-properties', { android: { usesCleartextTraffic: lanDemo } }],
     ],
+    extra: {
+      ...(config.extra ?? {}),
+      ingressLanDemo: lanDemo,
+    },
     ios: {
       ...config.ios,
       infoPlist: {
