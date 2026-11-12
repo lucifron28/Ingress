@@ -1,0 +1,12 @@
+services:
+  ingress-db:
+    image: alpine:3.24
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["sleep 3600"]
+  ingress-node:
+    image: alpine:3.24
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["sleep 3600"]
+    ports:
+      - "${INGRESS_NODE_BIND_ADDRESS:?required}:${INGRESS_NODE_TEST_PORT:?required}:8443"
+      - "127.0.0.1:${INGRESS_OPERATOR_TEST_PORT:?required}:8444"
