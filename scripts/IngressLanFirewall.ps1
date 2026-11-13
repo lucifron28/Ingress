@@ -67,7 +67,7 @@ $ruleArguments = @{
     Program = $dockerProcess.Path
     Profile = $firewallProfile
     EdgeTraversalPolicy = 'Block'
-    Enabled = $true
+    Enabled = 'True'
     ErrorAction = 'Stop'
 }
 $candidate = [pscustomobject] @{

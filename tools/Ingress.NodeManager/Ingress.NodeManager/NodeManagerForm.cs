@@ -17,6 +17,12 @@ public sealed class NodeManagerForm : Form
     private readonly Label _headerStatus = new();
     private readonly Label _lastUpdated = new();
     private readonly Label _activityLabel = new();
+    private readonly ProgressBar _activityProgress = new()
+    {
+        Size = new Size(48, 10),
+        Margin = new Padding(0, 3, 8, 0),
+        Visible = false,
+    };
     private readonly Button _cancelButton = new();
     private Button _refreshButton = new();
     private readonly Dictionary<ManagerPage, Button> _navigation = [];
@@ -313,6 +319,7 @@ public sealed class NodeManagerForm : Form
         };
         meta.Controls.Add(_headerStatus);
         meta.Controls.Add(_lastUpdated);
+        meta.Controls.Add(_activityProgress);
         meta.Controls.Add(_activityLabel);
         panel.Controls.Add(meta, 0, 1);
 
@@ -1309,6 +1316,8 @@ public sealed class NodeManagerForm : Form
         _activeOperation = cancellation;
         _activityLabel.Text = description;
         _activityLabel.Visible = showProgress;
+        _activityProgress.Style = showProgress ? ProgressBarStyle.Marquee : ProgressBarStyle.Blocks;
+        _activityProgress.Visible = showProgress;
         _cancelButton.Visible = showProgress;
         _refreshButton.Enabled = false;
         RenderCurrentPage();
@@ -1342,6 +1351,8 @@ public sealed class NodeManagerForm : Form
             _activeOperation = null;
             _busy = false;
             _activityLabel.Visible = false;
+            _activityProgress.Visible = false;
+            _activityProgress.Style = ProgressBarStyle.Blocks;
             _cancelButton.Visible = false;
             _refreshButton.Enabled = true;
             if (!IsDisposed) RenderCurrentPage();
@@ -1470,7 +1481,7 @@ public sealed class NodeManagerForm : Form
     {
         var adapter = GetSelectedLanAdapter();
         if (adapter is null) return;
-        await RunOperationAsync("Adding a LAN-scoped firewall rule (Windows may ask for administrator approval)", async token =>
+        await RunOperationAsync("Configuring Windows Firewall…", async token =>
         {
             await _manager!.ConfigureLanFirewallAsync(adapter, _status.LanHttpPort, token);
         });
