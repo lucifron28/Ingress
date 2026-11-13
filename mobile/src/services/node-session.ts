@@ -82,17 +82,20 @@ function isPrivateIpv4(host: string): boolean {
 
 export function normalizeNodeUrl(input: string): string {
   const value = input.trim();
+  const lanDemo = isLanDemoBuild();
+  const errorMessage = lanDemo
+    ? 'Enter the Event Node private IPv4 address using HTTP for the LAN demo.'
+    : 'Enter the HTTPS Event Node API address.';
   if (!value || value.length > 512) {
-    throw new Error('Enter the HTTPS Event Node API address, or a private IPv4 address for the LAN demo.');
+    throw new Error(errorMessage);
   }
 
-  const lanDemo = isLanDemoBuild();
   const candidate = lanDemo && !/^[a-z][a-z\d+.-]*:\/\//i.test(value) ? `http://${value}` : value;
   let url: URL;
   try {
     url = new URL(candidate);
   } catch {
-    throw new Error('Enter the HTTPS Event Node API address, or a private IPv4 address for the LAN demo.');
+    throw new Error(errorMessage);
   }
 
   const httpLanAddress = lanDemo && url.protocol === 'http:' && isPrivateIpv4(url.hostname);
@@ -101,9 +104,10 @@ export function normalizeNodeUrl(input: string): string {
     if (url.pathname === '/') url.pathname = '/api/v1';
   }
 
-  if ((!httpLanAddress && url.protocol !== 'https:') || !url.hostname || url.username || url.password || url.search || url.hash ||
+  const allowedProtocol = lanDemo ? httpLanAddress : url.protocol === 'https:';
+  if (!allowedProtocol || !url.hostname || url.username || url.password || url.search || url.hash ||
       !/^(?:\/[A-Za-z0-9_-]+)*\/api\/v1\/?$/.test(url.pathname)) {
-    throw new Error('Enter the HTTPS Event Node API address, or a private IPv4 address for the LAN demo.');
+    throw new Error(errorMessage);
   }
   return url.toString().replace(/\/+$/, '');
 }
