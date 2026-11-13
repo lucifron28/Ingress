@@ -1,6 +1,7 @@
 @extends('layouts.node-operator', ['title' => 'Operator console'])
 
 @section('content')
+    @php($displayTimezone = config('ingress.display_timezone', 'Asia/Manila'))
     <section class="card">
         <div class="topline">
             <div>
@@ -70,7 +71,8 @@
                         <li>Walk-in recoveries waiting for acknowledgment: {{ $event['pending']['recoveries'] }}</li>
                         <li>Most recent acknowledged record:
                             @if ($event['lastAcknowledgedAt'])
-                                {{ $event['lastAcknowledgedAt']->format('Y-m-d H:i:s \U\T\C') }}
+                                @php($acknowledgedAtLocal = $event['lastAcknowledgedAt']->setTimezone($displayTimezone))
+                                <time datetime="{{ $acknowledgedAtLocal->toIso8601String() }}">{{ $acknowledgedAtLocal->format('M j, Y g:i:s A') }} {{ $displayTimezone }} (UTC{{ $acknowledgedAtLocal->format('P') }})</time>
                             @else
                                 None recorded yet
                             @endif
@@ -82,7 +84,8 @@
                                     @case('busy') Not started; another pass held the lock @break
                                     @default Failed; pending records remain on this node
                                 @endswitch
-                                at {{ $event['lastSyncRun']['recordedAt']->format('Y-m-d H:i:s \U\T\C') }}
+                                @php($syncRunAtLocal = $event['lastSyncRun']['recordedAt']->setTimezone($displayTimezone))
+                                at <time datetime="{{ $syncRunAtLocal->toIso8601String() }}">{{ $syncRunAtLocal->format('M j, Y g:i:s A') }} {{ $displayTimezone }} (UTC{{ $syncRunAtLocal->format('P') }})</time>
                             @else
                                 No result recorded yet
                             @endif

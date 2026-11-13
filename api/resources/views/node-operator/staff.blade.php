@@ -1,6 +1,7 @@
 @extends('layouts.node-operator', ['title' => 'Staff and scanners'])
 
 @section('content')
+    @php($displayTimezone = config('ingress.display_timezone', 'Asia/Manila'))
     <section class="card">
         <div class="topline">
             <div>
@@ -39,7 +40,8 @@
         @forelse ($events as $event)
             <section class="status" id="event-{{ $event['id'] }}">
                 <strong>{{ $event['title'] }}</strong>
-                <p>Starts {{ $event['starts_at'] }}</p>
+                @php($startsAtLocal = \Carbon\CarbonImmutable::parse($event['starts_at'])->setTimezone($displayTimezone))
+                <p>Starts <time datetime="{{ $startsAtLocal->toIso8601String() }}">{{ $startsAtLocal->format('M j, Y g:i A') }} {{ $displayTimezone }} (UTC{{ $startsAtLocal->format('P') }})</time></p>
 
                 @foreach ($event['staff'] as $staff)
                     <article class="staff-row" id="staff-{{ $event['id'] }}-{{ $staff['id'] }}">

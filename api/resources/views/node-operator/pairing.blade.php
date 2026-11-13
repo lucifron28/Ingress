@@ -12,7 +12,11 @@
             <img id="pairing-qr" src="{{ $qrDataUri }}" alt="Temporary one-use scanner pairing QR code" width="360" height="360" decoding="sync">
         </div>
 
-        <p>Expires at <time datetime="{{ $expiresAt }}">{{ \Carbon\Carbon::parse($expiresAt)->utc()->format('Y-m-d H:i:s') }} UTC</time>. Remaining time: <strong data-countdown data-seconds="{{ $secondsRemaining }}"></strong>.</p>
+        @php
+            $displayTimezone = config('ingress.display_timezone', 'Asia/Manila');
+            $expiresAtLocal = \Carbon\CarbonImmutable::parse($expiresAt)->setTimezone($displayTimezone);
+        @endphp
+        <p>Expires at <time datetime="{{ $expiresAtLocal->toIso8601String() }}">{{ $expiresAtLocal->format('M j, Y g:i:s A') }} {{ $displayTimezone }} (UTC{{ $expiresAtLocal->format('P') }})</time>. Remaining time: <strong data-countdown data-seconds="{{ $secondsRemaining }}"></strong>.</p>
         <p>The node enforces the expiry and one-use limit. The phone must show the same node identity and address before staff confirms pairing.</p>
         @if (str_starts_with($nodeApiUrl, 'http://'))
             <p>This LAN-demo pairing uses unencrypted HTTP on the private venue network. Only use it on an isolated network controlled by the operator.</p>

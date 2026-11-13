@@ -12,7 +12,9 @@ use App\Actions\ReceiveSnapshot;
 use App\Actions\SnapshotEnvelope;
 use App\Models\NodeOperator;
 use App\Support\NodeOperatorOperationsStatus;
+use App\Support\NodeSyncRunStatus;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -110,6 +112,31 @@ class NodeAdmissionTest extends TestCase
         $this->scan('', $this->gateId)->assertOk()->assertJsonPath('status', 'admitted');
         $this->scan('', $this->gateId, 'scan-2')->assertStatus(409)->assertJsonPath('status', 'already_admitted');
         $this->assertDatabaseCount('admissions', 1);
+    }
+
+    public function test_operator_dashboard_formats_sync_timestamps_in_the_configured_venue_timezone(): void
+    {
+        config([
+            'ingress.display_timezone' => 'Asia/Manila',
+            'ingress.cloud_sync_url' => null,
+            'ingress.node_sync_key' => null,
+        ]);
+        Carbon::setTestNow(Carbon::parse('2026-11-14 12:00:00 UTC'));
+
+        try {
+            app(ActivateEventAuthority::class)->execute($this->grant);
+            app(NodeSyncRunStatus::class)->record($this->eventId, 'succeeded');
+
+            $html = view('node-operator.dashboard', [
+                'operator' => NodeOperator::factory()->create(),
+                'operations' => app(NodeOperatorOperationsStatus::class)->dashboard(),
+            ])->render();
+
+            $this->assertStringContainsString('Nov 14, 2026 8:00:00 PM Asia/Manila (UTC+08:00)', $html);
+            $this->assertStringNotContainsString('2026-11-14 12:00:00 UTC', $html);
+        } finally {
+            Carbon::setTestNow();
+        }
     }
 
     public function test_local_demo_marker_requires_demo_mode_and_keeps_admission_checks(): void

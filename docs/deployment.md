@@ -240,6 +240,7 @@ Set the values in `node-compose.env`:
 | `INGRESS_NODE_ID` | The exact node ID registered in the cloud |
 | `INGRESS_CLOUD_SYNC_URL` | `https://ingress-pp2u.onrender.com/api/v1` |
 | `INGRESS_AUTHORITY_PUBLIC_KEY` | The cloud's Base64 Ed25519 public key; never the private key |
+| `INGRESS_DISPLAY_TIMEZONE` | The venue's PHP timezone identifier, such as `Asia/Manila`; affects displayed times only |
 | `INGRESS_NODE_BIND_ADDRESS` | The Windows Ethernet or Wi-Fi IPv4 address reserved for this node |
 | `INGRESS_NODE_HTTPS_PORT` | `443` unless the venue has an approved alternate port |
 | `INGRESS_OPERATOR_PORT` | `8444`; leave the Compose loopback binding intact |
