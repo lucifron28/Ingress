@@ -30,7 +30,11 @@ class RuntimeBoundaryTest extends TestCase
     {
         config(['ingress.mode' => 'cloud']);
         $event = $this->event();
-        $student = User::factory()->create(['role' => User::ROLE_STUDENT]);
+        $student = User::factory()->create([
+            'role' => User::ROLE_STUDENT,
+            'firebase_uid' => 'firebase-runtime-boundary-student',
+            'email_verified_at' => now(),
+        ]);
         $staff = User::factory()->create(['role' => User::ROLE_STAFF]);
 
         $this->actingAs($student)->postJson("/api/v1/events/{$event->id}/registration")->assertCreated();
@@ -43,7 +47,11 @@ class RuntimeBoundaryTest extends TestCase
     {
         config(['ingress.mode' => 'node', 'ingress.node_id' => 'node-1']);
         $event = $this->event();
-        $student = User::factory()->create(['role' => User::ROLE_STUDENT]);
+        $student = User::factory()->create([
+            'role' => User::ROLE_STUDENT,
+            'firebase_uid' => 'firebase-runtime-boundary-node-student',
+            'email_verified_at' => now(),
+        ]);
         $organizer = User::findOrFail($event->organizer_id);
 
         $this->actingAs($student)->postJson("/api/v1/events/{$event->id}/registration")->assertStatus(503);

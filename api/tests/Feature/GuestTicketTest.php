@@ -143,9 +143,19 @@ class GuestTicketTest extends TestCase
         $guest = ['guest_name' => 'Guest', 'guest_email' => 'guest@example.test', 'attendee_type' => 'guest'];
         $this->actingAs($this->owner)->post("/organizer/events/{$this->event->id}/guests", $guest)->assertRedirect();
         $this->post("/organizer/events/{$this->event->id}/guests", $guest)->assertSessionHasErrors('guest');
-        $sameEmail = User::factory()->create(['role' => User::ROLE_STUDENT, 'email' => 'guest@example.test']);
+        $sameEmail = User::factory()->create([
+            'role' => User::ROLE_STUDENT,
+            'email' => 'guest@example.test',
+            'firebase_uid' => 'firebase-guest-email-student',
+            'email_verified_at' => now(),
+        ]);
         $this->actingAs($sameEmail)->postJson("/api/v1/events/{$this->event->id}/registration")->assertCreated();
-        $student = User::factory()->create(['role' => User::ROLE_STUDENT, 'email' => 'student@example.test']);
+        $student = User::factory()->create([
+            'role' => User::ROLE_STUDENT,
+            'email' => 'student@example.test',
+            'firebase_uid' => 'firebase-guest-test-student',
+            'email_verified_at' => now(),
+        ]);
         $this->actingAs($student)->postJson("/api/v1/events/{$this->event->id}/registration")->assertCreated();
         $this->actingAs($this->owner)->post("/organizer/events/{$this->event->id}/guests", [
             'guest_name' => 'Duplicate', 'guest_email' => 'STUDENT@example.test', 'attendee_type' => 'alumni',

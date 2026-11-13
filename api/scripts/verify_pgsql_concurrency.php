@@ -1087,12 +1087,14 @@ $transferRaceEvent = Event::create([
 ]);
 $transferSender = User::create([
     'name' => 'Transfer Race Sender', 'email' => "transfer.sender.{$suffix}@mseuf.edu.ph",
-    'student_id' => "TRS-{$suffix}", 'role' => User::ROLE_STUDENT, 'email_verified_at' => now(),
+    'student_id' => "TRS-{$suffix}", 'role' => User::ROLE_STUDENT,
+    'firebase_uid' => "firebase-transfer-sender-{$suffix}", 'email_verified_at' => now(),
     'password' => Hash::make('password'),
 ]);
 $transferRecipient = User::create([
     'name' => 'Transfer Race Recipient', 'email' => "transfer.recipient.{$suffix}@mseuf.edu.ph",
-    'student_id' => "TRR-{$suffix}", 'role' => User::ROLE_STUDENT, 'email_verified_at' => now(),
+    'student_id' => "TRR-{$suffix}", 'role' => User::ROLE_STUDENT,
+    'firebase_uid' => "firebase-transfer-recipient-{$suffix}", 'email_verified_at' => now(),
     'password' => Hash::make('password'),
 ]);
 $transferTicket = (new RegisterForEvent)->execute($transferSender, $transferRaceEvent->id)['ticket'];
@@ -1151,15 +1153,15 @@ $acceptedBeforeSnapshotEvent = Event::create([
 $acceptRaceSender = User::create([
     'name' => 'Acceptance Race Sender', 'email' => "accept.sender.{$suffix}@mseuf.edu.ph",
     'student_id' => "ARS-{$suffix}", 'role' => User::ROLE_STUDENT,
+    'firebase_uid' => "firebase-accept-sender-{$suffix}", 'email_verified_at' => now(),
     'password' => Hash::make('password'),
 ]);
 $acceptRaceRecipient = User::create([
     'name' => 'Acceptance Race Recipient', 'email' => "accept.recipient.{$suffix}@mseuf.edu.ph",
     'student_id' => "ARR-{$suffix}", 'role' => User::ROLE_STUDENT,
+    'firebase_uid' => "firebase-accept-recipient-{$suffix}", 'email_verified_at' => now(),
     'password' => Hash::make('password'),
 ]);
-$acceptRaceSender->forceFill(['email_verified_at' => now()])->save();
-$acceptRaceRecipient->forceFill(['email_verified_at' => now()])->save();
 $acceptRaceTicket = (new RegisterForEvent)->execute($acceptRaceSender, $acceptedBeforeSnapshotEvent->id)['ticket'];
 $acceptedBeforeSnapshotEvent->update(['registration_closed_at' => now()]);
 $acceptRaceTransfer = TicketTransfer::create([
