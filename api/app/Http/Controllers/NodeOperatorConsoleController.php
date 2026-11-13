@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\NodeOperator;
 use App\Support\NodeOperatorAuditRecorder;
 use App\Support\NodeOperatorOperationsStatus;
 use App\Support\NodeSyncRunStatus;
@@ -16,6 +17,56 @@ use Throwable;
 
 class NodeOperatorConsoleController extends Controller
 {
+    private function requireLocalDemo(Request $request): void
+    {
+        $peer = $request->server('REMOTE_ADDR');
+        $gateway = config('ingress.operator_gateway');
+        $localPeer = in_array($peer, ['127.0.0.1', '::1'], true)
+            || (is_string($gateway) && filter_var($gateway, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)
+                && $peer === $gateway && config('ingress.operator_allowed_cidrs') === [$gateway.'/32']);
+        abort_unless(config('ingress.mode') === 'node' && config('ingress.lan_demo') === true
+            && $localPeer, 404);
+    }
+
+    public function showSetup(Request $request): View
+    {
+        $this->requireLocalDemo($request);
+        abort_if(NodeOperator::query()->exists(), 404);
+
+        return view('node-operator.setup');
+    }
+
+    public function createFirstOperator(Request $request): RedirectResponse
+    {
+        $this->requireLocalDemo($request);
+        $request->merge([
+            'name' => trim((string) $request->input('name')),
+            'email' => mb_strtolower(trim((string) $request->input('email'))),
+        ]);
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:100'],
+            'email' => ['required', 'string', 'email', 'max:255'],
+            'password' => ['required', 'string', 'min:12', 'max:72', 'confirmed'],
+        ]);
+        if (strlen($data['password']) > 72) {
+            return back()->withErrors(['password' => 'The password must be at most 72 bytes.'])->withInput($request->only('name', 'email'));
+        }
+        DB::transaction(function () use ($data): void {
+            $identity = DB::table('runtime_identity')->where('id', 1)->lockForUpdate()->first();
+            abort_unless($identity && $identity->mode === 'node' && $identity->identity === config('ingress.node_id'), 503);
+            abort_if(NodeOperator::query()->exists(), 409);
+            NodeOperator::query()->create([
+                'name' => trim($data['name']),
+                'email' => mb_strtolower(trim($data['email'])),
+                'password' => $data['password'],
+                'is_active' => true,
+            ]);
+        });
+
+        return redirect()->to(route('node.operator.login', absolute: false))
+            ->with('status', 'Operator created. Sign in to continue.');
+    }
+
     public function showLogin(): View|RedirectResponse
     {
         $guard = Auth::guard('node_operator');
