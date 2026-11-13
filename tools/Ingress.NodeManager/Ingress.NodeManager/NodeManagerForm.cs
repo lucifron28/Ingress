@@ -122,7 +122,7 @@ public sealed class NodeManagerForm : Form
             Margin = Padding.Empty,
             Padding = Padding.Empty,
         };
-        main.RowStyles.Add(new RowStyle(SizeType.Absolute, 100));
+        main.RowStyles.Add(new RowStyle(SizeType.Absolute, 116));
         main.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         layout.Controls.Add(main, 1, 0);
 
@@ -265,7 +265,7 @@ public sealed class NodeManagerForm : Form
         };
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 62));
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 38));
-        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
+        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
         panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
         var heading = new FlowLayoutPanel
@@ -300,7 +300,7 @@ public sealed class NodeManagerForm : Form
 
         _activityLabel.AutoSize = true;
         _activityLabel.Font = new Font("Segoe UI", 8.4F, FontStyle.Bold);
-        _activityLabel.ForeColor = _theme.Accent;
+        _activityLabel.ForeColor = _theme.AccentText;
         _activityLabel.Margin = Padding.Empty;
         _activityLabel.Visible = false;
         var meta = new FlowLayoutPanel
@@ -990,7 +990,7 @@ public sealed class NodeManagerForm : Form
         var badge = new Label
         {
             Text = number,
-            ForeColor = _theme.Accent,
+            ForeColor = _theme.AccentText,
             BackColor = _theme.SurfaceMuted,
             Font = new Font("Segoe UI", 9, FontStyle.Bold),
             TextAlign = ContentAlignment.MiddleCenter,
@@ -1008,7 +1008,7 @@ public sealed class NodeManagerForm : Form
     private void AddPageHeader(Control root, string eyebrow, string title, string subtitle)
     {
         var header = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Dock = DockStyle.Top, BackColor = Color.Transparent, Margin = new Padding(0, 0, 0, 10) };
-        header.Controls.Add(MakeLabel(eyebrow, 8.1F, FontStyle.Bold, _theme.Accent));
+        header.Controls.Add(MakeLabel(eyebrow, 8.1F, FontStyle.Bold, _theme.AccentText));
         header.Controls.Add(MakeLabel(title, 21, FontStyle.Bold, _theme.Ink));
         var line = MakeLabel(subtitle, 9.5F, FontStyle.Regular, _theme.Muted);
         line.AutoSize = true;
