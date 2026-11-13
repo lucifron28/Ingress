@@ -155,7 +155,7 @@ Create a synthetic organizer, staff member, or student and seed only the four re
 powershell -ExecutionPolicy Bypass -File .\api\scripts\provision_render_staging_account.ps1
 ```
 
-The script asks for the role and requires typing `STAGING` before connecting. It seeds `VenueSeeder`, then runs `ingress:provision-staging-account`. Use an email ending in `@example.test`; students also require an ID beginning with `STAGE-`. The password is entered through hidden prompts, hashed, and never printed. Synthetic students remain unverified. Repeating the same role and email leaves the existing account unchanged. The tool cannot create administrators; use `create_render_admin.ps1` for the first admin. After creating the organizer, sign in at `/login` and create events with synthetic titles, schedules, attendees, and gate names.
+Press Enter to use the current Render URL. The script reuses the connection settings while you create multiple accounts; enter `done` when finished. It requires typing `STAGING` before connecting. It seeds `VenueSeeder`, then runs `ingress:provision-staging-account`. Use an email ending in `@example.test`; students also require an ID beginning with `STAGE-`. The password is entered through hidden prompts, hashed, and never printed. Synthetic students remain unverified. Repeating the same role and email leaves the existing account unchanged. The tool cannot create administrators; use `create_render_admin.ps1` for the first admin. After creating the organizer, sign in at `/login` and create events with synthetic titles, schedules, attendees, and gate names.
 
 Register a node from the same trusted Windows checkout:
 

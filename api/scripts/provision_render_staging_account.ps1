@@ -21,16 +21,12 @@ function Set-SecretEnvironmentVariable {
 }
 
 $exitCode = 1
-$role = (Read-Host 'Synthetic staging role: organizer, staff, or student').Trim().ToLowerInvariant()
-if ($role -notin @('organizer', 'staff', 'student')) {
-    throw 'Choose organizer, staff, or student.'
-}
-
 if ((Read-Host 'Type STAGING to confirm this will add a synthetic account to the Neon database') -cne 'STAGING') {
     throw 'Staging account creation was not confirmed.'
 }
 
-$origin = Read-Host 'Render service HTTPS origin, for example https://ingress-pp2u.onrender.com'
+$origin = Read-Host 'Render service HTTPS origin [https://ingress-pp2u.onrender.com]'
+if ([string]::IsNullOrWhiteSpace($origin)) { $origin = 'https://ingress-pp2u.onrender.com' }
 $caBundle = Read-Host 'Path to a trusted PEM CA bundle on this computer'
 $configCache = Join-Path $env:TEMP ('ingress-operator-' + [guid]::NewGuid().ToString('N') + '.php')
 
@@ -60,8 +56,18 @@ try {
             throw 'Reference venue setup failed.'
         }
 
-        php artisan ingress:provision-staging-account $role --confirm-staging
-        $exitCode = $LASTEXITCODE
+        $exitCode = 0
+        do {
+            $role = (Read-Host 'Synthetic role: organizer, staff, student, or done').Trim().ToLowerInvariant()
+            if ($role -eq 'done') { break }
+            if ($role -notin @('organizer', 'staff', 'student')) {
+                Write-Host 'Choose organizer, staff, student, or done.'
+                continue
+            }
+            php artisan ingress:provision-staging-account $role --confirm-staging
+            $exitCode = $LASTEXITCODE
+            if ($exitCode -ne 0) { break }
+        } while ($true)
     } finally {
         Pop-Location
     }
