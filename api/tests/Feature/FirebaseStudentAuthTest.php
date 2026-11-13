@@ -103,6 +103,29 @@ class FirebaseStudentAuthTest extends TestCase
         $this->assertAuthenticatedAs($student, 'web');
     }
 
+    public function test_verified_firebase_identity_without_disabled_field_can_sign_in(): void
+    {
+        Http::preventStrayRequests();
+        Http::fake([
+            'identitytoolkit.googleapis.com/v1/accounts:lookup*' => Http::response([
+                'users' => [[
+                    'localId' => 'firebase-student-omitted-disabled',
+                    'email' => 'verified.demo@gmail.com',
+                    'emailVerified' => true,
+                    'providerUserInfo' => [['providerId' => 'password']],
+                ]],
+            ]),
+        ]);
+
+        $this->postJson('/student/session', ['id_token' => 'firebase-id-token'])
+            ->assertOk()
+            ->assertJsonPath('redirect', route('student.dashboard', absolute: false));
+
+        $student = User::where('email', 'verified.demo@gmail.com')->firstOrFail();
+        $this->assertSame('firebase-student-omitted-disabled', $student->firebase_uid);
+        $this->assertAuthenticatedAs($student, 'web');
+    }
+
     public function test_existing_student_can_link_only_the_matching_verified_firebase_identity(): void
     {
         $student = User::factory()->create([
@@ -219,15 +242,9 @@ class FirebaseStudentAuthTest extends TestCase
                 'emailVerified' => true,
                 'disabled' => false,
                 'providerUserInfo' => [['providerId' => 'google.com']],
-            ]]])
-            ->push(['users' => [[
-                'localId' => 'unknown-status-user',
-                'email' => 'student@student.mseuf.edu.ph',
-                'emailVerified' => true,
-                'providerUserInfo' => [['providerId' => 'password']],
             ]]]);
 
-        for ($attempt = 0; $attempt < 5; $attempt++) {
+        for ($attempt = 0; $attempt < 4; $attempt++) {
             $this->postJson('/student/session', ['id_token' => 'firebase-id-token'])
                 ->assertUnauthorized()
                 ->assertDontSee('firebase-id-token');

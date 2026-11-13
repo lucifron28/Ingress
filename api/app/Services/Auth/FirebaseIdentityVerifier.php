@@ -82,8 +82,8 @@ class FirebaseIdentityVerifier
         if (($firebaseUser['emailVerified'] ?? false) !== true) {
             $rejectionReasons[] = 'email_not_verified';
         }
-        if (($firebaseUser['disabled'] ?? null) !== false) {
-            $rejectionReasons[] = 'account_disabled_or_status_missing';
+        if (array_key_exists('disabled', $firebaseUser) && $firebaseUser['disabled'] !== false) {
+            $rejectionReasons[] = 'account_disabled';
         }
         if (! $isPasswordAccount) {
             $rejectionReasons[] = 'email_password_provider_missing';
