@@ -160,7 +160,7 @@ class NodeDockerDeploymentConfiguration
             && in_array($parts['path'] ?? '', ['', '/'], true);
     }
 
-    private static function isLanDemoOrigin(mixed $url, mixed $bindAddress): bool
+    public static function isLanDemoOrigin(mixed $url, mixed $bindAddress): bool
     {
         if (! is_string($url) || filter_var($url, FILTER_VALIDATE_URL) === false
             || ! is_string($bindAddress) || ! self::isPrivateIpv4($bindAddress)) {
