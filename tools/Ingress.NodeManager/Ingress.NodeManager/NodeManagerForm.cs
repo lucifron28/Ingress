@@ -122,7 +122,7 @@ public sealed class NodeManagerForm : Form
             Margin = Padding.Empty,
             Padding = Padding.Empty,
         };
-        main.RowStyles.Add(new RowStyle(SizeType.Absolute, 92));
+        main.RowStyles.Add(new RowStyle(SizeType.Absolute, 104));
         main.RowStyles.Add(new RowStyle(SizeType.Absolute, 3));
         main.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         layout.Controls.Add(main, 1, 0);
@@ -132,6 +132,8 @@ public sealed class NodeManagerForm : Form
         _progress.Dock = DockStyle.Fill;
         _progress.Style = ProgressBarStyle.Marquee;
         _progress.MarqueeAnimationSpeed = 24;
+        _progress.BackColor = _theme.SurfaceMuted;
+        _progress.ForeColor = _theme.Accent;
         _progress.Visible = false;
         main.Controls.Add(_progress, 0, 1);
 
@@ -159,13 +161,11 @@ public sealed class NodeManagerForm : Form
         _sidebar.Controls.Add(stack);
 
         var brand = new Panel { Dock = DockStyle.Fill, BackColor = _theme.Sidebar, Margin = Padding.Empty };
-        var mark = new Label
+        var mark = new PictureBox
         {
-            Text = "I",
-            TextAlign = ContentAlignment.MiddleCenter,
-            Font = new Font("Segoe UI", 20, FontStyle.Bold),
-            ForeColor = Color.White,
-            BackColor = _theme.Accent,
+            Image = LoadBrandMark(),
+            SizeMode = PictureBoxSizeMode.Zoom,
+            BackColor = Color.Transparent,
             Size = new Size(42, 42),
             Location = new Point(0, 4),
         };
@@ -173,7 +173,7 @@ public sealed class NodeManagerForm : Form
         {
             Text = "INGRESS",
             Font = new Font("Segoe UI", 13, FontStyle.Bold),
-            ForeColor = Color.White,
+            ForeColor = _theme.Accent,
             AutoSize = true,
             Location = new Point(54, 6),
         };
@@ -181,7 +181,7 @@ public sealed class NodeManagerForm : Form
         {
             Text = "NODE MANAGER",
             Font = new Font("Segoe UI", 8.2F, FontStyle.Bold),
-            ForeColor = Color.FromArgb(164, 179, 203),
+            ForeColor = _theme.Warning,
             AutoSize = true,
             Location = new Point(55, 30),
         };
@@ -194,7 +194,7 @@ public sealed class NodeManagerForm : Form
         {
             Text = "EVENT NODE",
             Dock = DockStyle.Fill,
-            ForeColor = Color.FromArgb(139, 157, 185),
+            ForeColor = _theme.Warning,
             Font = new Font("Segoe UI", 8.2F, FontStyle.Bold),
             TextAlign = ContentAlignment.MiddleLeft,
             Padding = new Padding(2, 0, 0, 8),
@@ -222,12 +222,19 @@ public sealed class NodeManagerForm : Form
         {
             Text = "Local operator tool\nPowerShell CLI remains available",
             Dock = DockStyle.Fill,
-            ForeColor = Color.FromArgb(148, 163, 184),
+            ForeColor = _theme.Muted,
             Font = new Font("Segoe UI", 8.2F),
             TextAlign = ContentAlignment.MiddleLeft,
             Padding = new Padding(2, 0, 0, 0),
         };
         stack.Controls.Add(footer, 0, 3);
+    }
+
+    private static Image LoadBrandMark()
+    {
+        var markPath = Path.Combine(AppContext.BaseDirectory, "assets", "ingress-mark.png");
+        using var source = Image.FromFile(markPath);
+        return new Bitmap(source);
     }
 
     private void AddNavigation(Control parent, ManagerPage page, string glyph, string text)
@@ -247,7 +254,9 @@ public sealed class NodeManagerForm : Form
             AccessibleName = text,
         };
         button.FlatAppearance.BorderSize = 0;
-        button.FlatAppearance.MouseOverBackColor = Color.FromArgb(30, 50, 78);
+        button.FlatAppearance.MouseOverBackColor = _theme.SurfaceMuted;
+        button.MouseEnter += (_, _) => button.ForeColor = _theme.AccentHover;
+        button.MouseLeave += (_, _) => button.ForeColor = page == _currentPage ? _theme.Accent : _theme.SidebarText;
         button.Click += (_, _) => ShowPage(page);
         _navigation.Add(page, button);
         parent.Controls.Add(button);
@@ -259,14 +268,14 @@ public sealed class NodeManagerForm : Form
         {
             Dock = DockStyle.Fill,
             BackColor = _theme.Surface,
-            Padding = new Padding(24, 4, 22, 4),
+            Padding = new Padding(24, 6, 22, 4),
             Margin = Padding.Empty,
             ColumnCount = 2,
             RowCount = 2,
         };
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 62));
         panel.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 38));
-        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
+        panel.RowStyles.Add(new RowStyle(SizeType.Absolute, 52));
         panel.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
         var heading = new FlowLayoutPanel
@@ -291,13 +300,22 @@ public sealed class NodeManagerForm : Form
         _lastUpdated.Font = new Font("Segoe UI", 8.5F);
         _lastUpdated.Margin = Padding.Empty;
 
-        _headerStatus.AutoSize = false;
-        _headerStatus.Dock = DockStyle.Fill;
-        _headerStatus.TextAlign = ContentAlignment.MiddleRight;
+        var statusContainer = new FlowLayoutPanel
+        {
+            Dock = DockStyle.Fill,
+            FlowDirection = FlowDirection.RightToLeft,
+            WrapContents = false,
+            BackColor = Color.Transparent,
+            Margin = Padding.Empty,
+            Padding = new Padding(0, 3, 0, 3),
+        };
+        _headerStatus.AutoSize = true;
+        _headerStatus.TextAlign = ContentAlignment.MiddleCenter;
         _headerStatus.Font = new Font("Segoe UI", 8.8F, FontStyle.Bold);
-        _headerStatus.Padding = new Padding(8, 2, 0, 2);
+        _headerStatus.Padding = new Padding(10, 5, 10, 5);
         _headerStatus.Margin = Padding.Empty;
-        panel.Controls.Add(_headerStatus, 1, 0);
+        statusContainer.Controls.Add(_headerStatus);
+        panel.Controls.Add(statusContainer, 1, 0);
 
         _activityLabel.AutoSize = true;
         _activityLabel.Font = new Font("Segoe UI", 8.4F, FontStyle.Bold);
@@ -348,10 +366,10 @@ public sealed class NodeManagerForm : Form
         foreach (var pair in _navigation)
         {
             var selected = pair.Key == page;
-            pair.Value.BackColor = selected ? Color.FromArgb(37, 59, 89) : _theme.Sidebar;
-            pair.Value.ForeColor = selected ? Color.White : _theme.SidebarText;
-            pair.Value.FlatAppearance.BorderSize = selected ? 2 : 0;
-            pair.Value.FlatAppearance.BorderColor = _theme.Accent;
+            pair.Value.BackColor = selected ? _theme.SurfaceMuted : _theme.Sidebar;
+            pair.Value.ForeColor = selected ? _theme.Accent : _theme.SidebarText;
+            pair.Value.FlatAppearance.BorderSize = selected ? 1 : 0;
+            pair.Value.FlatAppearance.BorderColor = _theme.Warning;
         }
 
         RenderCurrentPage();
@@ -873,6 +891,8 @@ public sealed class NodeManagerForm : Form
         };
         list.ColumnHeadersDefaultCellStyle.BackColor = _theme.SurfaceMuted;
         list.ColumnHeadersDefaultCellStyle.ForeColor = _theme.Muted;
+        list.ColumnHeadersDefaultCellStyle.SelectionBackColor = _theme.SurfaceMuted;
+        list.ColumnHeadersDefaultCellStyle.SelectionForeColor = _theme.Accent;
         list.ColumnHeadersDefaultCellStyle.Font = new Font("Segoe UI", 8.5F, FontStyle.Bold);
         list.DefaultCellStyle.BackColor = _theme.Surface;
         list.DefaultCellStyle.ForeColor = _theme.Ink;
@@ -1579,7 +1599,7 @@ internal sealed class LogViewerForm : Form
             ReadOnly = true,
             DetectUrls = false,
             WordWrap = false,
-            BackColor = theme.IsDark ? Color.FromArgb(18, 22, 31) : Color.FromArgb(250, 251, 253),
+            BackColor = theme.Surface,
             ForeColor = theme.Ink,
             Font = new Font("Consolas", 9F),
             BorderStyle = BorderStyle.None,

@@ -57,6 +57,9 @@ jobs:
           if (-not (Test-Path (Join-Path $publishPath 'scripts/IngressNetworkManager.psm1'))) {
             throw 'The packaged PowerShell Network Manager module is missing.'
           }
+          if (-not (Test-Path (Join-Path $publishPath 'assets/ingress-mark.png'))) {
+            throw 'The packaged Ingress brand mark is missing.'
+          }
 
   backend-tests:
     name: Backend Tests (PHP 8.4)
