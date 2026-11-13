@@ -6,7 +6,7 @@
         {{ $errors->first('event') ?: ($errors->first('registration') ?: ($errors->first('transfer') ?: ($errors->first('node_id') ?: $errors->first('receipt')))) }}
     </div>
 @endif
-<div style="margin-bottom: 2rem;">
+<div id="event-overview" class="event-anchor" style="margin-bottom: 2rem;">
     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem;">
         <div>
             <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
@@ -24,15 +24,15 @@
             <p style="color: var(--neutral-muted); font-size: 0.875rem;">Venue: <strong>{{ $event->venue->name }}</strong> &bull; Capacity: <strong class="mono">{{ $event->capacity }}</strong> &bull; Re-entry: <strong>{{ $event->re_entry_allowed ? 'Allowed' : 'Not allowed' }}</strong> &bull; Identity: <strong>{{ $event->identity_verification_level === 'id_check' ? 'Approved ID check' : 'Standard details' }}</strong></p>
         </div>
 
-        <div style="display: flex; gap: 0.5rem; align-items: center;">
-            <a href="{{ route('organizer.attendance', $event) }}" class="btn-primary" style="background-color: #1e293b; border-color: #0f172a;">
+        <div style="display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.5rem; align-items: center;">
+            <a href="{{ route('organizer.attendance', $event) }}" class="btn-primary">
                 Attendance View
             </a>
 
             @if ($event->isDraft())
                 <form method="POST" action="{{ route('organizer.events.publish', $event) }}" onsubmit="return confirm('Publish this event to make it visible to students?');">
                     @csrf
-                    <button type="submit" class="btn-primary" style="background-color: var(--state-success); border-color: #15803d;">
+                    <button type="submit" class="btn-primary">
                         Publish Event
                     </button>
                 </form>
@@ -43,11 +43,6 @@
                     <form method="POST" action="{{ route('organizer.events.snapshot.discard', $event) }}" onsubmit="return confirm('Discard this snapshot to change event details?');">
                         @csrf
                         <button type="submit" class="btn-secondary">Discard Snapshot</button>
-                    </form>
-                @elseif (! $event->snapshot_prepared_at)
-                    <form method="POST" action="{{ route('organizer.events.snapshot.prepare', $event) }}">
-                        @csrf
-                        <button type="submit" class="btn-secondary">Prepare Snapshot</button>
                     </form>
                 @endif
             @endif
@@ -77,9 +72,65 @@
     </div>
 </div>
 
-<div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem; margin-bottom: 2rem;">
+<nav class="organizer-event-nav" aria-label="Event sections">
+    <a href="#event-overview">Overview</a>
     @if (config('ingress.mode') === 'cloud' && auth()->user()->can('update', $event))
-        <section class="card" style="grid-column: 1 / -1;">
+        <a href="#ticket-categories">Tickets</a>
+    @endif
+    <a href="#gates-staff">Gates &amp; Staff</a>
+    @if (config('ingress.mode') === 'cloud' && auth()->user()->can('update', $event))
+        <a href="#node-handoff">Node Handoff</a>
+    @endif
+    <a href="{{ route('organizer.attendance', $event) }}">Attendance</a>
+</nav>
+
+@if (config('ingress.mode') === 'cloud')
+<section id="preparation" class="card event-preparation event-anchor">
+    <h2>Event preparation</h2>
+    <p>Check the event, tickets, gates, and scanner roster before starting the signed Node handoff. Preparing a snapshot locks event, ticket, gate, and staff changes.</p>
+    <ul class="event-readiness-grid">
+        <li class="event-readiness-item">
+            <span class="badge {{ $readiness['isPublished'] ? 'badge-success' : 'badge-warning' }}">{{ $readiness['isPublished'] ? 'Ready' : 'Action needed' }}</span>
+            <strong>Event publication</strong>
+            <p>{{ $readiness['isPublished'] ? 'Students can view this published event when registration is available.' : 'Publish the event after reviewing the schedule and ticket setup.' }}</p>
+        </li>
+        <li class="event-readiness-item">
+            <span class="badge {{ $readiness['activeTicketCategories'] > 0 ? 'badge-success' : 'badge-warning' }}">{{ $readiness['activeTicketCategories'] }} active</span>
+            <strong>Ticket categories</strong>
+            <p>{{ $readiness['activeTicketCategories'] > 0 ? 'Review price, capacity, and eligibility before registration.' : 'Add or activate a ticket category before opening registration.' }}</p>
+        </li>
+        <li class="event-readiness-item">
+            <span class="badge {{ $readiness['activeGates'] > 0 ? 'badge-success' : 'badge-warning' }}">{{ $readiness['activeGates'] }} active</span>
+            <strong>Gate access points</strong>
+            <p>{{ $readiness['activeGates'] > 0 ? 'Review the gates staff will select while scanning.' : 'No active gates configured. Add or activate a gate before preparing a scanner roster.' }}</p>
+        </li>
+        <li class="event-readiness-item">
+            <span class="badge {{ $readiness['scannerAssignments'] > 0 ? 'badge-success' : 'badge-warning' }}">{{ $readiness['scannerAssignments'] }} assigned</span>
+            <strong>Scanner staff</strong>
+            <p>{{ $readiness['scannerAssignments'] > 0 ? 'Confirm each staff member and gate assignment.' : 'No scanner staff assigned. Assign at least one before preparing the snapshot; staff assignments lock with the snapshot.' }}</p>
+        </li>
+        <li class="event-readiness-item">
+            <span class="badge {{ $readiness['registrationClosed'] ? 'badge-success' : 'badge-warning' }}">{{ $readiness['registrationClosed'] ? 'Closed' : 'Not closed' }}</span>
+            <strong>Registration</strong>
+            @if ($readiness['registrationClosed'])
+                <p>Registration has closed by organizer action or by its cutoff.</p>
+            @else
+                <p>Registration is not closed by organizer action or cutoff. The cutoff is {{ $event->registration_closes_at->format('M j, Y g:i A') }} UTC. Close registration early if the Node handoff must start sooner.</p>
+            @endif
+        </li>
+        <li class="event-readiness-item">
+            <span class="badge {{ $readiness['snapshotPrepared'] ? 'badge-success' : 'badge-neutral' }}">{{ $readiness['snapshotPrepared'] ? 'Prepared' : 'Not prepared' }}</span>
+            <strong>Node handoff</strong>
+            <p>{{ $readiness['handoffNextStep'] }}</p>
+        </li>
+    </ul>
+    <p class="event-next-action"><strong>Next step:</strong> {{ $readiness['nextAction'] }}</p>
+</section>
+@endif
+
+<div class="organizer-event-summary-grid" style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem; margin-bottom: 2rem;">
+    @if (config('ingress.mode') === 'cloud' && auth()->user()->can('update', $event))
+        <section id="ticket-categories" class="card event-anchor" style="grid-column: 1 / -1;">
             <h2>Ticket categories</h2>
             <p>Set each category's price, capacity, and student eligibility. Category details lock after the first registration to preserve ticket history.</p>
             <div class="notice" role="note" style="margin-bottom: 1rem;">
@@ -161,47 +212,57 @@
             @endif
         </section>
     @endif
-    @if ($event->snapshot_prepared_at)
-        <p class="card" style="grid-column: 1 / -1;">Snapshot prepared. Event changes are locked. Node admission requires an activated authority grant.</p>
-    @endif
-    @if (config('ingress.mode') === 'cloud' && $event->snapshot_prepared_at && auth()->user()->can('update', $event))
-        <div class="card" style="grid-column: 1 / -1;">
-            <h2>Send snapshot to Event Node</h2>
-            <p>Download the encrypted package and import it on the named node. Return the node's receipts here. Activate the authority grant on the node before admission.</p>
-            @if ($receiptNodeId)
-                <p>Received by node {{ $receiptNodeId }}.</p>
-            @endif
-            @if ($importReceiptNodeId)
-                <p>Import confirmed by node {{ $importReceiptNodeId }}.</p>
-            @endif
-            @if ($authority)
-                <p>Authority was transferred to node {{ $authority->node_id }}. Cloud cancellation and snapshot changes are locked. Activate the grant on the node before scanning.</p>
-            @endif
-            @if ($importReceiptNodeId || $authority)
-                <form method="POST" action="{{ route('organizer.events.authority.transfer', $event) }}" onsubmit="return confirm('This locks cloud cancellation and snapshot changes. Recovery is not available. Activate this grant on the node before scanning. Continue?');">
+    @if (config('ingress.mode') === 'cloud' && auth()->user()->can('update', $event))
+        <section id="node-handoff" class="card event-handoff event-anchor" style="grid-column: 1 / -1;">
+            <h2>Node Handoff</h2>
+            <p>{{ $readiness['handoffNextStep'] }}</p>
+            @if (! $event->snapshot_prepared_at)
+                <p>Preparing a snapshot freezes event, ticket, gate, and staff changes. The Node must import it and return receipts before authority can be transferred.</p>
+                <form method="POST" action="{{ route('organizer.events.snapshot.prepare', $event) }}">
                     @csrf
-                    <button type="submit" class="btn-secondary">{{ $authority ? 'Download Authority Grant Again' : 'Transfer Authority and Download Grant' }}</button>
+                    <button type="submit" class="btn-primary" @disabled($readiness['snapshotPreparationBlockReason'] !== null)>Prepare Snapshot</button>
+                </form>
+                @if ($readiness['snapshotPreparationBlockReason'])
+                    <p class="event-next-action" role="status"><strong>Snapshot preparation unavailable:</strong> {{ $readiness['snapshotPreparationBlockReason'] }}</p>
+                @endif
+            @else
+                <p>Snapshot prepared. Event changes are locked. Node admission requires an activated authority grant.</p>
+                <p>Download the encrypted package and import it on the named node. Return the node's receipts here. Activate the authority grant on the node before admission.</p>
+                @if ($receiptNodeId)
+                    <p>Received by node {{ $receiptNodeId }}.</p>
+                @endif
+                @if ($importReceiptNodeId)
+                    <p>Import confirmed by node {{ $importReceiptNodeId }}.</p>
+                @endif
+                @if ($authority)
+                    <p>Authority was transferred to node {{ $authority->node_id }}. Cloud cancellation and snapshot changes are locked. Activate the grant on the node before scanning.</p>
+                @endif
+                @if ($importReceiptNodeId || $authority)
+                    <form method="POST" action="{{ route('organizer.events.authority.transfer', $event) }}" onsubmit="return confirm('This locks cloud cancellation and snapshot changes. Recovery is not available. Activate this grant on the node before scanning. Continue?');">
+                        @csrf
+                        <button type="submit" class="btn-secondary">{{ $authority ? 'Download Authority Grant Again' : 'Transfer Authority and Download Grant' }}</button>
+                    </form>
+                @endif
+                <form method="POST" action="{{ route('organizer.events.snapshot.export', $event) }}">
+                    @csrf
+                    <label for="node-id">Node ID</label>
+                    <input id="node-id" name="node_id" required maxlength="64" class="form-input">
+                    <button type="submit" class="btn-secondary">Download Package</button>
+                </form>
+                <form method="POST" action="{{ route('organizer.events.snapshot.receipt', $event) }}" style="margin-top: 1rem;">
+                    @csrf
+                    <label for="snapshot-receipt">Node receipt</label>
+                    <textarea id="snapshot-receipt" name="receipt" required maxlength="4096" class="form-input"></textarea>
+                    <button type="submit" class="btn-secondary">Confirm Receipt</button>
+                </form>
+                <form method="POST" action="{{ route('organizer.events.snapshot.import-receipt', $event) }}" style="margin-top: 1rem;">
+                    @csrf
+                    <label for="import-receipt">Node import receipt</label>
+                    <textarea id="import-receipt" name="receipt" required maxlength="4096" class="form-input"></textarea>
+                    <button type="submit" class="btn-secondary">Confirm Import</button>
                 </form>
             @endif
-            <form method="POST" action="{{ route('organizer.events.snapshot.export', $event) }}">
-                @csrf
-                <label for="node-id">Node ID</label>
-                <input id="node-id" name="node_id" required maxlength="64" class="form-input">
-                <button type="submit" class="btn-secondary">Download Package</button>
-            </form>
-            <form method="POST" action="{{ route('organizer.events.snapshot.receipt', $event) }}" style="margin-top: 1rem;">
-                @csrf
-                <label for="snapshot-receipt">Node receipt</label>
-                <textarea id="snapshot-receipt" name="receipt" required maxlength="4096" class="form-input"></textarea>
-                <button type="submit" class="btn-secondary">Confirm Receipt</button>
-            </form>
-            <form method="POST" action="{{ route('organizer.events.snapshot.import-receipt', $event) }}" style="margin-top: 1rem;">
-                @csrf
-                <label for="import-receipt">Node import receipt</label>
-                <textarea id="import-receipt" name="receipt" required maxlength="4096" class="form-input"></textarea>
-                <button type="submit" class="btn-secondary">Confirm Import</button>
-            </form>
-        </div>
+        </section>
     @endif
     @if (config('ingress.mode') === 'cloud' && auth()->user()->can('update', $event))
         <section class="card" style="grid-column: 1 / -1;">
@@ -327,7 +388,7 @@
 </div>
 
 <!-- Multi-Gate Access Points & Staff Management -->
-<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+<div id="gates-staff" class="organizer-event-gates-grid event-anchor" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
     <!-- Access Points Card -->
     <div class="card">
         <h2 style="font-size: 1.1rem; font-weight: 600; color: var(--neutral-dark); margin-bottom: 1rem; border-bottom: 1px solid var(--neutral-border); padding-bottom: 0.5rem;">

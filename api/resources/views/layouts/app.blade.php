@@ -114,6 +114,62 @@
             padding: 1.25rem;
         }
 
+        .organizer-event-nav {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        .organizer-event-nav a {
+            padding: 0.45rem 0.8rem;
+            border: 1px solid var(--neutral-border);
+            border-bottom: 2px solid var(--mseuf-gold);
+            border-radius: 6px;
+            background: var(--surface-white);
+            color: var(--mseuf-maroon);
+            font-weight: 600;
+            text-decoration: none;
+        }
+        .organizer-event-nav a:hover {
+            background: #fff8e8;
+            border-color: var(--mseuf-gold);
+            color: var(--mseuf-maroon-dark);
+        }
+        .organizer-event-nav a:focus-visible {
+            outline: 3px solid var(--mseuf-gold);
+            outline-offset: 2px;
+        }
+        .event-anchor { scroll-margin-top: 1rem; }
+        .event-preparation { margin-bottom: 1.5rem; border-top: 4px solid var(--mseuf-gold); }
+        .event-readiness-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+            gap: 0.75rem;
+            margin: 1rem 0;
+            padding: 0;
+            list-style: none;
+        }
+        .event-readiness-item {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 0.45rem;
+            min-width: 0;
+            padding: 0.85rem;
+            border: 1px solid var(--neutral-border);
+            border-radius: 6px;
+            background: var(--surface-subtle);
+        }
+        .event-readiness-item p { color: var(--neutral-muted); font-size: 0.875rem; }
+        .event-next-action {
+            padding: 0.8rem 1rem;
+            border-left: 4px solid var(--mseuf-gold);
+            border-radius: 4px;
+            background: #fff8e8;
+            color: var(--neutral-dark);
+        }
+        .event-handoff { border-top: 3px solid var(--mseuf-maroon); }
+
         .badge {
             display: inline-flex;
             align-items: center;
@@ -188,6 +244,11 @@
             outline: none;
             border-color: var(--mseuf-maroon);
             box-shadow: 0 0 0 2px rgba(128, 0, 0, 0.15);
+        }
+
+        @media (max-width: 640px) {
+            .organizer-event-nav a { flex: 1 1 auto; text-align: center; }
+            .organizer-event-summary-grid, .organizer-event-gates-grid { grid-template-columns: 1fr !important; }
         }
     </style>
 </head>

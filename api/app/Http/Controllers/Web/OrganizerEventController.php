@@ -227,7 +227,69 @@ class OrganizerEventController extends Controller
                 ->whereNull('event_snapshots.invalidated_at')->value('event_snapshot_import_receipts.node_id');
         }
 
-        return view('organizer.events.show', compact('event', 'receiptNodeId', 'importReceiptNodeId', 'authority', 'guestRegistrations', 'walkInRecoveries', 'ticketTransfers'));
+        $snapshotPreparationBlockReason = null;
+        if (config('ingress.mode') === 'cloud') {
+            if (! $event->isPublished()) {
+                $snapshotPreparationBlockReason = 'Only published events can be prepared.';
+            } elseif ($event->snapshot_prepared_at === null) {
+                $hasAdmissions = Admission::whereHas('ticket.registration', fn ($query) => $query->where('event_id', $event->id))->exists();
+                if ($hasAdmissions) {
+                    $snapshotPreparationBlockReason = 'Events with existing admissions cannot be prepared until admission history can be transferred.';
+                } elseif ($event->ends_at->isPast()) {
+                    $snapshotPreparationBlockReason = 'Ended events cannot be prepared.';
+                } elseif ($event->registration_closed_at === null
+                    && now()->lte($event->registration_closes_at) && now()->lte($event->ends_at)) {
+                    $snapshotPreparationBlockReason = 'Close registration before preparing a snapshot.';
+                }
+            }
+        }
+
+        $readiness = [
+            'isPublished' => $event->isPublished(),
+            'activeTicketCategories' => $event->ticketCategories->where('is_active', true)->count(),
+            'activeGates' => $event->accessPoints->where('is_active', true)->count(),
+            'scannerAssignments' => $event->staffAssignments->count(),
+            'registrationClosed' => $event->registration_closed_at !== null || now()->gt($event->registration_closes_at),
+            'snapshotPrepared' => $event->snapshot_prepared_at !== null,
+            'snapshotPreparationBlockReason' => $snapshotPreparationBlockReason,
+        ];
+
+        $readiness['handoffNextStep'] = match (true) {
+            ! $readiness['snapshotPrepared'] => $snapshotPreparationBlockReason !== null
+                ? 'Snapshot preparation unavailable: '.$snapshotPreparationBlockReason
+                : 'Prepare a snapshot after registration closes. The package includes the current event, ticket, gate, and staff details.',
+            $authority !== null => 'Activate the signed authority grant on the Event Node. Cloud cannot verify that activation.',
+            $receiptNodeId === null => 'Enter the target Node ID, download the package, and import it on the Event Node.',
+            $importReceiptNodeId === null => 'Confirm the import receipt after the Event Node finishes importing the snapshot.',
+            default => 'Transfer authority after confirming the Event Node import, then activate the signed grant on the node.',
+        };
+
+        $readiness['nextAction'] = match (true) {
+            $event->isDraft() => 'Publish the event after reviewing its schedule and ticket setup.',
+            $event->isCancelled() => 'This event is cancelled. Create a new event if it should run.',
+            $event->status === Event::STATUS_COMPLETED => 'This event is complete and cannot be prepared for a new Event Node admission.',
+            ! $event->isPublished() => 'Only published events can be prepared for an Event Node handoff.',
+            $snapshotPreparationBlockReason !== null => $snapshotPreparationBlockReason,
+            $readiness['activeTicketCategories'] === 0 => 'Add or activate a ticket category before opening registration.',
+            $readiness['activeGates'] === 0 => 'Add or activate a gate before preparing the snapshot.',
+            $readiness['scannerAssignments'] === 0 => 'Assign scanner access before preparing the snapshot; the snapshot locks staff assignments.',
+            ! $readiness['snapshotPrepared'] => 'Prepare the snapshot when registration is closed. This locks event, ticket, gate, and staff changes.',
+            $authority !== null => 'Activate the signed authority grant on the Event Node. Cloud cannot verify that activation.',
+            $receiptNodeId === null => 'Enter the target Node ID, download the package, and import it on the Event Node.',
+            $importReceiptNodeId === null => 'Confirm the import receipt after the Event Node finishes importing the snapshot.',
+            default => 'Transfer authority after confirming the Event Node import, then activate the signed grant on the node.',
+        };
+
+        return view('organizer.events.show', compact(
+            'event',
+            'receiptNodeId',
+            'importReceiptNodeId',
+            'authority',
+            'guestRegistrations',
+            'walkInRecoveries',
+            'ticketTransfers',
+            'readiness',
+        ));
     }
 
     /**
