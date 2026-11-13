@@ -77,6 +77,72 @@ class EventManagementTest extends TestCase
         $this->assertTrue($event->accessPoints()->where('code', 'GATE-B')->exists());
     }
 
+    public function test_create_form_defaults_registration_to_close_before_the_event_starts(): void
+    {
+        $this->freezeTime();
+
+        $this->actingAs($this->organizerA)
+            ->get('/organizer/events/create')
+            ->assertOk()
+            ->assertSee('name="registration_closes_at" value="'.now()->addDay()->format('Y-m-d\\TH:i').'"', false)
+            ->assertSee('name="starts_at" value="'.now()->addDays(2)->setHour(8)->setMinute(0)->format('Y-m-d\\TH:i').'"', false);
+    }
+
+    public function test_organizer_cannot_create_an_event_that_accepts_registrations_after_it_starts(): void
+    {
+        $this->freezeTime();
+        $now = Carbon::now()->toImmutable();
+
+        $this->actingAs($this->organizerA)
+            ->post('/organizer/events', [
+                'venue_id' => $this->venue->id,
+                'title' => 'Late Registration Event',
+                'capacity' => 45,
+                'registration_opens_at' => $now->toDateTimeString(),
+                'registration_closes_at' => $now->addDays(3)->toDateTimeString(),
+                'starts_at' => $now->addDays(2)->toDateTimeString(),
+                'ends_at' => $now->addDays(4)->toDateTimeString(),
+            ])
+            ->assertSessionHasErrors('registration_closes_at');
+
+        $this->assertDatabaseMissing('events', ['title' => 'Late Registration Event']);
+    }
+
+    public function test_organizer_cannot_edit_registration_cutoff_to_after_event_start(): void
+    {
+        $this->freezeTime();
+        $now = Carbon::now()->toImmutable();
+        $event = Event::create([
+            'organizer_id' => $this->organizerA->id,
+            'venue_id' => $this->venue->id,
+            'title' => 'Cutoff Edit Event',
+            'slug' => 'cutoff-edit-event',
+            'capacity' => 45,
+            'registration_opens_at' => $now,
+            'registration_closes_at' => $now->addDay(),
+            'starts_at' => $now->addDays(2),
+            'ends_at' => $now->addDays(3),
+            'status' => Event::STATUS_DRAFT,
+        ]);
+
+        $this->actingAs($this->organizerA)
+            ->put("/organizer/events/{$event->id}", [
+                'venue_id' => $this->venue->id,
+                'title' => $event->title,
+                'capacity' => $event->capacity,
+                'registration_opens_at' => $now->toDateTimeString(),
+                'registration_closes_at' => $now->addDays(3)->toDateTimeString(),
+                'starts_at' => $now->addDays(2)->toDateTimeString(),
+                'ends_at' => $now->addDays(4)->toDateTimeString(),
+            ])
+            ->assertSessionHasErrors('registration_closes_at');
+
+        $this->assertSame(
+            $now->addDay()->toDateTimeString(),
+            $event->fresh()->registration_closes_at->toDateTimeString(),
+        );
+    }
+
     public function test_organizer_can_publish_draft_event(): void
     {
         $event = Event::create([

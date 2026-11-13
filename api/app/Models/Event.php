@@ -175,6 +175,7 @@ class Event extends Model
         $now = Carbon::now();
 
         return $now->betweenIncluded($this->registration_opens_at, $this->registration_closes_at)
+            && $this->starts_at !== null && $now->lt($this->starts_at)
             && $now->lte($this->ends_at);
     }
 

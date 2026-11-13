@@ -103,7 +103,7 @@ class EndToEndVerticalSliceTest extends TestCase
             'description' => 'Official demonstration symposium for MSEUF Ingress ticketing platform.',
             'capacity' => 10,
             'registration_opens_at' => Carbon::now()->subDay()->toDateTimeString(),
-            'registration_closes_at' => Carbon::now()->addDays(5)->toDateTimeString(),
+            'registration_closes_at' => Carbon::now()->addDay()->toDateTimeString(),
             'starts_at' => Carbon::now()->addDays(2)->setHour(9)->setMinute(0)->toDateTimeString(),
             'ends_at' => Carbon::now()->addDays(2)->setHour(17)->setMinute(0)->toDateTimeString(),
         ]);

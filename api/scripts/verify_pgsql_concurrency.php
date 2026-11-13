@@ -705,7 +705,7 @@ $raceEvent = Event::create([
     'capacity' => 50,
     'registration_opens_at' => now()->subHour(),
     'registration_closes_at' => now()->addDay(),
-    'starts_at' => now()->subMinutes(10),
+    'starts_at' => now()->addHours(2),
     'ends_at' => now()->addHours(6),
     'status' => Event::STATUS_PUBLISHED,
 ]);
@@ -847,7 +847,7 @@ $parallelEvent = Event::create([
     'capacity' => 50,
     'registration_opens_at' => now()->subHour(),
     'registration_closes_at' => now()->addDay(),
-    'starts_at' => now()->subMinutes(10),
+    'starts_at' => now()->addHours(2),
     'ends_at' => now()->addHours(6),
     'status' => Event::STATUS_PUBLISHED,
 ]);
@@ -932,7 +932,7 @@ $authRaceEvent = Event::create([
     'capacity' => 50,
     'registration_opens_at' => now()->subHour(),
     'registration_closes_at' => now()->addDay(),
-    'starts_at' => now()->subMinutes(10),
+    'starts_at' => now()->addHours(2),
     'ends_at' => now()->addHours(6),
     'status' => Event::STATUS_PUBLISHED,
 ]);
@@ -1041,8 +1041,8 @@ $cutoffEvent = Event::create([
     'organizer_id' => $organizer->id, 'venue_id' => $venue->id,
     'title' => 'Registration cutoff race', 'slug' => "cutoff-race-{$suffix}",
     'capacity' => 10, 'registration_opens_at' => now()->subHour(),
-    'registration_closes_at' => now()->addDay(), 'starts_at' => now(),
-    'ends_at' => now()->addDay(), 'status' => Event::STATUS_PUBLISHED,
+    'registration_closes_at' => now()->addDay(), 'starts_at' => now()->addDays(2),
+    'ends_at' => now()->addDays(3), 'status' => Event::STATUS_PUBLISHED,
 ]);
 $cutoffStudent = User::create([
     'name' => 'Cutoff Race Student', 'email' => "cutoff.{$suffix}@mseuf.edu.ph",
@@ -1086,7 +1086,7 @@ $transferRaceEvent = Event::create([
     'title' => 'Transfer finalization race', 'slug' => "transfer-finalization-race-{$suffix}",
     'capacity' => 10, 'registration_opens_at' => now()->subDay(),
     'registration_closes_at' => now()->addDay(),
-    'starts_at' => now(), 'ends_at' => now()->addDay(), 'status' => Event::STATUS_PUBLISHED,
+    'starts_at' => now()->addDays(2), 'ends_at' => now()->addDays(3), 'status' => Event::STATUS_PUBLISHED,
     'ticket_transfers_allowed' => true,
 ]);
 $transferSender = User::create([
@@ -1155,7 +1155,7 @@ $acceptedBeforeSnapshotEvent = Event::create([
     'title' => 'Transfer acceptance race', 'slug' => "transfer-acceptance-race-{$suffix}",
     'capacity' => 10, 'registration_opens_at' => now()->subDay(),
     'registration_closes_at' => now()->addDay(),
-    'starts_at' => now(), 'ends_at' => now()->addDay(), 'status' => Event::STATUS_PUBLISHED,
+    'starts_at' => now()->addDays(2), 'ends_at' => now()->addDays(3), 'status' => Event::STATUS_PUBLISHED,
     'ticket_transfers_allowed' => true,
 ]);
 $acceptRaceSender = User::create([
@@ -1234,7 +1234,7 @@ $guestRedemptionEvent = Event::create([
     'title' => 'Guest redemption race', 'slug' => "guest-redemption-race-{$suffix}",
     'capacity' => 10, 'registration_opens_at' => now()->subDay(),
     'registration_closes_at' => now()->addDay(),
-    'starts_at' => now(), 'ends_at' => now()->addDay(), 'status' => Event::STATUS_PUBLISHED,
+    'starts_at' => now()->addDays(2), 'ends_at' => now()->addDays(3), 'status' => Event::STATUS_PUBLISHED,
     'ticket_transfers_allowed' => true,
 ]);
 $guestRedemptionCategory = $guestRedemptionEvent->ticketCategories()
@@ -1316,7 +1316,7 @@ $snapshotEvent = Event::create([
     'title' => 'Snapshot race', 'slug' => "snapshot-race-{$suffix}",
     'capacity' => 10, 'registration_opens_at' => now()->subDay(),
     'registration_closes_at' => now()->addDay(), 'registration_closed_at' => now(),
-    'starts_at' => now(), 'ends_at' => now()->addDay(), 'status' => Event::STATUS_PUBLISHED,
+    'starts_at' => now()->addDays(2), 'ends_at' => now()->addDays(3), 'status' => Event::STATUS_PUBLISHED,
 ]);
 $snapshotResults = $runConcurrently([
     ['snapshot', ['event_id' => $snapshotEvent->id]],
@@ -1844,7 +1844,7 @@ echo "CASE AA: concurrent admission batch delivery\n";
 $syncEvent = Event::create([
     'organizer_id' => $organizer->id, 'venue_id' => $venue->id, 'title' => 'Sync race', 'slug' => "sync-race-{$suffix}",
     'capacity' => 2, 'registration_opens_at' => now()->subDay(), 'registration_closes_at' => now()->addDay(),
-    'starts_at' => now(), 'ends_at' => now()->addDay(), 'status' => Event::STATUS_PUBLISHED,
+    'starts_at' => now()->addDays(2), 'ends_at' => now()->addDays(3), 'status' => Event::STATUS_PUBLISHED,
 ]);
 $syncGate = AccessPoint::create(['event_id' => $syncEvent->id, 'name' => 'Sync Gate', 'code' => 'SYNC', 'is_active' => true]);
 $syncStaff = User::create(['name' => 'Sync Staff', 'email' => "sync-staff-{$suffix}@example.test", 'role' => User::ROLE_STAFF, 'password' => Hash::make('password')]);
@@ -1963,7 +1963,7 @@ echo "CASE AF: guest and student compete for one remaining seat\n";
 $guestRaceEvent = Event::create([
     'organizer_id' => $organizer->id, 'venue_id' => $venue->id, 'title' => 'Guest capacity race',
     'slug' => "guest-capacity-{$suffix}", 'capacity' => 1, 'registration_opens_at' => now()->subHour(),
-    'registration_closes_at' => now()->addDay(), 'starts_at' => now(), 'ends_at' => now()->addDay(),
+    'registration_closes_at' => now()->addDay(), 'starts_at' => now()->addDays(2), 'ends_at' => now()->addDays(3),
     'status' => Event::STATUS_PUBLISHED,
 ]);
 $guestRaceStudent = User::create(['name' => 'Guest Race Student', 'email' => "guest-race-student-{$suffix}@example.test",
@@ -1985,7 +1985,7 @@ $sharedIdentityEmail = "shared-identity-{$suffix}@example.test";
 $sharedIdentityEvent = Event::create([
     'organizer_id' => $organizer->id, 'venue_id' => $venue->id, 'title' => 'Shared identity race',
     'slug' => "shared-identity-{$suffix}", 'capacity' => 2, 'registration_opens_at' => now()->subHour(),
-    'registration_closes_at' => now()->addDay(), 'starts_at' => now(), 'ends_at' => now()->addDay(),
+    'registration_closes_at' => now()->addDay(), 'starts_at' => now()->addDays(2), 'ends_at' => now()->addDays(3),
     'status' => Event::STATUS_PUBLISHED,
 ]);
 $sharedIdentityStudent = User::create(['name' => 'Shared Identity Student', 'email' => $sharedIdentityEmail,

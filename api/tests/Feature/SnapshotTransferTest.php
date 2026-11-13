@@ -81,7 +81,7 @@ class SnapshotTransferTest extends TestCase
         $event = Event::create([
             'organizer_id' => $owner->id, 'venue_id' => $venue->id, 'title' => 'Event', 'slug' => 'event',
             'capacity' => 20, 'registration_opens_at' => now()->subDay(), 'registration_closes_at' => now()->addDay(),
-            'starts_at' => now(), 'ends_at' => now()->addDay(), 'status' => Event::STATUS_PUBLISHED,
+            'starts_at' => now()->addDay(), 'ends_at' => now()->addDays(2), 'status' => Event::STATUS_PUBLISHED,
             're_entry_allowed' => $reEntryAllowed,
             'identity_verification_level' => $identityCheck ? Event::IDENTITY_CHECK : Event::IDENTITY_STANDARD,
         ]);
