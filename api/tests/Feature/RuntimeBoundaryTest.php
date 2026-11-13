@@ -22,7 +22,7 @@ class RuntimeBoundaryTest extends TestCase
             'organizer_id' => $organizer->id, 'venue_id' => $venue->id,
             'title' => 'Event', 'slug' => 'event', 'capacity' => 20,
             'registration_opens_at' => now()->subDay(), 'registration_closes_at' => now()->addDay(),
-            'starts_at' => now(), 'ends_at' => now()->addDay(), 'status' => Event::STATUS_PUBLISHED,
+            'starts_at' => now()->addDay(), 'ends_at' => now()->addDays(2), 'status' => Event::STATUS_PUBLISHED,
         ]);
     }
 

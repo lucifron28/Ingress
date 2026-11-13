@@ -38,8 +38,8 @@ class PrepareEventSnapshotTest extends TestCase
         return Event::create([
             'organizer_id' => $owner->id, 'venue_id' => $venue->id, 'title' => 'Event', 'slug' => 'event',
             'capacity' => 20, 'registration_opens_at' => now()->subDay(),
-            'registration_closes_at' => now()->addDay(), 'starts_at' => now(),
-            'ends_at' => now()->addDays(2), 'status' => Event::STATUS_PUBLISHED,
+            'registration_closes_at' => now()->addDay(), 'starts_at' => now()->addDays(2),
+            'ends_at' => now()->addDays(3), 'status' => Event::STATUS_PUBLISHED,
         ]);
     }
 
@@ -142,7 +142,7 @@ class PrepareEventSnapshotTest extends TestCase
         $this->put("/organizer/events/{$event->id}", [
             'venue_id' => $event->venue_id, 'title' => 'Changed', 'capacity' => 20,
             'registration_opens_at' => now()->subDay()->toDateTimeString(),
-            'registration_closes_at' => now()->addDay()->toDateTimeString(),
+            'registration_closes_at' => now()->subSecond()->toDateTimeString(),
             'starts_at' => now()->toDateTimeString(), 'ends_at' => now()->addDays(2)->toDateTimeString(),
         ])->assertSessionHasErrors('event');
         $this->assertSame('Event', $event->fresh()->title);
@@ -230,7 +230,7 @@ class PrepareEventSnapshotTest extends TestCase
         $this->actingAs($owner)->put("/organizer/events/{$event->id}", [
             'venue_id' => $event->venue_id, 'title' => 'Changed', 'capacity' => 20,
             'registration_opens_at' => now()->subDay()->toDateTimeString(),
-            'registration_closes_at' => now()->addDay()->toDateTimeString(),
+            'registration_closes_at' => now()->subSecond()->toDateTimeString(),
             'starts_at' => now()->toDateTimeString(), 'ends_at' => now()->addDays(2)->toDateTimeString(),
             'snapshot_version' => 99, 'snapshot_prepared_at' => now()->toDateTimeString(),
         ])->assertRedirect();

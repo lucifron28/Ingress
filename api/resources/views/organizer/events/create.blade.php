@@ -70,7 +70,8 @@
 
                 <div class="form-group">
                     <label for="registration_closes_at" class="form-label">Registration Closes *</label>
-                    <input id="registration_closes_at" type="datetime-local" name="registration_closes_at" value="{{ old('registration_closes_at', now()->addDays(7)->format('Y-m-d\TH:i')) }}" required class="form-input">
+                    <input id="registration_closes_at" type="datetime-local" name="registration_closes_at" value="{{ old('registration_closes_at', now()->addDay()->format('Y-m-d\TH:i')) }}" required class="form-input">
+                    <p style="margin-top: .25rem; color: var(--neutral-muted); font-size: .875rem;">Registration closes before the event starts.</p>
                 </div>
             </div>
 
