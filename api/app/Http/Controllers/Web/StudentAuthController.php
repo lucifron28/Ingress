@@ -40,7 +40,6 @@ class StudentAuthController extends Controller
         return $this->privatePage(response()->view('student.auth', [
             'firebaseConfig' => $firebaseConfig,
             'firebaseConfigured' => $firebaseConfigured,
-            'studentEmailDomain' => config('services.firebase.student_email_domain'),
         ]));
     }
 
@@ -71,8 +70,8 @@ class StudentAuthController extends Controller
             return $this->jsonError('Student sign-in is temporarily unavailable. Please try again later.', 503);
         }
 
-        if (! $identity || ! $this->isEligibleStudentEmail($identity['email'])) {
-            return $this->jsonError('Sign-in was not accepted. Verify your student email and try again.', 401);
+        if (! $identity || ! $this->isValidStudentEmail($identity['email'])) {
+            return $this->jsonError('Sign-in was not accepted. Use a valid email address verified by Firebase, then try again.', 401);
         }
 
         if ($sessionUser && (mb_strtolower($sessionUser->email) !== $identity['email']
@@ -203,11 +202,9 @@ class StudentAuthController extends Controller
         });
     }
 
-    private function isEligibleStudentEmail(string $email): bool
+    private function isValidStudentEmail(string $email): bool
     {
-        $domain = preg_quote((string) config('services.firebase.student_email_domain'), '/');
-
-        return preg_match('/\A[^@\s]+@'.$domain.'\z/iD', $email) === 1;
+        return filter_var($email, FILTER_VALIDATE_EMAIL) !== false;
     }
 
     private function pendingRegistrationRedirect(Request $request, User $user): ?string
@@ -235,7 +232,7 @@ class StudentAuthController extends Controller
 
         if (! $event || ! $category || ! $event->isRegistrationOpen()
             || ! $user->isStudent() || $user->firebase_uid === null || $user->email_verified_at === null
-            || ! $this->isEligibleStudentEmail($user->email)
+            || ! $this->isValidStudentEmail($user->email)
             || ($event->registration_eligibility !== Event::ELIGIBILITY_STUDENT
                 && $category->eligibility !== TicketCategory::ELIGIBILITY_STUDENT)) {
             $request->session()->forget('public_registration_intent');

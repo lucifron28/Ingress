@@ -75,6 +75,34 @@ class FirebaseStudentAuthTest extends TestCase
         $this->get('/student/dashboard')->assertRedirect(route('login'));
     }
 
+    public function test_verified_personal_email_firebase_identity_creates_and_authenticates_a_student(): void
+    {
+        Http::preventStrayRequests();
+        Http::fake([
+            'identitytoolkit.googleapis.com/v1/accounts:lookup*' => Http::response([
+                'users' => [[
+                    'localId' => 'firebase-personal-student-123',
+                    'email' => 'student.presentation@gmail.com',
+                    'emailVerified' => true,
+                    'displayName' => 'Presentation Student',
+                    'disabled' => false,
+                    'providerUserInfo' => [['providerId' => 'password']],
+                ]],
+            ]),
+        ]);
+
+        $this->postJson('/student/session', ['id_token' => 'firebase-personal-id-token'])
+            ->assertOk()
+            ->assertJsonPath('redirect', route('student.dashboard', absolute: false))
+            ->assertDontSee('firebase-personal-id-token');
+
+        $student = User::where('email', 'student.presentation@gmail.com')->firstOrFail();
+        $this->assertSame('firebase-personal-student-123', $student->firebase_uid);
+        $this->assertSame(User::ROLE_STUDENT, $student->role);
+        $this->assertNotNull($student->email_verified_at);
+        $this->assertAuthenticatedAs($student, 'web');
+    }
+
     public function test_existing_student_can_link_only_the_matching_verified_firebase_identity(): void
     {
         $student = User::factory()->create([
@@ -160,7 +188,7 @@ class FirebaseStudentAuthTest extends TestCase
         $this->assertAuthenticatedAs($student, 'web');
     }
 
-    public function test_unverified_wrong_domain_disabled_and_non_password_identities_are_rejected(): void
+    public function test_unverified_malformed_email_disabled_and_non_password_identities_are_rejected(): void
     {
         Http::preventStrayRequests();
         Http::fakeSequence('identitytoolkit.googleapis.com/v1/accounts:lookup*')
@@ -172,8 +200,8 @@ class FirebaseStudentAuthTest extends TestCase
                 'providerUserInfo' => [['providerId' => 'password']],
             ]]])
             ->push(['users' => [[
-                'localId' => 'wrong-domain-user',
-                'email' => 'student@student.mseuf.edu.ph.evil.test',
+                'localId' => 'malformed-email-user',
+                'email' => 'not-an-email',
                 'emailVerified' => true,
                 'disabled' => false,
                 'providerUserInfo' => [['providerId' => 'password']],
@@ -363,7 +391,9 @@ class FirebaseStudentAuthTest extends TestCase
             ->assertHeader('Cache-Control', 'no-store, private')
             ->assertHeader('Referrer-Policy', 'no-referrer')
             ->assertSee('Create your student account')
-            ->assertSee('Sign in with your student email')
+            ->assertSee('Use a personal or university email address')
+            ->assertSee('Sign in with your email')
+            ->assertDontSee('student.mseuf.edu.ph')
             ->assertSee('data-firebase-config=', false)
             ->assertSee('ingress-test.firebaseapp.com')
             ->assertSee('public-test-api-key');

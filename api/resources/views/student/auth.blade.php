@@ -39,12 +39,11 @@
 <body>
     <main data-student-auth
         data-firebase-config="{{ json_encode($firebaseConfig, JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_HEX_TAG) }}"
-        data-email-domain="{{ $studentEmailDomain }}"
         data-configured="{{ $firebaseConfigured ? 'true' : 'false' }}">
         <p class="brand">Ingress · MSEUF</p>
         <section class="card" aria-labelledby="page-title">
             <h1 id="page-title">Student account</h1>
-            <p class="intro">Use your {{ '@'.$studentEmailDomain }} address to create or access your account.</p>
+            <p class="intro">Use a personal or university email address to create or access your account. Firebase will send a verification link before you sign in.</p>
 
             @unless ($firebaseConfigured)
                 <p class="notice error" role="alert">Student sign-in is not configured yet. Ask the Ingress administrator to add the Firebase web settings.</p>
@@ -61,14 +60,14 @@
 
             <form id="panel-sign-in" method="post" action="{{ route('student.auth') }}" role="tabpanel" aria-labelledby="tab-sign-in" data-panel="sign-in">
                 <div>
-                    <label for="sign-in-email">Student email</label>
+                    <label for="sign-in-email">Email address</label>
                     <input id="sign-in-email" name="email" type="email" autocomplete="username" inputmode="email" required maxlength="255">
                 </div>
                 <div>
                     <label for="sign-in-password">Password</label>
                     <input id="sign-in-password" name="password" type="password" autocomplete="current-password" required maxlength="128">
                 </div>
-                <button class="primary" type="submit">Sign in with your student email</button>
+                <button class="primary" type="submit">Sign in with your email</button>
                 <button class="text-button" type="button" data-show="reset">Forgot your password?</button>
             </form>
 
@@ -78,7 +77,7 @@
                     <input id="student-name" name="name" type="text" autocomplete="name" required maxlength="100">
                 </div>
                 <div>
-                    <label for="create-email">Student email</label>
+                    <label for="create-email">Email address</label>
                     <input id="create-email" name="email" type="email" autocomplete="email" inputmode="email" required maxlength="255">
                 </div>
                 <div>
@@ -94,7 +93,7 @@
 
             <form id="panel-reset" method="post" action="{{ route('student.auth') }}" role="tabpanel" aria-label="Reset password" data-panel="reset" hidden>
                 <div>
-                    <label for="reset-email">Student email</label>
+                    <label for="reset-email">Email address</label>
                     <input id="reset-email" name="email" type="email" autocomplete="email" inputmode="email" required maxlength="255">
                 </div>
                 <button class="primary" type="submit">Send password reset email</button>
@@ -102,13 +101,13 @@
             </form>
 
             <section data-verification hidden>
-                <p class="notice success">Check your student inbox for a Firebase verification email. Open its link, then return here to finish signing in.</p>
+                <p class="notice success">Check your inbox for a Firebase verification email. Open its link, then return here to finish signing in.</p>
                 <button class="primary" type="button" data-resend>Resend verification email</button>
                 <button class="text-button" type="button" data-continue>I've verified my email</button>
             </section>
 
             <section data-continue-panel hidden>
-                <p class="notice success">Your student email is verified. Continue to Ingress.</p>
+                <p class="notice success">Your email address is verified. Continue to Ingress.</p>
                 <button class="primary" type="button" data-continue>Continue to Ingress</button>
             </section>
 
