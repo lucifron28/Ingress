@@ -20,7 +20,6 @@ if (root) {
     const verificationPanel = root.querySelector('[data-verification]');
     const continuePanel = root.querySelector('[data-continue-panel]');
     const buttons = [...root.querySelectorAll('button')];
-    const emailDomain = String(root.dataset.emailDomain ?? '').toLowerCase();
     let currentUser = null;
     let auth = null;
     let exchangePending = false;
@@ -49,12 +48,6 @@ if (root) {
         hideMessage();
     }
 
-    function isInstitutionalEmail(value) {
-        const email = String(value).trim().toLowerCase();
-
-        return emailDomain !== '' && email.endsWith(`@${emailDomain}`) && email.indexOf('@') === email.lastIndexOf('@');
-    }
-
     function actionSettings(query) {
         return { url: new URL(`/student/auth?${query}`, window.location.origin).toString() };
     }
@@ -78,7 +71,7 @@ if (root) {
             case 'auth/wrong-password':
                 return 'The email or password could not be confirmed.';
             case 'auth/operation-not-allowed':
-                return 'Student email sign-in is not enabled. Contact the Ingress administrator.';
+                return 'Email and password sign-in is not enabled. Contact the Ingress administrator.';
             default:
                 return fallback;
         }
@@ -92,7 +85,7 @@ if (root) {
         if (!user.emailVerified) {
             verificationPanel.hidden = false;
             continuePanel.hidden = true;
-            showMessage('Verify your student email before signing in to Ingress.', 'error');
+            showMessage('Verify the email address connected to your account before signing in to Ingress.', 'error');
             return;
         }
 
@@ -185,10 +178,6 @@ if (root) {
         event.preventDefault();
         const form = event.currentTarget;
         const email = form.elements.email.value.trim().toLowerCase();
-        if (!isInstitutionalEmail(email)) {
-            showMessage(`Use your @${emailDomain} address.`, 'error');
-            return;
-        }
 
         setBusy(true);
         try {
@@ -197,7 +186,7 @@ if (root) {
             if (!credential.user.emailVerified) {
                 verificationPanel.hidden = false;
                 panels.forEach((panel) => { panel.hidden = true; });
-                showMessage('Verify your student email before signing in to Ingress.', 'error');
+                showMessage('Verify the email address connected to your account before signing in to Ingress.', 'error');
                 return;
             }
             await exchangeFirebaseSession(credential.user);
@@ -215,10 +204,6 @@ if (root) {
         const email = form.elements.email.value.trim().toLowerCase();
         const password = form.elements.password.value;
 
-        if (!isInstitutionalEmail(email)) {
-            showMessage(`Use your @${emailDomain} address.`, 'error');
-            return;
-        }
         if (name.length === 0 || password.length < 12 || password.length > 128) {
             showMessage('Enter your name and a password between 12 and 128 characters.', 'error');
             return;
@@ -247,10 +232,6 @@ if (root) {
     root.querySelector('[data-panel="reset"]').addEventListener('submit', async (event) => {
         event.preventDefault();
         const email = event.currentTarget.elements.email.value.trim().toLowerCase();
-        if (!isInstitutionalEmail(email)) {
-            showMessage(`Use your @${emailDomain} address.`, 'error');
-            return;
-        }
 
         setBusy(true);
         try {
@@ -286,7 +267,7 @@ if (root) {
         button.addEventListener('click', async () => {
             if (!currentUser) {
                 showPanel('sign-in');
-                showMessage('Sign in with your verified student email to continue.', 'error');
+                showMessage('Sign in with your verified email address to continue.', 'error');
                 return;
             }
 
