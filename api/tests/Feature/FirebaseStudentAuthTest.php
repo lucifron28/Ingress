@@ -242,8 +242,7 @@ class FirebaseStudentAuthTest extends TestCase
                 'emailVerified' => true,
                 'disabled' => false,
                 'providerUserInfo' => [['providerId' => 'google.com']],
-            ]]])
-            ]]);
+            ]]]);
 
         for ($attempt = 0; $attempt < 4; $attempt++) {
             $this->postJson('/student/session', ['id_token' => 'firebase-id-token'])
