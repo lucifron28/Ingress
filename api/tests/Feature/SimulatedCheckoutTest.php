@@ -194,7 +194,6 @@ class SimulatedCheckoutTest extends TestCase
 
     public function test_guest_contact_reservation_does_not_block_verified_student_registration_or_payment(): void
     {
-        config(['services.firebase.student_email_domain' => 'student.mseuf.edu.ph']);
         $sharedEmail = 'shared@student.mseuf.edu.ph';
         $order = $this->startPaidCheckout($sharedEmail);
         $attemptKey = (string) Str::uuid();
@@ -504,7 +503,6 @@ class SimulatedCheckoutTest extends TestCase
 
     public function test_student_eligibility_revoked_before_confirmation_fails_without_issuing_a_ticket(): void
     {
-        config(['services.firebase.student_email_domain' => 'student.mseuf.edu.ph']);
         $this->event->update(['simulated_payments_enabled' => true]);
         $category = $this->category($this->event, 'Student Admission', priceMinor: 12500, isDefault: true);
         $category->update(['eligibility' => TicketCategory::ELIGIBILITY_STUDENT]);
@@ -660,7 +658,6 @@ class SimulatedCheckoutTest extends TestCase
 
     public function test_paid_student_category_requires_verified_institutional_identity(): void
     {
-        config(['services.firebase.student_email_domain' => 'student.mseuf.edu.ph']);
         $this->event->update([
             'registration_eligibility' => Event::ELIGIBILITY_STUDENT,
             'simulated_payments_enabled' => true,

@@ -58,10 +58,10 @@ try {
 
         $exitCode = 0
         do {
-            $role = (Read-Host 'Synthetic role: organizer, staff, student, or done').Trim().ToLowerInvariant()
+            $role = (Read-Host 'Synthetic role: organizer, staff, or done').Trim().ToLowerInvariant()
             if ($role -eq 'done') { break }
-            if ($role -notin @('organizer', 'staff', 'student')) {
-                Write-Host 'Choose organizer, staff, student, or done.'
+            if ($role -notin @('organizer', 'staff')) {
+                Write-Host 'Choose organizer, staff, or done. Student accounts must be verified through Firebase.'
                 continue
             }
             php artisan ingress:provision-staging-account $role --confirm-staging

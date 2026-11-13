@@ -36,6 +36,8 @@ class EventApiTest extends TestCase
             'email' => 'a23-35524@student.mseuf.edu.ph',
             'student_id' => 'A23-35524',
             'role' => User::ROLE_STUDENT,
+            'firebase_uid' => 'firebase-event-api-student',
+            'email_verified_at' => now(),
         ]);
 
         $this->venue = Venue::create([

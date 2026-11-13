@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Models\Venue;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -28,7 +29,6 @@ class FirebaseStudentAuthTest extends TestCase
             'services.firebase.auth_domain' => 'ingress-test.firebaseapp.com',
             'services.firebase.project_id' => 'ingress-test',
             'services.firebase.app_id' => '1:123:web:test',
-            'services.firebase.student_email_domain' => 'student.mseuf.edu.ph',
         ]);
     }
 
@@ -101,6 +101,84 @@ class FirebaseStudentAuthTest extends TestCase
         $this->assertSame(User::ROLE_STUDENT, $student->role);
         $this->assertNotNull($student->email_verified_at);
         $this->assertAuthenticatedAs($student, 'web');
+    }
+
+    public function test_institutional_email_policy_blocks_new_personal_accounts_but_preserves_existing_accounts(): void
+    {
+        DB::table('student_access_settings')->where('id', 1)->update([
+            'require_institutional_email' => true,
+            'policy_enabled_at' => now(),
+        ]);
+
+        Http::preventStrayRequests();
+        Http::fakeSequence('identitytoolkit.googleapis.com/v1/accounts:lookup*')
+            ->push(['users' => [[
+                'localId' => 'new-personal-account',
+                'email' => 'new.student@gmail.com',
+                'emailVerified' => true,
+                'disabled' => false,
+                'providerUserInfo' => [['providerId' => 'password']],
+            ]]])
+            ->push(['users' => [[
+                'localId' => 'existing-personal-account',
+                'email' => 'existing.student@gmail.com',
+                'emailVerified' => true,
+                'disabled' => false,
+                'providerUserInfo' => [['providerId' => 'password']],
+            ]]]);
+
+        $this->postJson('/student/session', ['id_token' => 'new-personal-token'])
+            ->assertForbidden()
+            ->assertJsonPath('message', 'New student accounts require an @student.mseuf.edu.ph email address.');
+        $this->assertDatabaseMissing('users', ['email' => 'new.student@gmail.com']);
+
+        $existing = User::factory()->create([
+            'role' => User::ROLE_STUDENT,
+            'email' => 'existing.student@gmail.com',
+            'firebase_uid' => 'existing-personal-account',
+            'email_verified_at' => now()->subDay(),
+            'created_at' => now()->subDays(2),
+        ]);
+
+        $this->postJson('/student/session', ['id_token' => 'existing-personal-token'])
+            ->assertOk();
+        $this->assertAuthenticatedAs($existing, 'web');
+        $this->get('/student/dashboard')->assertOk()->assertSee('Your student account is ready');
+    }
+
+    public function test_personal_account_created_at_policy_activation_time_keeps_access(): void
+    {
+        $activationTime = now()->startOfSecond();
+        $existing = User::factory()->create([
+            'role' => User::ROLE_STUDENT,
+            'email' => 'existing.same-second@gmail.com',
+            'firebase_uid' => 'existing-same-second-account',
+            'email_verified_at' => $activationTime,
+            'created_at' => $activationTime,
+            'updated_at' => $activationTime,
+        ]);
+        DB::table('student_access_settings')->where('id', 1)->update([
+            'require_institutional_email' => true,
+            'policy_enabled_at' => $activationTime,
+        ]);
+
+        Http::preventStrayRequests();
+        Http::fake([
+            'identitytoolkit.googleapis.com/v1/accounts:lookup*' => Http::response([
+                'users' => [[
+                    'localId' => 'existing-same-second-account',
+                    'email' => 'existing.same-second@gmail.com',
+                    'emailVerified' => true,
+                    'disabled' => false,
+                    'providerUserInfo' => [['providerId' => 'password']],
+                ]],
+            ]),
+        ]);
+
+        $this->postJson('/student/session', ['id_token' => 'existing-same-second-token'])
+            ->assertOk();
+        $this->assertAuthenticatedAs($existing, 'web');
+        $this->get('/student/dashboard')->assertOk();
     }
 
     public function test_verified_firebase_identity_without_disabled_field_can_sign_in(): void
@@ -417,6 +495,19 @@ class FirebaseStudentAuthTest extends TestCase
 
         $this->assertSame(3, substr_count($response->getContent(), 'method="post"'));
         $response->assertSee('JavaScript is required for secure Firebase student sign-in.');
+    }
+
+    public function test_student_auth_page_explains_the_institutional_email_requirement_when_enabled(): void
+    {
+        $this->withoutVite();
+        DB::table('student_access_settings')->where('id', 1)->update(['require_institutional_email' => true]);
+
+        $this->get('/student/auth')
+            ->assertOk()
+            ->assertSee('data-require-institutional-email="true"', false)
+            ->assertSee('New student accounts and registrations need an email ending in')
+            ->assertSee('Institutional email address')
+            ->assertSee('Use an address ending in @student.mseuf.edu.ph.');
     }
 
     public function test_legacy_student_accounts_without_firebase_verification_cannot_use_the_student_dashboard(): void

@@ -397,7 +397,7 @@ Events default to transfers disabled and may enable them in event settings. Stud
 ## ADR 018: Student accounts with accountless guest and alumni passes
 
 ### Status
-Implemented for single-use student email activation, organizer-issued guest and alumni passes, accountless guest and alumni redemption-code transfers, and node walk-ins. Paid guest tickets and email delivery are not implemented.
+Implemented for Firebase-verified student accounts, organizer-issued guest and alumni passes, accountless guest and alumni redemption-code transfers, and node walk-ins. Paid guest tickets and email delivery are not implemented.
 
 ### Context
 Ingress is primarily for MSEUF events. Students who control an institutional email address can use a persistent account, ticket wallet, registration history, and transfers. Alumni and external guests are occasional attendees and should not be forced through the same account-activation flow.
@@ -405,7 +405,7 @@ Ingress is primarily for MSEUF events. Students who control an institutional ema
 A single email-only model for everyone would make students repeatedly verify identity for every event and would weaken the link between a ticket and the university student record. A universal account requirement for outsiders would create unnecessary friction for invited guests, alumni, parents, partner-school visitors, and paid external attendees.
 
 ### Decision
-Keep normal self-service accounts focused on MSEUF students. Signup verifies control of an `@student.mseuf.edu.ph` address through a single-use email link before account completion. Directory ingestion is not required. Email verification alone does not establish ownership of a student number or current enrollment.
+Keep self-service accounts student-only and require Firebase email verification. Cloud Admin controls whether new student accounts and registrations must use the exact `@student.mseuf.edu.ph` domain. The setting is off by default so verified personal-email accounts remain usable. Student-only events and categories always require a verified institutional address, regardless of the setting. Email verification alone does not establish ownership of a student number or current enrollment. Directory ingestion is not required for account creation.
 
 External attendees may receive organizer-issued tickets or node walk-in passes without creating an MSEUF account. Eligible public guest and alumni tickets can change hands through a one-use redemption code. The recipient enters a current name and contact email, and the system replaces the previous guest details while rotating admission and redemption credentials. The contact email is not verified, and code possession does not verify identity. Student-restricted tickets and node walk-ins cannot use this transfer path. Paid guest tickets and automatic email delivery are not implemented.
 

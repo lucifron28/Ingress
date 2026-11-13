@@ -7,11 +7,14 @@ use App\Models\Event;
 use App\Models\Registration;
 use App\Models\TicketCategory;
 use App\Models\User;
+use App\Services\Auth\StudentEmailEligibility;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class AttendeeRegistrationDetails
 {
+    public function __construct(private StudentEmailEligibility $studentEmailEligibility) {}
+
     /** @return array{attendee_type: string, guest_name: ?string, guest_email: ?string} */
     public function prepare(
         Event $event,
@@ -27,7 +30,7 @@ class AttendeeRegistrationDetails
 
         if (($event->registration_eligibility === Event::ELIGIBILITY_STUDENT
                 || $category?->eligibility === TicketCategory::ELIGIBILITY_STUDENT)
-            && ! $this->isVerifiedInstitutionalStudent($user)) {
+            && ! $this->studentEmailEligibility->isVerifiedInstitutionalStudent($user)) {
             throw ValidationException::withMessages([
                 'ticket_category_id' => ['This event or ticket category requires a verified institutional student account.'],
             ]);
@@ -77,18 +80,5 @@ class AttendeeRegistrationDetails
                 'registration' => ['That attendee already has a registration or active checkout for this event.'],
             ]);
         }
-    }
-
-    private function isVerifiedInstitutionalStudent(?User $user): bool
-    {
-        $domain = mb_strtolower(trim((string) config('services.firebase.student_email_domain')));
-        $email = mb_strtolower(trim((string) $user?->email));
-
-        if ($user === null || ! $user->isStudent() || $user->firebase_uid === null || $user->email_verified_at === null
-            || $domain === '' || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
-            return false;
-        }
-
-        return mb_strtolower((string) Str::afterLast($email, '@')) === $domain;
     }
 }

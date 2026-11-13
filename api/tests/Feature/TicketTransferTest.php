@@ -40,12 +40,16 @@ class TicketTransferTest extends TestCase
             'email' => 'sender@student.mseuf.edu.ph',
             'student_id' => 'S-1001',
             'role' => User::ROLE_STUDENT,
+            'firebase_uid' => 'firebase-sender-student',
+            'email_verified_at' => now(),
         ]);
         $this->recipient = User::factory()->create([
             'name' => 'Recipient Student',
             'email' => 'recipient@student.mseuf.edu.ph',
             'student_id' => 'S-1002',
             'role' => User::ROLE_STUDENT,
+            'firebase_uid' => 'firebase-recipient-student',
+            'email_verified_at' => now(),
         ]);
 
         $venue = Venue::create([

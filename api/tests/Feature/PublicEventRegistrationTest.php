@@ -12,6 +12,7 @@ use App\Models\Venue;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
@@ -29,7 +30,6 @@ class PublicEventRegistrationTest extends TestCase
 
         Cache::store('array')->flush();
         config(['ingress.mode' => 'cloud']);
-        config(['services.firebase.student_email_domain' => 'student.mseuf.edu.ph']);
 
         $organizer = User::factory()->create(['role' => User::ROLE_ORGANIZER]);
         $this->venue = Venue::create([
@@ -200,9 +200,9 @@ class PublicEventRegistrationTest extends TestCase
 
         $unverified = User::factory()->create([
             'role' => User::ROLE_STUDENT,
-            'email' => 'unverified@student.mseuf.edu.ph',
-            'firebase_uid' => null,
-            'email_verified_at' => null,
+            'email' => 'unverified.personal@gmail.com',
+            'firebase_uid' => 'firebase-unverified-event-eligibility',
+            'email_verified_at' => now(),
         ]);
 
         $this->actingAs($unverified)
@@ -355,6 +355,8 @@ class PublicEventRegistrationTest extends TestCase
         $student = User::factory()->create([
             'role' => User::ROLE_STUDENT,
             'email' => 'legacy@student.mseuf.edu.ph',
+            'firebase_uid' => 'firebase-legacy-api-registration',
+            'email_verified_at' => now(),
         ]);
 
         $this->actingAs($student)
@@ -363,6 +365,84 @@ class PublicEventRegistrationTest extends TestCase
             ->assertJsonValidationErrors(['capacity']);
 
         $this->assertSame(1, Registration::where('event_id', $this->event->id)->count());
+        $this->assertSame(1, Ticket::count());
+    }
+
+    public function test_student_api_registration_requires_a_verified_firebase_identity(): void
+    {
+        $this->category($this->event, 'General Admission', isDefault: true);
+        $unverified = User::factory()->create([
+            'role' => User::ROLE_STUDENT,
+            'firebase_uid' => null,
+            'email_verified_at' => null,
+        ]);
+
+        $this->actingAs($unverified)
+            ->postJson("/api/v1/events/{$this->event->id}/registration")
+            ->assertForbidden()
+            ->assertJsonPath('message', 'Only verified student accounts can register.');
+
+        $this->assertSame(0, Registration::count());
+        $this->assertSame(0, Ticket::count());
+    }
+
+    public function test_student_api_registration_respects_the_active_institutional_email_policy(): void
+    {
+        $this->category($this->event, 'General Admission', isDefault: true);
+        $student = User::factory()->create([
+            'role' => User::ROLE_STUDENT,
+            'email' => 'verified.personal@gmail.com',
+            'firebase_uid' => 'firebase-personal-registration',
+            'email_verified_at' => now(),
+            'created_at' => now()->subDay(),
+        ]);
+
+        $this->actingAs($student)
+            ->postJson("/api/v1/events/{$this->event->id}/registration")
+            ->assertCreated();
+
+        $this->assertDatabaseHas('registrations', [
+            'event_id' => $this->event->id,
+            'user_id' => $student->id,
+        ]);
+
+        DB::table('student_access_settings')->where('id', 1)->update([
+            'require_institutional_email' => true,
+            'policy_enabled_at' => now(),
+        ]);
+
+        $anotherEvent = Event::create([
+            'organizer_id' => $this->event->organizer_id,
+            'venue_id' => $this->venue->id,
+            'title' => 'Second Public Symposium',
+            'slug' => 'second-public-symposium',
+            'capacity' => 3,
+            'registration_opens_at' => now()->subDay(),
+            'registration_closes_at' => now()->addDays(2),
+            'starts_at' => now()->addDays(3),
+            'ends_at' => now()->addDays(3)->addHours(4),
+            'status' => Event::STATUS_PUBLISHED,
+        ]);
+        $this->category($anotherEvent, 'General Admission', isDefault: true);
+
+        $this->actingAs($student)
+            ->postJson("/api/v1/events/{$anotherEvent->id}/registration")
+            ->assertForbidden()
+            ->assertJsonPath('message', 'New student registrations require an @student.mseuf.edu.ph email address.');
+
+        $newPersonalStudent = User::factory()->create([
+            'role' => User::ROLE_STUDENT,
+            'email' => 'new.personal@gmail.com',
+            'firebase_uid' => 'firebase-new-personal-registration',
+            'email_verified_at' => now(),
+        ]);
+
+        $this->actingAs($newPersonalStudent)
+            ->postJson("/api/v1/events/{$this->event->id}/registration")
+            ->assertForbidden()
+            ->assertJsonPath('message', 'New student registrations require an @student.mseuf.edu.ph email address.');
+
+        $this->assertSame(1, Registration::count());
         $this->assertSame(1, Ticket::count());
     }
 
@@ -400,9 +480,9 @@ class PublicEventRegistrationTest extends TestCase
         $this->event->ticketCategories()->where('is_default', true)->update(['eligibility' => 'student']);
         $unverified = User::factory()->create([
             'role' => User::ROLE_STUDENT,
-            'email' => 'unverified@student.mseuf.edu.ph',
-            'firebase_uid' => null,
-            'email_verified_at' => null,
+            'email' => 'unverified.personal@gmail.com',
+            'firebase_uid' => 'firebase-unverified-event-eligibility-api',
+            'email_verified_at' => now(),
         ]);
 
         $this->actingAs($unverified)

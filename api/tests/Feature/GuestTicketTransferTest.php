@@ -35,7 +35,6 @@ class GuestTicketTransferTest extends TestCase
 
         Cache::store('array')->flush();
         config(['ingress.mode' => 'cloud']);
-        config(['services.firebase.student_email_domain' => 'student.mseuf.edu.ph']);
 
         $this->organizer = User::factory()->create(['role' => User::ROLE_ORGANIZER]);
         $venue = Venue::create([

@@ -40,6 +40,8 @@ class RegistrationTest extends TestCase
             'email' => 'a23-35524@student.mseuf.edu.ph',
             'student_id' => 'A23-35524',
             'role' => User::ROLE_STUDENT,
+            'firebase_uid' => 'firebase-student-registration-1',
+            'email_verified_at' => now(),
         ]);
 
         $this->student2 = User::factory()->create([
@@ -47,6 +49,8 @@ class RegistrationTest extends TestCase
             'email' => 'student2@mseuf.edu.ph',
             'student_id' => '2024-01002',
             'role' => User::ROLE_STUDENT,
+            'firebase_uid' => 'firebase-student-registration-2',
+            'email_verified_at' => now(),
         ]);
 
         $this->venue = Venue::create([
@@ -144,7 +148,11 @@ class RegistrationTest extends TestCase
 
     public function test_capacity_cannot_be_exceeded(): void
     {
-        $student3 = User::factory()->create(['role' => User::ROLE_STUDENT]);
+        $student3 = User::factory()->create([
+            'role' => User::ROLE_STUDENT,
+            'firebase_uid' => 'firebase-student-registration-3',
+            'email_verified_at' => now(),
+        ]);
 
         // Capacity is 2
         // Student 1 registers (1/2)

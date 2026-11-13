@@ -43,6 +43,8 @@ class AttendanceDashboardTest extends TestCase
             'email' => 'a23-35524@student.mseuf.edu.ph',
             'student_id' => 'A23-35524',
             'role' => User::ROLE_STUDENT,
+            'firebase_uid' => 'firebase-attendance-student',
+            'email_verified_at' => now(),
         ]);
 
         $venue = Venue::create([
