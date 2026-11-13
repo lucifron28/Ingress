@@ -296,6 +296,7 @@ function Test-IngressFirewallPolicy {
 
         $profiles = @((Get-IngressPropertyValue -InputObject $rule -Name 'Profiles' -Default @()) | ForEach-Object { [string] $_ })
         $candidateProfile = [string] (Get-IngressPropertyValue -InputObject $Candidate -Name 'NetworkCategory' -Default 'Unknown')
+        if ($candidateProfile -eq 'DomainAuthenticated') { $candidateProfile = 'Domain' }
         if ($profiles -notcontains 'Any' -and $profiles -notcontains $candidateProfile) {
             continue
         }

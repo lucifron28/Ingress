@@ -46,10 +46,11 @@ $dockerProcess = Get-Process -Name 'com.docker.backend' -ErrorAction Stop | Wher
 if ($null -eq $dockerProcess) { throw 'Docker Desktop networking is not running.' }
 
 $modulePath = Join-Path $PSScriptRoot 'IngressNetworkManager.psm1'
-Import-Module $modulePath -Force
+$networkModule = Import-Module $modulePath -Force -PassThru
 $remoteCidr = (Get-IngressIPv4Range -Value "$Address/$($ipEntry.PrefixLength)").Cidr
-$ownedRules = @(Get-NetFirewallRule -Group $group -DisplayName $displayName -ErrorAction SilentlyContinue)
-$foreignNameCollision = @(Get-NetFirewallRule -DisplayName $displayName -ErrorAction SilentlyContinue | Where-Object { $_.Group -ne $group })
+$matchingRules = @(Get-NetFirewallRule -ErrorAction Stop | Where-Object { $_.DisplayName -eq $displayName })
+$ownedRules = @($matchingRules | Where-Object { $_.Group -eq $group })
+$foreignNameCollision = @($matchingRules | Where-Object { $_.Group -ne $group })
 if ($foreignNameCollision.Count -gt 0) { throw 'A firewall rule with the Ingress LAN name is owned by another policy; it was not changed.' }
 
 $firewallProfile = if ($profile.NetworkCategory -eq 'DomainAuthenticated') { 'Domain' } else { [string] $profile.NetworkCategory }
@@ -69,7 +70,6 @@ $ruleArguments = @{
     Enabled = $true
     ErrorAction = 'Stop'
 }
-$newRule = New-NetFirewallRule @ruleArguments
 $candidate = [pscustomobject] @{
     Mode = Get-IngressAdapterMode -Adapter $adapter
     Name = [string] $adapter.Name
@@ -78,11 +78,16 @@ $candidate = [pscustomobject] @{
     NetworkCategory = [string] $profile.NetworkCategory
 }
 $firewallProfileState = Get-NetFirewallProfile -Name $firewallProfile -ErrorAction Stop | Select-Object -First 1
+if ([string] $firewallProfileState.Enabled -ne 'True') {
+    throw 'The active Windows Firewall profile must be enabled before configuring the LAN rule.'
+}
+$newRule = New-NetFirewallRule @ruleArguments
 $verified = $false
 try {
-    $rules = @(Get-IngressScopedFirewallRules -DisplayName $displayName | Where-Object { $_.InstanceName -eq [string] $newRule.Name })
+    $rules = @(& $networkModule { param($name) Get-IngressScopedFirewallRules -DisplayName $name } $displayName |
+        Where-Object { $_.InstanceName -eq [string] $newRule.Name })
     $verification = Test-IngressFirewallPolicy -Rules $rules -Candidate $candidate -Port $Port `
-        -RuleName $displayName -FirewallProfileEnabled ([bool] $firewallProfileState.Enabled)
+        -RuleName $displayName
     if (-not $verification.Allowed) {
         throw 'Windows did not retain the requested app, adapter, host address, port, firewall profile, and LAN subnet scope.'
     }
