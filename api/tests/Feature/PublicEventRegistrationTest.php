@@ -75,6 +75,62 @@ class PublicEventRegistrationTest extends TestCase
         $this->assertTrue($category->is_active);
     }
 
+    public function test_student_only_event_registration_does_not_render_guest_checkout_fields(): void
+    {
+        $this->event->update(['registration_eligibility' => Event::ELIGIBILITY_STUDENT]);
+        $this->category($this->event, 'Student Admission', isDefault: true);
+
+        $this->get(route('public.events.register', $this->event->slug))
+            ->assertOk()
+            ->assertSee('A verified MSEUF student account is required.')
+            ->assertDontSee('id="guest_name"', false)
+            ->assertDontSee('id="guest_email"', false);
+    }
+
+    public function test_student_only_category_hides_guest_details_without_affecting_public_guest_checkout(): void
+    {
+        $publicCategory = $this->category($this->event, 'General Admission', isDefault: true);
+        $studentCategory = $this->category(
+            $this->event,
+            'Verified Student Admission',
+            eligibility: TicketCategory::ELIGIBILITY_STUDENT,
+        );
+
+        $studentResponse = $this->get(route('public.events.register', $this->event->slug).'?category='.$studentCategory->id)
+            ->assertOk()
+            ->assertSee('Guest contact details are not needed for student-only tickets.')
+            ->assertSee('data-student-only="true"', false);
+        $this->assertMatchesRegularExpression('/<div id="guest-checkout-fields"\s+hidden(?:\s|>)/', $studentResponse->getContent());
+
+        $this->get(route('public.events.register', $this->event->slug).'?category='.$publicCategory->id)
+            ->assertOk()
+            ->assertSee('id="guest_name"', false)
+            ->assertSee('id="guest_email"', false)
+            ->assertSee('data-student-only="false"', false);
+    }
+
+    public function test_authenticated_students_can_reach_their_tickets_from_public_navigation(): void
+    {
+        $student = User::factory()->create([
+            'role' => User::ROLE_STUDENT,
+            'email' => 'nav@student.mseuf.edu.ph',
+            'firebase_uid' => 'firebase-student-nav',
+            'email_verified_at' => now(),
+        ]);
+
+        $this->actingAs($student)
+            ->get(route('public.events.index'))
+            ->assertOk()
+            ->assertSee('My tickets')
+            ->assertSee(route('student.dashboard'), false);
+
+        $organizer = User::factory()->create(['role' => User::ROLE_ORGANIZER]);
+        $this->actingAs($organizer)
+            ->get(route('public.events.index'))
+            ->assertOk()
+            ->assertDontSee('My tickets');
+    }
+
     public function test_guest_can_register_for_a_free_public_category_and_view_a_session_bound_pass(): void
     {
         $category = $this->category($this->event, 'General Admission', capacity: 2, isDefault: true);

@@ -1,6 +1,12 @@
 @extends('layouts.public')
 
 @section('content')
+    @php
+        $eventRequiresStudent = $event->registration_eligibility === \App\Models\Event::ELIGIBILITY_STUDENT;
+        $selectedCategory = $categories->firstWhere('id', (int) $selectedCategoryId);
+        $selectedCategoryRequiresStudent = $selectedCategory?->eligibility === \App\Models\TicketCategory::ELIGIBILITY_STUDENT;
+        $hasStudentOnlyCategories = $categories->contains(fn ($category) => $category->eligibility === \App\Models\TicketCategory::ELIGIBILITY_STUDENT);
+    @endphp
     <p class="eyebrow"><a href="{{ route('public.events.show', $event->slug) }}">{{ $event->title }}</a> / Registration</p>
     <section class="card" style="max-width: 42rem; margin: 0 auto;">
         <h1 style="font-size: 2rem;">Register for {{ $event->title }}</h1>
@@ -19,13 +25,13 @@
         @elseif ($categories->isEmpty())
             <div class="notice">No ticket categories are available for registration.</div>
         @else
-            @if ($event->registration_eligibility === \App\Models\Event::ELIGIBILITY_STUDENT)
+            @if ($eventRequiresStudent)
                 <div class="notice">A verified MSEUF student account is required. Guests cannot register for this event.</div>
             @else
                 <div class="notice">Public tickets use guest checkout. No account is required. Student-only categories require verified student sign-in. @if ($event->canOfferSimulatedPayments()) Paid checkout is simulated; no real money is charged and no card details are collected. @endif</div>
             @endif
 
-            <form method="POST" action="{{ route('public.events.register.store', $event->slug) }}" autocomplete="on">
+            <form id="public-registration-form" method="POST" action="{{ route('public.events.register.store', $event->slug) }}" autocomplete="on" data-event-requires-student="{{ $eventRequiresStudent ? 'true' : 'false' }}">
                 @csrf
                 <input type="hidden" name="idempotency_key" value="{{ old('idempotency_key', $idempotencyKey) }}">
                 <div class="field">
@@ -41,20 +47,27 @@
                                 elseif ($category->price_minor > 0 && $event->canOfferSimulatedPayments()) $categoryLabel .= ' · Simulated checkout';
                                 elseif ($category->price_minor > 0) $categoryLabel .= ' · Payment unavailable';
                             @endphp
-                            <option value="{{ $category->id }}" {{ (string) old('ticket_category_id', $selectedCategoryId) === (string) $category->id ? 'selected' : '' }} {{ $unavailable ? 'disabled' : '' }}>{{ $categoryLabel }}</option>
+                            <option value="{{ $category->id }}" data-student-only="{{ $category->eligibility === \App\Models\TicketCategory::ELIGIBILITY_STUDENT ? 'true' : 'false' }}" {{ (string) old('ticket_category_id', $selectedCategoryId) === (string) $category->id ? 'selected' : '' }} {{ $unavailable ? 'disabled' : '' }}>{{ $categoryLabel }}</option>
                         @endforeach
                     </select>
                 </div>
 
-                <div class="field">
-                    <label for="guest_name">Attendee name</label>
-                    <input id="guest_name" name="guest_name" type="text" maxlength="255" value="{{ old('guest_name') }}" autocomplete="name">
-                </div>
-                <div class="field">
-                    <label for="guest_email">Attendee email</label>
-                    <input id="guest_email" name="guest_email" type="email" maxlength="255" value="{{ old('guest_email') }}" autocomplete="email">
-                    <span class="meta">Required for public guest checkout. Guest contact details do not verify identity.</span>
-                </div>
+                @if (! $eventRequiresStudent)
+                    @if ($hasStudentOnlyCategories)
+                        <p id="student-category-note" class="notice" role="status" @if (! $selectedCategoryRequiresStudent) hidden @endif>Student-only tickets require a verified student account. Guest contact details are not needed for student-only tickets.</p>
+                    @endif
+                    <div id="guest-checkout-fields" @if ($selectedCategoryRequiresStudent) hidden @endif>
+                        <div class="field">
+                            <label for="guest_name">Attendee name</label>
+                            <input id="guest_name" name="guest_name" type="text" maxlength="255" value="{{ old('guest_name') }}" autocomplete="name">
+                        </div>
+                        <div class="field">
+                            <label for="guest_email">Attendee email</label>
+                            <input id="guest_email" name="guest_email" type="email" maxlength="255" value="{{ old('guest_email') }}" autocomplete="email">
+                            <span class="meta">Required for public guest checkout. Guest contact details do not verify identity.</span>
+                        </div>
+                    </div>
+                @endif
 
                 <p class="meta">Your name and email are used to issue and manage this event registration. The admission QR contains no personal or payment information.</p>
                 <div style="display: flex; flex-wrap: wrap; gap: .75rem; margin-top: 1.25rem;">
@@ -64,4 +77,25 @@
             </form>
         @endif
     </section>
+    @if (! $eventRequiresStudent && $hasStudentOnlyCategories)
+        <script>
+            (() => {
+                const form = document.getElementById('public-registration-form');
+                const category = form?.querySelector('#ticket_category_id');
+                const guestFields = form?.querySelector('#guest-checkout-fields');
+                const studentNote = form?.querySelector('#student-category-note');
+
+                if (!category || !guestFields || !studentNote) return;
+
+                const updateCategoryDetails = () => {
+                    const studentOnly = category.selectedOptions[0]?.dataset.studentOnly === 'true';
+                    guestFields.hidden = studentOnly;
+                    studentNote.hidden = !studentOnly;
+                };
+
+                category.addEventListener('change', updateCategoryDetails);
+                updateCategoryDetails();
+            })();
+        </script>
+    @endif
 @endsection
