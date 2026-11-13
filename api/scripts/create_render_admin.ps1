@@ -21,7 +21,8 @@ function Set-SecretEnvironmentVariable {
 }
 
 $exitCode = 1
-$origin = Read-Host 'Render service HTTPS origin, for example https://ingress-cloud.onrender.com'
+$origin = Read-Host 'Render service HTTPS origin [https://ingress-pp2u.onrender.com]'
+if ([string]::IsNullOrWhiteSpace($origin)) { $origin = 'https://ingress-pp2u.onrender.com' }
 $caBundle = Read-Host 'Path to a trusted PEM CA bundle on this computer'
 $configCache = Join-Path $env:TEMP ('ingress-admin-' + [guid]::NewGuid().ToString('N') + '.php')
 
