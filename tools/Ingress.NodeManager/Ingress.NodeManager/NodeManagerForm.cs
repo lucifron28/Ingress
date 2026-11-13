@@ -155,14 +155,14 @@ public sealed class NodeManagerForm : Form
         var brand = new Panel { Dock = DockStyle.Fill, BackColor = _theme.Sidebar, Margin = Padding.Empty };
         var logoTile = new Panel
         {
-            BackColor = Color.White,
+            BackColor = _theme.Surface,
             Size = new Size(42, 42),
             Location = new Point(0, 4),
         };
         var mark = new PictureBox
         {
             Dock = DockStyle.Fill,
-            BackColor = Color.White,
+            BackColor = _theme.Surface,
             Image = LoadIngressMark(),
             SizeMode = PictureBoxSizeMode.Zoom,
             Padding = new Padding(3),
@@ -172,7 +172,7 @@ public sealed class NodeManagerForm : Form
         {
             Text = "INGRESS",
             Font = new Font("Segoe UI", 13, FontStyle.Bold),
-            ForeColor = Color.White,
+            ForeColor = _theme.SidebarText,
             AutoSize = true,
             Location = new Point(54, 6),
         };
@@ -246,7 +246,7 @@ public sealed class NodeManagerForm : Form
             AccessibleName = text,
         };
         button.FlatAppearance.BorderSize = 0;
-        button.FlatAppearance.MouseOverBackColor = _theme.AccentHover;
+        button.FlatAppearance.MouseOverBackColor = _theme.SurfaceMuted;
         button.Click += (_, _) => ShowPage(page);
         _navigation.Add(page, button);
         parent.Controls.Add(button);
@@ -348,7 +348,7 @@ public sealed class NodeManagerForm : Form
         {
             var selected = pair.Key == page;
             pair.Value.BackColor = selected ? _theme.Accent : _theme.Sidebar;
-            pair.Value.ForeColor = selected ? Color.White : _theme.SidebarText;
+            pair.Value.ForeColor = selected ? _theme.Surface : _theme.SidebarText;
             pair.Value.FlatAppearance.BorderSize = selected ? 2 : 0;
             pair.Value.FlatAppearance.BorderColor = _theme.Accent;
         }
@@ -531,6 +531,8 @@ public sealed class NodeManagerForm : Form
         {
             DropDownStyle = ComboBoxStyle.DropDownList,
             Width = Math.Min(580, GetPageTextWidth(40)),
+            BackColor = _theme.Surface,
+            ForeColor = _theme.Ink,
             Font = new Font("Segoe UI", 10F),
             Margin = new Padding(0, 9, 0, 2),
             FormattingEnabled = true,
@@ -1186,7 +1188,7 @@ public sealed class NodeManagerForm : Form
             button.FlatStyle = FlatStyle.Flat;
             button.FlatAppearance.BorderSize = 0;
             button.BackColor = _theme.Accent;
-            button.ForeColor = Color.White;
+            button.ForeColor = _theme.Surface;
             button.FlatAppearance.MouseOverBackColor = _theme.AccentHover;
             button.FlatAppearance.MouseDownBackColor = _theme.AccentHover;
         }
@@ -1619,13 +1621,23 @@ internal sealed class LogViewerForm : Form
             ReadOnly = true,
             DetectUrls = false,
             WordWrap = false,
-            BackColor = theme.IsDark ? Color.FromArgb(18, 22, 31) : Color.FromArgb(250, 251, 253),
+            BackColor = theme.SurfaceMuted,
             ForeColor = theme.Ink,
             Font = new Font("Consolas", 9F),
             BorderStyle = BorderStyle.None,
             Text = safeLogText,
         };
-        var close = new Button { Text = "Close", Dock = DockStyle.Bottom, Height = 42 };
+        var close = new Button
+        {
+            Text = "Close",
+            Dock = DockStyle.Bottom,
+            Height = 42,
+            FlatStyle = FlatStyle.Flat,
+            BackColor = theme.Surface,
+            ForeColor = theme.Ink,
+        };
+        close.FlatAppearance.BorderColor = theme.Border;
+        close.FlatAppearance.BorderSize = 1;
         close.Click += (_, _) => Close();
         Controls.Add(logs);
         Controls.Add(info);
