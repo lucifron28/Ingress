@@ -3,13 +3,11 @@
 namespace Tests\Feature;
 
 use App\Mail\IngressMailConnectivityTest;
-use App\Models\Event;
 use App\Models\User;
 use App\Models\Venue;
 use App\Support\CloudOperatorDatabase;
 use Illuminate\Database\Connection;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -58,7 +56,7 @@ class StagingOperatorCommandsTest extends TestCase
             'role' => 'admin',
             '--confirm-staging' => true,
         ])
-            ->expectsOutputToContain('Choose organizer, staff, or student. Administrator accounts use ingress:create-admin.')
+            ->expectsOutputToContain('Choose organizer or staff. Student accounts must be created and verified through Firebase.')
             ->assertExitCode(1);
 
         $this->assertDatabaseCount('users', 0);
@@ -100,7 +98,7 @@ class StagingOperatorCommandsTest extends TestCase
         $this->assertTrue(Hash::check('temporary-staging-password', $organizer->fresh()->password));
     }
 
-    public function test_staging_student_requires_a_synthetic_student_id_and_remains_unverified(): void
+    public function test_staging_account_command_requires_firebase_for_student_accounts(): void
     {
         $this->useTestCloudDatabase();
 
@@ -108,75 +106,10 @@ class StagingOperatorCommandsTest extends TestCase
             'role' => 'student',
             '--confirm-staging' => true,
         ])
-            ->expectsQuestion('Staging account name', 'Ingress Test Student')
-            ->expectsQuestion('Synthetic email ending in @example.test', 'ingress-student@example.test')
-            ->expectsQuestion('Synthetic student ID beginning with STAGE-', 'STAGE-001')
-            ->expectsQuestion('Password, at least 12 characters', 'temporary-staging-password')
-            ->expectsQuestion('Confirm password', 'temporary-staging-password')
-            ->expectsOutputToContain('Synthetic staging student account created.')
-            ->assertExitCode(0);
+            ->expectsOutputToContain('Choose organizer or staff. Student accounts must be created and verified through Firebase.')
+            ->assertExitCode(1);
 
-        $student = User::where('email', 'ingress-student@example.test')->firstOrFail();
-        $this->assertSame(User::ROLE_STUDENT, $student->role);
-        $this->assertSame('STAGE-001', $student->student_id);
-        $this->assertNull($student->email_verified_at);
-    }
-
-    public function test_unverified_synthetic_student_can_register_for_a_staging_event(): void
-    {
-        $this->useTestCloudDatabase();
-
-        $this->artisan('ingress:provision-staging-account', [
-            'role' => 'student',
-            '--confirm-staging' => true,
-        ])
-            ->expectsQuestion('Staging account name', 'Ingress Test Student')
-            ->expectsQuestion('Synthetic email ending in @example.test', 'ingress-student@example.test')
-            ->expectsQuestion('Synthetic student ID beginning with STAGE-', 'STAGE-002')
-            ->expectsQuestion('Password, at least 12 characters', 'temporary-staging-password')
-            ->expectsQuestion('Confirm password', 'temporary-staging-password')
-            ->assertExitCode(0);
-
-        $student = User::where('email', 'ingress-student@example.test')->firstOrFail();
-        $organizer = User::factory()->create(['role' => User::ROLE_ORGANIZER]);
-        $venue = Venue::create([
-            'name' => 'Staging Hall',
-            'code' => 'STAGE-HALL',
-            'location' => 'Staging campus',
-            'default_capacity' => 10,
-        ]);
-        $event = Event::create([
-            'organizer_id' => $organizer->id,
-            'venue_id' => $venue->id,
-            'title' => 'Synthetic Staging Event',
-            'slug' => 'synthetic-staging-event',
-            'capacity' => 10,
-            'registration_opens_at' => Carbon::now()->subHour(),
-            'registration_closes_at' => Carbon::now()->addDay(),
-            'starts_at' => Carbon::now()->addDays(2),
-            'ends_at' => Carbon::now()->addDays(2)->addHours(2),
-            'status' => Event::STATUS_PUBLISHED,
-        ]);
-
-        $login = $this->postJson('/api/v1/auth/login', [
-            'email' => $student->email,
-            'password' => 'temporary-staging-password',
-            'device_name' => 'StagingTestPhone',
-        ])
-            ->assertOk()
-            ->assertJsonPath('user.role', User::ROLE_STUDENT);
-
-        $this->withHeader('Authorization', 'Bearer '.$login->json('token'))
-            ->postJson("/api/v1/events/{$event->id}/registration")
-            ->assertCreated()
-            ->assertJsonPath('message', 'Registration confirmed and ticket issued.');
-
-        $this->assertNull($student->fresh()->email_verified_at);
-        $this->assertDatabaseHas('registrations', [
-            'event_id' => $event->id,
-            'user_id' => $student->id,
-            'status' => 'confirmed',
-        ]);
+        $this->assertDatabaseCount('users', 0);
     }
 
     public function test_staging_account_command_rejects_non_synthetic_email_domains(): void

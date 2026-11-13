@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Api\V1\UserResource;
 use App\Models\User;
+use App\Services\Auth\StudentEmailEligibility;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -15,7 +16,7 @@ class AuthController extends Controller
     /**
      * Mobile login via Sanctum bearer token.
      */
-    public function login(Request $request): JsonResponse
+    public function login(Request $request, StudentEmailEligibility $studentEmailEligibility): JsonResponse
     {
         $validated = $request->validate([
             'email' => ['required', 'string', 'email'],
@@ -28,6 +29,12 @@ class AuthController extends Controller
         if (! $user || ! Hash::check($validated['password'], $user->password)) {
             throw ValidationException::withMessages([
                 'email' => ['Invalid credentials.'],
+            ]);
+        }
+
+        if ($user->isStudent() && ! $studentEmailEligibility->canAccess($user)) {
+            throw ValidationException::withMessages([
+                'email' => ['Student accounts must complete Firebase email verification before signing in.'],
             ]);
         }
 

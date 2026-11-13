@@ -69,7 +69,14 @@ class SnapshotTransferTest extends TestCase
         config(['ingress.mode' => 'cloud']);
         $this->useCloudOperatorDatabase();
         $owner = User::factory()->create(['role' => User::ROLE_ORGANIZER]);
-        $student = User::factory()->create(['name' => 'Private Attendee', 'role' => User::ROLE_STUDENT]);
+        $studentIdentity = (string) Str::uuid();
+        $student = User::factory()->create([
+            'name' => 'Private Attendee',
+            'role' => User::ROLE_STUDENT,
+            'email' => "snapshot-{$studentIdentity}@student.mseuf.edu.ph",
+            'firebase_uid' => "firebase:{$studentIdentity}",
+            'email_verified_at' => now(),
+        ]);
         $venue = Venue::create(['name' => 'Hall', 'code' => 'HALL', 'location' => 'Campus', 'default_capacity' => 20]);
         $event = Event::create([
             'organizer_id' => $owner->id, 'venue_id' => $venue->id, 'title' => 'Event', 'slug' => 'event',
@@ -96,7 +103,14 @@ class SnapshotTransferTest extends TestCase
         $guestQr = null;
         if ($withStaff) {
             $guestEmail = $shareGuestEmailWithStudent ? $student->email : 'guest@example.test';
-            $second = User::factory()->create(['name' => 'Second Attendee', 'role' => User::ROLE_STUDENT]);
+            $secondIdentity = (string) Str::uuid();
+            $second = User::factory()->create([
+                'name' => 'Second Attendee',
+                'role' => User::ROLE_STUDENT,
+                'email' => "snapshot-second-{$secondIdentity}@student.mseuf.edu.ph",
+                'firebase_uid' => "firebase:{$secondIdentity}",
+                'email_verified_at' => now(),
+            ]);
             $secondQr = $this->actingAs($second)->postJson("/api/v1/events/{$event->id}/registration")->assertCreated()->json('qr_payload');
             $this->actingAs($owner)->post("/organizer/events/{$event->id}/guests", [
                 'guest_name' => 'Guest Attendee', 'guest_email' => $guestEmail, 'attendee_type' => 'guest',

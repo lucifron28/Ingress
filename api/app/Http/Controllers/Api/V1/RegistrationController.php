@@ -6,23 +6,40 @@ use App\Actions\RegisterForEvent;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Api\V1\TicketResource;
 use App\Models\Event;
+use App\Services\Auth\StudentEmailEligibility;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class RegistrationController extends Controller
 {
     /**
      * Register authenticated attendee for an event.
      */
-    public function store(Request $request, Event $event, RegisterForEvent $action): JsonResponse
+    public function store(Request $request, Event $event, RegisterForEvent $action, StudentEmailEligibility $studentEmailEligibility): JsonResponse
     {
-        if (! $request->user()->isStudent()) {
+        $user = $request->user();
+        if (! $user->isStudent()) {
             return response()->json([
                 'message' => 'Only students are permitted to self-register for events.',
             ], 403);
         }
 
-        $result = $action->execute($request->user(), $event->id);
+        $result = DB::transaction(function () use ($studentEmailEligibility, $user, $action, $event): array|string {
+            $studentEmailEligibility->lockPolicyForUpdate();
+            $error = $studentEmailEligibility->registrationError($user);
+            if ($error !== null) {
+                return $error;
+            }
+
+            return $action->execute($user, $event->id);
+        });
+
+        if (is_string($result)) {
+            return response()->json([
+                'message' => $result,
+            ], 403);
+        }
 
         return response()->json([
             'message' => 'Registration confirmed and ticket issued.',
@@ -31,5 +48,4 @@ class RegistrationController extends Controller
             'qr_payload' => $result['qr_payload'],
         ], 201);
     }
-
 }

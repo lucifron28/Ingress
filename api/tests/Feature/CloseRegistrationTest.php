@@ -30,8 +30,16 @@ class CloseRegistrationTest extends TestCase
         $this->freezeTime();
         $event = $this->createEvent();
         $owner = User::findOrFail($event->organizer_id);
-        $student = User::factory()->create(['role' => User::ROLE_STUDENT]);
-        $registered = User::factory()->create(['role' => User::ROLE_STUDENT]);
+        $student = User::factory()->create([
+            'role' => User::ROLE_STUDENT,
+            'firebase_uid' => 'firebase-close-registration-student',
+            'email_verified_at' => now(),
+        ]);
+        $registered = User::factory()->create([
+            'role' => User::ROLE_STUDENT,
+            'firebase_uid' => 'firebase-close-registration-registered',
+            'email_verified_at' => now(),
+        ]);
         $ticketId = $this->actingAs($registered)->postJson("/api/v1/events/{$event->id}/registration")
             ->assertCreated()->json('ticket.id');
         $this->actingAs($owner)->post("/organizer/events/{$event->id}/close-registration")
@@ -87,7 +95,11 @@ class CloseRegistrationTest extends TestCase
         $this->freezeTime();
         $event = $this->createEvent();
         $event->update(['ends_at' => now()->subSecond()]);
-        $student = User::factory()->create(['role' => User::ROLE_STUDENT]);
+        $student = User::factory()->create([
+            'role' => User::ROLE_STUDENT,
+            'firebase_uid' => 'firebase-ended-event-student',
+            'email_verified_at' => now(),
+        ]);
         $this->actingAs($student)->getJson("/api/v1/events/{$event->id}")
             ->assertOk()->assertJsonPath('event.is_registration_open', false);
         $this->postJson("/api/v1/events/{$event->id}/registration")->assertUnprocessable();

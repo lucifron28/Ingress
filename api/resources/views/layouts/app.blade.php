@@ -208,6 +208,7 @@
                     <a href="{{ route('organizer.events.index') }}" style="color: {{ request()->routeIs('organizer.events.*') ? '#ffffff' : '#fca5a5' }}; text-decoration: none; font-weight: {{ request()->routeIs('organizer.events.*') ? '600' : '400' }};">Events</a>
                     @if (Auth::user()->isAdmin() && config('ingress.mode') === 'cloud')
                         <a href="{{ route('organizer.venues.index') }}" style="color: {{ request()->routeIs('organizer.venues.*') ? '#ffffff' : '#fca5a5' }}; text-decoration: none; font-weight: {{ request()->routeIs('organizer.venues.*') ? '600' : '400' }};">Venues</a>
+                        <a href="{{ route('admin.settings.student-access') }}" style="color: {{ request()->routeIs('admin.settings.*') ? '#ffffff' : '#fca5a5' }}; text-decoration: none; font-weight: {{ request()->routeIs('admin.settings.*') ? '600' : '400' }};">Student access</a>
                     @endif
                 </nav>
             </div>
@@ -242,7 +243,15 @@
     <footer style="background: #ffffff; border-top: 1px solid var(--neutral-border); padding: 1.25rem 1.5rem; font-size: 0.75rem; color: var(--neutral-muted); text-align: center; margin-top: auto;">
         <div style="max-width: 1200px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center;">
             <div>Manuel S. Enverga University Foundation &bull; Lucena City, Quezon</div>
-            <div>Ingress Event Node &bull; LAN Mode Active</div>
+            <div>
+                @if (config('ingress.mode') === 'node')
+                    Ingress Event Node &bull; LAN Mode Active
+                @elseif (config('ingress.mode') === 'cloud')
+                    Ingress Cloud Event Management
+                @else
+                    Ingress Local Runtime
+                @endif
+            </div>
         </div>
     </footer>
 </body>

@@ -204,6 +204,13 @@ if (root) {
         const email = form.elements.email.value.trim().toLowerCase();
         const password = form.elements.password.value;
 
+        const institutionalDomain = root.dataset.institutionalDomain?.toLowerCase();
+        if (root.dataset.requireInstitutionalEmail === 'true'
+            && (!institutionalDomain || !email.endsWith(`@${institutionalDomain}`))) {
+            showMessage(`New student accounts must use an email ending in @${institutionalDomain || 'the institutional domain'}.`, 'error');
+            return;
+        }
+
         if (name.length === 0 || password.length < 12 || password.length > 128) {
             showMessage('Enter your name and a password between 12 and 128 characters.', 'error');
             return;

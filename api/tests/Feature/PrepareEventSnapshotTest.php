@@ -10,11 +10,24 @@ use App\Models\Venue;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 class PrepareEventSnapshotTest extends TestCase
 {
     use RefreshDatabase;
+
+    private function verifiedStudent(array $attributes = []): User
+    {
+        $id = (string) Str::uuid();
+
+        return User::factory()->create(array_merge([
+            'role' => User::ROLE_STUDENT,
+            'email' => "snapshot-{$id}@student.mseuf.edu.ph",
+            'firebase_uid' => "firebase:{$id}",
+            'email_verified_at' => now(),
+        ], $attributes));
+    }
 
     private function createEvent(): Event
     {
@@ -47,7 +60,7 @@ class PrepareEventSnapshotTest extends TestCase
     {
         $event = $this->createEvent();
         $owner = User::findOrFail($event->organizer_id);
-        $student = User::factory()->create(['role' => User::ROLE_STUDENT]);
+        $student = $this->verifiedStudent();
         $gate = AccessPoint::create(['event_id' => $event->id, 'name' => 'Gate', 'code' => 'G1', 'is_active' => true]);
         $ticketId = $this->actingAs($student)->postJson("/api/v1/events/{$event->id}/registration")->assertCreated()->json('ticket.id');
         DB::table('admissions')->insert([
@@ -75,7 +88,7 @@ class PrepareEventSnapshotTest extends TestCase
         $event = $this->createEvent();
         $owner = User::findOrFail($event->organizer_id);
         $staff = User::factory()->create(['role' => User::ROLE_STAFF]);
-        $student = User::factory()->create(['name' => 'Snapshot Attendee', 'role' => User::ROLE_STUDENT]);
+        $student = $this->verifiedStudent(['name' => 'Snapshot Attendee']);
         $gate = AccessPoint::create(['event_id' => $event->id, 'name' => 'Gate', 'code' => 'G1', 'is_active' => true]);
         EventStaff::create(['event_id' => $event->id, 'user_id' => $staff->id, 'access_point_id' => $gate->id]);
         $registration = $this->actingAs($student)->postJson("/api/v1/events/{$event->id}/registration")->assertCreated();
@@ -170,7 +183,7 @@ class PrepareEventSnapshotTest extends TestCase
         $event = $this->createEvent();
         $event->update(['registration_opens_at' => now()->subDays(3), 'registration_closes_at' => now()->subDay()]);
         $owner = User::findOrFail($event->organizer_id);
-        $student = User::factory()->create(['role' => User::ROLE_STUDENT]);
+        $student = $this->verifiedStudent();
         $this->actingAs($owner)->post("/organizer/events/{$event->id}/prepare-snapshot")->assertRedirect();
         $this->travel(-2)->days();
         $this->actingAs($student)->getJson("/api/v1/events/{$event->id}")

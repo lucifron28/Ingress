@@ -87,7 +87,11 @@ set_exception_handler(static function (Throwable $error): void {
         }
     }
 
-    fwrite(STDERR, 'POSTGRESQL CONCURRENCY VERIFICATION FAILED: '.get_class($error).$constraint.PHP_EOL);
+    $validationErrors = $error instanceof Illuminate\Validation\ValidationException
+        ? ' (validation: '.json_encode($error->errors(), JSON_UNESCAPED_SLASHES).')'
+        : '';
+
+    fwrite(STDERR, 'POSTGRESQL CONCURRENCY VERIFICATION FAILED: '.get_class($error).$constraint.$validationErrors.PHP_EOL);
     exit(1);
 });
 
@@ -1086,15 +1090,21 @@ $transferRaceEvent = Event::create([
     'ticket_transfers_allowed' => true,
 ]);
 $transferSender = User::create([
-    'name' => 'Transfer Race Sender', 'email' => "transfer.sender.{$suffix}@mseuf.edu.ph",
-    'student_id' => "TRS-{$suffix}", 'role' => User::ROLE_STUDENT, 'email_verified_at' => now(),
+    'name' => 'Transfer Race Sender', 'email' => "transfer.sender.{$suffix}@student.mseuf.edu.ph",
+    'student_id' => "TRS-{$suffix}", 'role' => User::ROLE_STUDENT,
     'password' => Hash::make('password'),
 ]);
+$transferSender->forceFill([
+    'firebase_uid' => "firebase-transfer-sender-{$suffix}", 'email_verified_at' => now(),
+])->save();
 $transferRecipient = User::create([
-    'name' => 'Transfer Race Recipient', 'email' => "transfer.recipient.{$suffix}@mseuf.edu.ph",
-    'student_id' => "TRR-{$suffix}", 'role' => User::ROLE_STUDENT, 'email_verified_at' => now(),
+    'name' => 'Transfer Race Recipient', 'email' => "transfer.recipient.{$suffix}@student.mseuf.edu.ph",
+    'student_id' => "TRR-{$suffix}", 'role' => User::ROLE_STUDENT,
     'password' => Hash::make('password'),
 ]);
+$transferRecipient->forceFill([
+    'firebase_uid' => "firebase-transfer-recipient-{$suffix}", 'email_verified_at' => now(),
+])->save();
 $transferTicket = (new RegisterForEvent)->execute($transferSender, $transferRaceEvent->id)['ticket'];
 $transferRaceEvent->update(['registration_closed_at' => now()]);
 $pendingTransfer = TicketTransfer::create([
@@ -1149,17 +1159,21 @@ $acceptedBeforeSnapshotEvent = Event::create([
     'ticket_transfers_allowed' => true,
 ]);
 $acceptRaceSender = User::create([
-    'name' => 'Acceptance Race Sender', 'email' => "accept.sender.{$suffix}@mseuf.edu.ph",
+    'name' => 'Acceptance Race Sender', 'email' => "accept.sender.{$suffix}@student.mseuf.edu.ph",
     'student_id' => "ARS-{$suffix}", 'role' => User::ROLE_STUDENT,
     'password' => Hash::make('password'),
 ]);
+$acceptRaceSender->forceFill([
+    'firebase_uid' => "firebase-accept-sender-{$suffix}", 'email_verified_at' => now(),
+])->save();
 $acceptRaceRecipient = User::create([
-    'name' => 'Acceptance Race Recipient', 'email' => "accept.recipient.{$suffix}@mseuf.edu.ph",
+    'name' => 'Acceptance Race Recipient', 'email' => "accept.recipient.{$suffix}@student.mseuf.edu.ph",
     'student_id' => "ARR-{$suffix}", 'role' => User::ROLE_STUDENT,
     'password' => Hash::make('password'),
 ]);
-$acceptRaceSender->forceFill(['email_verified_at' => now()])->save();
-$acceptRaceRecipient->forceFill(['email_verified_at' => now()])->save();
+$acceptRaceRecipient->forceFill([
+    'firebase_uid' => "firebase-accept-recipient-{$suffix}", 'email_verified_at' => now(),
+])->save();
 $acceptRaceTicket = (new RegisterForEvent)->execute($acceptRaceSender, $acceptedBeforeSnapshotEvent->id)['ticket'];
 $acceptedBeforeSnapshotEvent->update(['registration_closed_at' => now()]);
 $acceptRaceTransfer = TicketTransfer::create([

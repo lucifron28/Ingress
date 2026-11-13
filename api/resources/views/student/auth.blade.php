@@ -38,12 +38,20 @@
 </head>
 <body>
     <main data-student-auth
+        data-require-institutional-email="{{ $requiresInstitutionalEmail ? 'true' : 'false' }}"
+        data-institutional-domain="{{ $requiresInstitutionalEmail ? $institutionalDomain : '' }}"
         data-firebase-config="{{ json_encode($firebaseConfig, JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP | JSON_HEX_TAG) }}"
         data-configured="{{ $firebaseConfigured ? 'true' : 'false' }}">
         <p class="brand">Ingress · MSEUF</p>
         <section class="card" aria-labelledby="page-title">
             <h1 id="page-title">Student account</h1>
-            <p class="intro">Use a personal or university email address to create or access your account. Firebase will send a verification link before you sign in.</p>
+            <p class="intro">
+                @if ($requiresInstitutionalEmail)
+                    New student accounts and registrations need an email ending in <strong>{{ '@'.$institutionalDomain }}</strong>. Personal-email accounts that already existed when this policy was enabled can still sign in and view their tickets. Firebase will send a verification link before sign-in.
+                @else
+                    Use a personal or university email address to create or access your account. Firebase will send a verification link before sign-in.
+                @endif
+            </p>
 
             @unless ($firebaseConfigured)
                 <p class="notice error" role="alert">Student sign-in is not configured yet. Ask the Ingress administrator to add the Firebase web settings.</p>
@@ -77,8 +85,11 @@
                     <input id="student-name" name="name" type="text" autocomplete="name" required maxlength="100">
                 </div>
                 <div>
-                    <label for="create-email">Email address</label>
+                    <label for="create-email">{{ $requiresInstitutionalEmail ? 'Institutional email address' : 'Email address' }}</label>
                     <input id="create-email" name="email" type="email" autocomplete="email" inputmode="email" required maxlength="255">
+                    @if ($requiresInstitutionalEmail)
+                        <small>Use an address ending in {{ '@'.$institutionalDomain }}.</small>
+                    @endif
                 </div>
                 <div>
                     <label for="create-password">Password</label>

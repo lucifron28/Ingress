@@ -33,7 +33,7 @@ Staff-only scanner app --venue LAN--> Event Node --local PostgreSQL
 
 ### Implemented capabilities
 
-- Institutional student signup verifies control of an `@student.mseuf.edu.ph` email with a single use link. The student number remains self reported and does not prove enrollment.
+- Firebase verifies student email ownership. Cloud Admin can require the exact `@student.mseuf.edu.ph` domain for new student accounts and registrations; when that setting is off, verified personal email is allowed. Email control does not prove enrollment.
 - Cloud registration enforces event capacity transactionally. Student tickets use static opaque QR credentials.
 - Organizers can issue printable guest and alumni tickets. Event staff can register walk ins on the Event Node under the same capacity and ticket validation rules.
 - Staff authenticate with Event Node credentials or pair using a one use QR code. Admission scans preview ticket and attendee details without changing state. Only an explicit staff confirmation records an entry or exit.
@@ -159,7 +159,7 @@ php artisan serve --host=0.0.0.0 --port=8000
 ```
 Organizer portal available at: `http://localhost:8000/login`
 
-Student web sign-in uses Firebase Authentication at `/student/auth`, which also handles email verification and password recovery. Laravel verifies Firebase ID tokens and accepts only verified `@student.mseuf.edu.ph` identities. Configure the Firebase web settings and authorized Render domain as described in [the deployment guide](docs/deployment.md). Resend is optional and is used for event-manager invitations; unsafe or missing mail settings make invitation requests fail closed.
+Student web sign-in uses Firebase Authentication at `/student/auth`, which also handles email verification and password recovery. Laravel verifies Firebase ID tokens and links each student account to one Firebase UID. The administrator-controlled student email policy can require `@student.mseuf.edu.ph` for new accounts and registrations; Firebase verification remains mandatory either way. Configure the Firebase web settings and authorized Render domain as described in [the deployment guide](docs/deployment.md). Resend is optional and is used for event-manager invitations; unsafe or missing mail settings make invitation requests fail closed.
 
 ### 3. Run Backend Integration Tests
 The fast backend suite runs on in-memory SQLite:

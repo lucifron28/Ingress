@@ -89,7 +89,6 @@ Set the following in **Render → ingress-cloud → Environment**. Add secret va
 | `FIREBASE_AUTH_DOMAIN` | Firebase Web App auth domain, usually `<project-id>.firebaseapp.com` |
 | `FIREBASE_PROJECT_ID` | Firebase project ID |
 | `FIREBASE_APP_ID` | Firebase Web App ID |
-| `FIREBASE_STUDENT_EMAIL_DOMAIN` | `student.mseuf.edu.ph` |
 
 Use the current Render origin `https://ingress-pp2u.onrender.com` for `APP_URL`. If Render later assigns a different domain, replace it with the exact HTTPS origin shown on the service. Add custom domains only after Render reports HTTPS is active. Set `INGRESS_CORS_ALLOWED_ORIGINS` only when a browser client needs cross-origin API access; use exact HTTPS origins, comma-separated. Native mobile clients do not need a CORS entry.
 
@@ -105,7 +104,7 @@ Guest redemption and manager pass recovery also retain the newly rotated redempt
 
 ### Configure Firebase student authentication
 
-In the Firebase Console, open **Authentication → Sign-in method** and enable only **Email/Password** using Firebase's [password-auth setup](https://firebase.google.com/docs/auth/web/password-auth). Keep [email enumeration protection](https://firebase.google.com/docs/auth/web/password-auth#recommended_enable_email_enumeration_protection) enabled in Authentication settings so sign-in and account recovery do not disclose whether a mailbox has an account. Register a Firebase Web App in the same project, then copy its `apiKey`, `authDomain`, `projectId`, and `appId` into the four matching `FIREBASE_*` variables above. Leave `FIREBASE_STUDENT_EMAIL_DOMAIN` as `student.mseuf.edu.ph`. Use the Firebase project intended for this deployment; do not point staging and production at the same project unless that is deliberate.
+In the Firebase Console, open **Authentication → Sign-in method** and enable only **Email/Password** using Firebase's [password-auth setup](https://firebase.google.com/docs/auth/web/password-auth). Keep [email enumeration protection](https://firebase.google.com/docs/auth/web/password-auth#recommended_enable_email_enumeration_protection) enabled in Authentication settings so sign-in and account recovery do not disclose whether a mailbox has an account. Register a Firebase Web App in the same project, then copy its `apiKey`, `authDomain`, `projectId`, and `appId` into the four matching `FIREBASE_*` variables above. Use the Firebase project intended for this deployment; do not point staging and production at the same project unless that is deliberate.
 
 In **Authentication → Settings → Authorized domains**, add `ingress-pp2u.onrender.com`. Add each exact custom domain if the app later uses one. Firebase verification and reset messages use Firebase's email action handler and return to the current HTTPS host at `/student/auth`; the app supplies `verified=1` or `reset=sent` as the continuation state through Firebase's [email action settings](https://firebase.google.com/docs/auth/web/passing-state-in-email-actions). Customize the Firebase verification and password-reset templates as needed, and ensure the return host is authorized before testing.
 
@@ -149,13 +148,13 @@ The script prompts securely for the Neon `DB_URL`, the Render `APP_KEY`, the pub
 
 Render Free has no shell, so run the operator scripts from a trusted Windows checkout with PHP 8.4, `pdo_pgsql`, Composer dependencies installed, and a trusted Neon CA bundle. Use only a Neon database reserved for staging. The preflight checks the cloud runtime identity and PostgreSQL 18, but it cannot determine whether a database contains real records.
 
-Create a synthetic organizer, staff member, or student and seed only the four reference venues:
+Create a synthetic organizer or staff member and seed only the four reference venues:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\api\scripts\provision_render_staging_account.ps1
 ```
 
-Press Enter to use the current Render URL. The script reuses the connection settings while you create multiple accounts; enter `done` when finished. It requires typing `STAGING` before connecting. It seeds `VenueSeeder`, then runs `ingress:provision-staging-account`. Use an email ending in `@example.test`; students also require an ID beginning with `STAGE-`. The password is entered through hidden prompts, hashed, and never printed. Synthetic students remain unverified. Repeating the same role and email leaves the existing account unchanged. The tool cannot create administrators; use `create_render_admin.ps1` for the first admin. After creating the organizer, sign in at `/login` and create events with synthetic titles, schedules, attendees, and gate names.
+Press Enter to use the current Render URL. The script reuses the connection settings while you create multiple accounts; enter `done` when finished. It requires typing `STAGING` before connecting. It seeds `VenueSeeder`, then runs `ingress:provision-staging-account`. Use an email ending in `@example.test`. The password is entered through hidden prompts, hashed, and never printed. Student accounts must be created through Firebase and complete email verification. Repeating the same role and email leaves the existing account unchanged. The tool cannot create administrators; use `create_render_admin.ps1` for the first admin. After creating the organizer, sign in at `/login` and create events with synthetic titles, schedules, attendees, and gate names.
 
 Register a node from the same trusted Windows checkout:
 
@@ -180,7 +179,7 @@ After Render reports the deployment as live:
 1. Open `https://<your-render-host>/up` and confirm an HTTP 200 response.
 2. In Render logs, confirm the fixed startup message `Cloud database migrations and runtime identity are ready.` Do not copy secret environment values into logs or support tickets.
 3. In Neon SQL Editor, confirm `select current_setting('server_version_num');` starts with `180`, and confirm the expected Ingress migration rows exist in `migrations`.
-4. Sign in with the administrator created above. Test student web signup, verification, and password recovery with an authorized `@student.mseuf.edu.ph` mailbox in the configured Firebase project. If you enabled Resend, send a manager invitation and confirm delivery; the static connectivity test is optional.
+4. Sign in with the administrator created above. Open **Student access** and confirm the institutional-email setting is off by default. Test student web signup, verification, and password recovery with an authorized mailbox in the configured Firebase project. Turn the domain requirement on and confirm new personal-email signups are refused while existing accounts and tickets remain available. If you enabled Resend, send a manager invitation and confirm delivery; the static connectivity test is optional.
 5. Confirm the service can be reached over HTTPS and that production debug/demo mode remain disabled.
 
 This checklist checks the cloud service only. It does not establish physical-device, venue-network, printer, admission, or Event Node verification; see the [physical-device test plan](physical-device-test-plan.md).

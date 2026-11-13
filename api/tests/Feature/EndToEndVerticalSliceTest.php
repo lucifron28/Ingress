@@ -73,6 +73,8 @@ class EndToEndVerticalSliceTest extends TestCase
             'student_id' => 'A23-35524',
             'role' => User::ROLE_STUDENT,
             'password' => bcrypt('password'),
+            'firebase_uid' => 'firebase-e2e-student',
+            'email_verified_at' => now(),
         ]);
 
         $staffGateA = User::factory()->create([

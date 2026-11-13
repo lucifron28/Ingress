@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Hash;
 use Throwable;
 
 #[Signature('ingress:provision-staging-account {role} {--confirm-staging}')]
-#[Description('Create a synthetic staging organizer, staff member, or student on the cloud database.')]
+#[Description('Create a synthetic staging organizer or staff member on the cloud database.')]
 class ProvisionStagingAccount extends Command
 {
     public function handle(CloudOperatorDatabase $cloudDatabase): int
@@ -26,10 +26,9 @@ class ProvisionStagingAccount extends Command
         $roles = [
             'organizer' => User::ROLE_ORGANIZER,
             'staff' => User::ROLE_STAFF,
-            'student' => User::ROLE_STUDENT,
         ];
         if (! is_string($role) || ! array_key_exists($role, $roles)) {
-            $this->error('Choose organizer, staff, or student. Administrator accounts use ingress:create-admin.');
+            $this->error('Choose organizer or staff. Student accounts must be created and verified through Firebase. Administrator accounts use ingress:create-admin.');
 
             return self::FAILURE;
         }
@@ -53,9 +52,6 @@ class ProvisionStagingAccount extends Command
 
         $name = trim((string) $this->ask('Staging account name'));
         $email = strtolower(trim((string) $this->ask('Synthetic email ending in @example.test')));
-        $studentId = $roles[$role] === User::ROLE_STUDENT
-            ? strtoupper(trim((string) $this->ask('Synthetic student ID beginning with STAGE-')))
-            : null;
         $password = $this->secret('Password, at least 12 characters');
         $confirmation = $this->secret('Confirm password');
 
@@ -63,10 +59,9 @@ class ProvisionStagingAccount extends Command
             || strlen($email) > 255
             || filter_var($email, FILTER_VALIDATE_EMAIL) === false
             || ! str_ends_with($email, '@example.test')
-            || ($studentId !== null && ! preg_match('/\ASTAGE-[A-Z0-9-]{1,58}\z/', $studentId))
             || ! is_string($password) || strlen($password) < 12 || strlen($password) > 72
             || ! is_string($confirmation) || ! hash_equals($password, $confirmation)) {
-            $this->error('Use a valid name, an @example.test email, a STAGE- student ID when needed, and matching passwords between 12 and 72 bytes.');
+            $this->error('Use a valid name, an @example.test email, and matching passwords between 12 and 72 bytes.');
 
             return self::FAILURE;
         }
@@ -81,7 +76,6 @@ class ProvisionStagingAccount extends Command
                 $password,
                 $role,
                 $roles,
-                $studentId,
             ): void {
                 $connection->transaction(function () use (
                     $connection,
@@ -91,7 +85,6 @@ class ProvisionStagingAccount extends Command
                     $password,
                     $role,
                     $roles,
-                    $studentId,
                 ): void {
                     $existing = User::on($connection->getName())
                         ->whereRaw('LOWER(email) = ?', [$email])
@@ -107,18 +100,11 @@ class ProvisionStagingAccount extends Command
                         return;
                     }
 
-                    if ($studentId !== null && User::on($connection->getName())
-                        ->whereRaw('LOWER(student_id) = ?', [strtolower($studentId)])
-                        ->exists()) {
-                        throw new \RuntimeException('Synthetic student ID is already assigned.');
-                    }
-
                     $user = new User;
                     $user->setConnection($connection->getName());
                     $user->name = $name;
                     $user->email = $email;
                     $user->role = $roles[$role];
-                    $user->student_id = $studentId;
                     $user->email_verified_at = null;
                     $user->password = Hash::make($password);
                     $user->save();

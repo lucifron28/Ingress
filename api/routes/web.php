@@ -3,6 +3,7 @@
 use App\Http\Controllers\NodeOperatorConsoleController;
 use App\Http\Controllers\NodeOperatorHandoffController;
 use App\Http\Controllers\NodeOperatorStaffController;
+use App\Http\Controllers\Web\AdminStudentAccessController;
 use App\Http\Controllers\Web\AuthController;
 use App\Http\Controllers\Web\CheckoutController;
 use App\Http\Controllers\Web\EventManagerController;
@@ -163,4 +164,9 @@ Route::middleware(['auth', 'organizer', 'runtime:legacy,cloud'])->prefix('organi
     Route::get('/events/{event}/attendance.csv', [OrganizerAttendanceController::class, 'export'])->name('attendance.export');
     Route::get('/events/{event}/attendance/feed', [OrganizerAttendanceController::class, 'feed'])->name('attendance.feed');
 
+});
+
+Route::middleware(['auth', 'runtime:cloud'])->prefix('admin/settings')->name('admin.settings.')->group(function (): void {
+    Route::get('/student-access', [AdminStudentAccessController::class, 'index'])->name('student-access');
+    Route::post('/student-access', [AdminStudentAccessController::class, 'update'])->name('student-access.update');
 });

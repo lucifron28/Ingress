@@ -19,6 +19,8 @@ class AuthTest extends TestCase
             'email' => 'student.test@mseuf.edu.ph',
             'role' => User::ROLE_STUDENT,
             'password' => bcrypt('secret123'),
+            'firebase_uid' => 'firebase-verified-mobile-login',
+            'email_verified_at' => now(),
         ]);
 
         $response = $this->postJson('/api/v1/auth/login', [
@@ -43,6 +45,24 @@ class AuthTest extends TestCase
             ]);
 
         $this->assertNotEmpty($response->json('token'));
+    }
+
+    public function test_unverified_student_cannot_receive_a_mobile_api_token(): void
+    {
+        User::factory()->create([
+            'email' => 'unverified.student@example.test',
+            'role' => User::ROLE_STUDENT,
+            'password' => bcrypt('secret123'),
+            'firebase_uid' => null,
+            'email_verified_at' => null,
+        ]);
+
+        $this->postJson('/api/v1/auth/login', [
+            'email' => 'unverified.student@example.test',
+            'password' => 'secret123',
+        ])->assertUnprocessable()->assertJsonValidationErrors(['email']);
+
+        $this->assertDatabaseCount('personal_access_tokens', 0);
     }
 
     public function test_login_fails_with_invalid_credentials(): void

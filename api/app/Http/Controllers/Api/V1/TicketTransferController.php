@@ -10,6 +10,7 @@ use App\Models\Registration;
 use App\Models\Ticket;
 use App\Models\TicketTransfer;
 use App\Models\User;
+use App\Services\Auth\StudentEmailEligibility;
 use App\Services\Tickets\TicketCredentialRotation;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -21,7 +22,10 @@ use Illuminate\Validation\ValidationException;
 
 class TicketTransferController extends Controller
 {
-    public function __construct(private TicketCredentialRotation $credentialRotation) {}
+    public function __construct(
+        private TicketCredentialRotation $credentialRotation,
+        private StudentEmailEligibility $studentEmailEligibility,
+    ) {}
 
     public function index(Request $request): AnonymousResourceCollection
     {
@@ -54,8 +58,7 @@ class TicketTransferController extends Controller
 
             $this->assertTransferAllowed($event);
             if ((int) $registration->user_id !== (int) $sender->id
-                || ! $sender->isStudent()
-                || ! $sender->email_verified_at
+                || ! $this->studentEmailEligibility->isVerifiedInstitutionalStudent($sender)
                 || $registration->attendee_type !== 'student'
                 || $registration->status !== Registration::STATUS_CONFIRMED
                 || ! $lockedTicket->isActive()
@@ -68,7 +71,7 @@ class TicketTransferController extends Controller
                 $query->whereRaw('LOWER(email) = ?', [$recipientIdentifier])
                     ->orWhereRaw('LOWER(student_id) = ?', [$recipientIdentifier]);
             })->first();
-            if (! $recipient || ! $recipient->isStudent() || ! $recipient->email_verified_at
+            if (! $this->studentEmailEligibility->isVerifiedInstitutionalStudent($recipient)
                 || (int) $recipient->id === (int) $sender->id) {
                 throw ValidationException::withMessages(['recipient' => 'Choose a different verified student account.']);
             }
@@ -153,7 +156,7 @@ class TicketTransferController extends Controller
                     || Admission::where('ticket_id', $ticket->id)->exists()) {
                     throw ValidationException::withMessages(['transfer' => 'This ticket is no longer eligible for transfer.']);
                 }
-                if (! $actor->isStudent() || ! $actor->email_verified_at) {
+                if (! $this->studentEmailEligibility->isVerifiedInstitutionalStudent($actor)) {
                     throw ValidationException::withMessages(['transfer' => 'Only verified student accounts can accept a ticket transfer.']);
                 }
 
