@@ -1086,13 +1086,13 @@ $transferRaceEvent = Event::create([
     'ticket_transfers_allowed' => true,
 ]);
 $transferSender = User::create([
-    'name' => 'Transfer Race Sender', 'email' => "transfer.sender.{$suffix}@mseuf.edu.ph",
+    'name' => 'Transfer Race Sender', 'email' => "transfer.sender.{$suffix}@student.mseuf.edu.ph",
     'student_id' => "TRS-{$suffix}", 'role' => User::ROLE_STUDENT,
     'firebase_uid' => "firebase-transfer-sender-{$suffix}", 'email_verified_at' => now(),
     'password' => Hash::make('password'),
 ]);
 $transferRecipient = User::create([
-    'name' => 'Transfer Race Recipient', 'email' => "transfer.recipient.{$suffix}@mseuf.edu.ph",
+    'name' => 'Transfer Race Recipient', 'email' => "transfer.recipient.{$suffix}@student.mseuf.edu.ph",
     'student_id' => "TRR-{$suffix}", 'role' => User::ROLE_STUDENT,
     'firebase_uid' => "firebase-transfer-recipient-{$suffix}", 'email_verified_at' => now(),
     'password' => Hash::make('password'),
@@ -1151,13 +1151,13 @@ $acceptedBeforeSnapshotEvent = Event::create([
     'ticket_transfers_allowed' => true,
 ]);
 $acceptRaceSender = User::create([
-    'name' => 'Acceptance Race Sender', 'email' => "accept.sender.{$suffix}@mseuf.edu.ph",
+    'name' => 'Acceptance Race Sender', 'email' => "accept.sender.{$suffix}@student.mseuf.edu.ph",
     'student_id' => "ARS-{$suffix}", 'role' => User::ROLE_STUDENT,
     'firebase_uid' => "firebase-accept-sender-{$suffix}", 'email_verified_at' => now(),
     'password' => Hash::make('password'),
 ]);
 $acceptRaceRecipient = User::create([
-    'name' => 'Acceptance Race Recipient', 'email' => "accept.recipient.{$suffix}@mseuf.edu.ph",
+    'name' => 'Acceptance Race Recipient', 'email' => "accept.recipient.{$suffix}@student.mseuf.edu.ph",
     'student_id' => "ARR-{$suffix}", 'role' => User::ROLE_STUDENT,
     'firebase_uid' => "firebase-accept-recipient-{$suffix}", 'email_verified_at' => now(),
     'password' => Hash::make('password'),
