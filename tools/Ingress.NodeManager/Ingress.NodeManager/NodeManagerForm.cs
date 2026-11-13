@@ -1484,7 +1484,9 @@ public sealed class NodeManagerForm : Form
         await RunOperationAsync("Configuring Windows Firewall…", async token =>
         {
             await _manager!.ConfigureLanFirewallAsync(adapter, _status.LanHttpPort, token);
-        });
+            _networkPreview = await _manager.PreviewLanDemoNetworkChangeAsync(adapter, token);
+            _status = _networkPreview;
+        }, refreshAfter: false);
     }
 
     private async Task ShowRecentLogsAsync()

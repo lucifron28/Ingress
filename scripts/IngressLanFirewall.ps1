@@ -33,27 +33,29 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     throw 'Administrator permission is required to add the scoped LAN firewall rule.'
 }
 
-$adapter = Get-NetAdapter -InterfaceIndex $InterfaceIndex -ErrorAction Stop
+$adapter = Get-NetAdapter -InterfaceIndex $InterfaceIndex -IncludeHidden -ErrorAction Stop
 if ($adapter.Status -ne 'Up') { throw 'The selected LAN adapter is no longer connected.' }
 $ipEntry = Get-NetIPAddress -InterfaceIndex $InterfaceIndex -AddressFamily IPv4 -ErrorAction Stop |
     Where-Object { $_.IPAddress -eq $Address -and $_.AddressState -eq 'Preferred' } | Select-Object -First 1
 if ($null -eq $ipEntry) { throw 'The selected private address is no longer assigned to this adapter.' }
-$profile = Get-NetConnectionProfile -InterfaceIndex $InterfaceIndex -ErrorAction Stop | Select-Object -First 1
-if ($null -eq $profile -or $profile.NetworkCategory -notin @('DomainAuthenticated', 'Private', 'Public')) {
+$profile = Get-NetConnectionProfile -ErrorAction Stop | Where-Object InterfaceIndex -eq $InterfaceIndex | Select-Object -First 1
+$category = if ($null -eq $profile) { 'Unknown' } else { [string] $profile.NetworkCategory }
+$networkModule = Import-Module (Join-Path $PSScriptRoot 'IngressNetworkManager.psm1') -Force -PassThru
+$mode = Get-IngressAdapterMode -Adapter $adapter
+$unclassified = $category -eq 'Unknown' -and $mode -eq 'Laptop Hotspot'
+if (-not $unclassified -and $category -notin @('DomainAuthenticated', 'Private', 'Public')) {
     throw 'The active Windows firewall profile could not be determined.'
 }
 $dockerProcess = Get-Process -Name 'com.docker.backend' -ErrorAction Stop | Where-Object { $_.Path } | Select-Object -First 1
 if ($null -eq $dockerProcess) { throw 'Docker Desktop networking is not running.' }
 
-$modulePath = Join-Path $PSScriptRoot 'IngressNetworkManager.psm1'
-$networkModule = Import-Module $modulePath -Force -PassThru
 $remoteCidr = (Get-IngressIPv4Range -Value "$Address/$($ipEntry.PrefixLength)").Cidr
 $matchingRules = @(Get-NetFirewallRule -ErrorAction Stop | Where-Object { $_.DisplayName -eq $displayName })
 $ownedRules = @($matchingRules | Where-Object { $_.Group -eq $group })
 $foreignNameCollision = @($matchingRules | Where-Object { $_.Group -ne $group })
 if ($foreignNameCollision.Count -gt 0) { throw 'A firewall rule with the Ingress LAN name is owned by another policy; it was not changed.' }
 
-$firewallProfile = if ($profile.NetworkCategory -eq 'DomainAuthenticated') { 'Domain' } else { [string] $profile.NetworkCategory }
+$firewallProfile = if ($unclassified) { 'Any' } elseif ($category -eq 'DomainAuthenticated') { 'Domain' } else { $category }
 $ruleArguments = @{
     DisplayName = $displayName
     Group = $group
@@ -71,14 +73,14 @@ $ruleArguments = @{
     ErrorAction = 'Stop'
 }
 $candidate = [pscustomobject] @{
-    Mode = Get-IngressAdapterMode -Adapter $adapter
+    Mode = $mode
     Name = [string] $adapter.Name
     Address = $Address
     PrefixLength = [int] $ipEntry.PrefixLength
-    NetworkCategory = [string] $profile.NetworkCategory
+    NetworkCategory = $category
 }
-$firewallProfileState = Get-NetFirewallProfile -Name $firewallProfile -ErrorAction Stop | Select-Object -First 1
-if ([string] $firewallProfileState.Enabled -ne 'True') {
+$firewallProfileState = & $networkModule { param($category, $hotspot) Get-IngressFirewallProfileState -NetworkCategory $category -AllowUnclassifiedHotspot:$hotspot } $category $unclassified
+if (-not $firewallProfileState.Known -or -not $firewallProfileState.Enabled) {
     throw 'The active Windows Firewall profile must be enabled before configuring the LAN rule.'
 }
 $newRule = New-NetFirewallRule @ruleArguments

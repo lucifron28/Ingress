@@ -297,7 +297,12 @@ function Test-IngressFirewallPolicy {
         $profiles = @((Get-IngressPropertyValue -InputObject $rule -Name 'Profiles' -Default @()) | ForEach-Object { [string] $_ })
         $candidateProfile = [string] (Get-IngressPropertyValue -InputObject $Candidate -Name 'NetworkCategory' -Default 'Unknown')
         if ($candidateProfile -eq 'DomainAuthenticated') { $candidateProfile = 'Domain' }
-        if ($profiles -notcontains 'Any' -and $profiles -notcontains $candidateProfile) {
+        $profileMatches = if ($candidateProfile -eq 'Unknown' -and $Candidate.Mode -eq 'Laptop Hotspot') {
+            $profiles -contains 'Any' -or ($profiles -contains 'Domain' -and $profiles -contains 'Private' -and $profiles -contains 'Public')
+        } else {
+            $profiles -contains 'Any' -or $profiles -contains $candidateProfile
+        }
+        if (-not $profileMatches) {
             continue
         }
 
@@ -322,7 +327,7 @@ function Test-IngressFirewallPolicy {
         $interfaces = @((Get-IngressPropertyValue -InputObject $rule -Name 'InterfaceAliases' -Default @()) | ForEach-Object { [string] $_ })
         $interfaceTypes = @((Get-IngressPropertyValue -InputObject $rule -Name 'InterfaceTypes' -Default @()) | ForEach-Object { [string] $_ })
         $programAllowed = $programs.Count -eq 1 -and (
-            $programs[0] -eq 'Any' -or [System.IO.Path]::GetFileName($programs[0]) -ieq 'com.docker.backend.exe'
+            ($programs[0] -eq 'Any' -and $candidateProfile -ne 'Unknown') -or [System.IO.Path]::GetFileName($programs[0]) -ieq 'com.docker.backend.exe'
         )
         $packageAllowed = $packages.Count -eq 0 -or ($packages.Count -eq 1 -and ($packages[0] -eq 'Any' -or [string]::IsNullOrWhiteSpace($packages[0])))
         $serviceAllowed = $services.Count -eq 1 -and $services[0] -eq 'Any'
@@ -878,7 +883,7 @@ function Test-IngressUrlResolvesToAddress {
 
 function Get-IngressScopedFirewallRules {
     param([string] $DisplayName = 'Ingress Event Node HTTPS')
-    $rules = @(Get-NetFirewallRule -ErrorAction Stop | Where-Object {
+    $rules = @(Get-NetFirewallRule -PolicyStore ActiveStore -ErrorAction Stop | Where-Object {
         [string] $_.DisplayName -eq $DisplayName -and [string] $_.Direction -eq 'Inbound'
     })
     foreach ($rule in $rules) {
@@ -918,12 +923,17 @@ function Get-IngressScopedFirewallRules {
 }
 
 function Get-IngressFirewallProfileState {
-    param([string] $NetworkCategory)
-    if ($NetworkCategory -notin @('DomainAuthenticated', 'Private', 'Public')) {
+    param([string] $NetworkCategory, [switch] $AllowUnclassifiedHotspot)
+    $unclassified = $AllowUnclassifiedHotspot -and $NetworkCategory -eq 'Unknown'
+    if (-not $unclassified -and $NetworkCategory -notin @('DomainAuthenticated', 'Private', 'Public')) {
         return [pscustomobject] @{ Known = $false; Enabled = $false }
     }
     try {
-        $profiles = @(Get-NetFirewallProfile -ErrorAction Stop)
+        $profiles = @(Get-NetFirewallProfile -PolicyStore ActiveStore -ErrorAction Stop)
+        if ($unclassified) {
+            $required = @($profiles | Where-Object { $_.Name -in @('Domain', 'Private', 'Public') })
+            return [pscustomobject] @{ Known = ($required.Count -eq 3); Enabled = ($required.Count -eq 3 -and @($required | Where-Object { [string] $_.Enabled -ne 'True' }).Count -eq 0) }
+        }
         $profileName = if ($NetworkCategory -eq 'DomainAuthenticated') { 'Domain' } else { $NetworkCategory }
         $profile = $profiles | Where-Object { [string] $_.Name -eq $profileName } | Select-Object -First 1
         if ($null -eq $profile) { return [pscustomobject] @{ Known = $false; Enabled = $false } }
@@ -1181,7 +1191,7 @@ function Invoke-IngressLanDemoNetworkManager {
     $admissionState = Read-IngressAdmissionState -Context $context -ComposeSummary $composeSummary -CommandRunner $CommandRunner
     $operations = Read-IngressNodeOperationsSummary -Context $context -ComposeSummary $composeSummary -NodeState $nodeState -CommandRunner $CommandRunner
     $actualPorts = Get-IngressActualPortStatus -Context $context -ContainerId $context.NodeContainerId -CommandRunner $CommandRunner -Address $targetAddress -HttpsPort 443 -OperatorPort $operatorPort -LanDemo -HttpPort $httpPort
-    $firewallProfileState = if ($candidate) { Get-IngressFirewallProfileState -NetworkCategory $candidate.NetworkCategory } else { [pscustomobject] @{ Known = $false; Enabled = $false } }
+    $firewallProfileState = if ($candidate) { Get-IngressFirewallProfileState -NetworkCategory $candidate.NetworkCategory -AllowUnclassifiedHotspot:($candidate.Mode -eq 'Laptop Hotspot') } else { [pscustomobject] @{ Known = $false; Enabled = $false } }
     if ($null -eq $FirewallRules) {
         $firewallKnown = $true
         try { $FirewallRules = @(Get-IngressScopedFirewallRules -DisplayName 'Ingress Event Node LAN Demo') }
@@ -1340,6 +1350,10 @@ function Invoke-IngressLanDemoNetworkManager {
     if ($latestCandidate.InterfaceIndex -ne $candidate.InterfaceIndex -or $latestCandidate.Address -ne $targetAddress) {
         throw 'The selected adapter or address changed during confirmation. Refresh and select the current network.'
     }
+    $latestProfile = Get-IngressFirewallProfileState -NetworkCategory $latestCandidate.NetworkCategory -AllowUnclassifiedHotspot:($latestCandidate.Mode -eq 'Laptop Hotspot')
+    $latestRules = @(Get-IngressScopedFirewallRules -DisplayName 'Ingress Event Node LAN Demo')
+    $latestFirewall = Test-IngressFirewallPolicy -Rules $latestRules -Candidate $latestCandidate -Port $httpPort -RuleName 'Ingress Event Node LAN Demo' -FirewallProfileEnabled ($latestProfile.Known -and $latestProfile.Enabled)
+    if (-not $latestFirewall.Allowed) { throw 'The scoped LAN firewall rule could not be confirmed. Preview the selected network again.' }
     $latestAdmission = Read-IngressAdmissionState -Context $context -ComposeSummary $composeSummary -CommandRunner $CommandRunner
     if (-not $latestAdmission.Known) { throw 'Admission state could not be rechecked; the Event Node was not changed.' }
     if ($latestAdmission.Active) { throw 'An event can currently accept admissions; the Event Node was not changed.' }
