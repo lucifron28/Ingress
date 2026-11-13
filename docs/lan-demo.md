@@ -1,6 +1,6 @@
 # Ingress legacy LAN demonstration guide (archived)
 
-> This guide describes the old single-server demo and its former mobile client. The current Android app is a staff-only Event Node scanner with no student login, Cloud API, attendee wallet, demo account quick-select, or legacy server setting. Standard builds require HTTPS; the separate capstone `lanDemo` build uses private-LAN HTTP only. Do not follow the old mobile steps below. Use the [LAN capstone demo](lan-capstone-demo.md), [deployment guide](deployment.md), and [physical-device test plan](physical-device-test-plan.md) for current testing.
+> This guide describes the old single-server demo and its former mobile client. The current Android app is a staff-only Event Node scanner with no student login, Cloud API, attendee wallet, demo account quick-select, or legacy server setting. Standard builds require HTTPS; the separate course-demo `lanDemo` build uses private-LAN HTTP only. Do not follow the old mobile steps below. Use the [LAN course demo](lan-course-demo.md), [deployment guide](deployment.md), and [physical-device test plan](physical-device-test-plan.md) for current testing.
 
 **Manuel S. Enverga University Foundation (MSEUF)**  
 *Event Ticketing, Admission, and Attendance Management System*
@@ -28,7 +28,7 @@ This guide describes the single-server `legacy` demo mode for classroom demonstr
 
 > The laptop runs the local-only `legacy` runtime. Production uses a separate cloud runtime and Event Node with separate databases and authority rules.
 
-> **Transport security:** this archived single-server demo does not support the current scanner. Standard scanner builds use HTTPS. The isolated capstone Docker workflow has a dedicated private-LAN HTTP profile; see [LAN capstone demo](lan-capstone-demo.md), [ADR 009](design-decisions.md#adr-009-transport-security-for-lan-and-production), and [ADR 020](design-decisions.md#adr-020-staff-only-mobile-scanner).
+> **Transport security:** this archived single-server demo does not support the current scanner. Standard scanner builds use HTTPS. The isolated course-project Docker workflow has a dedicated private-LAN HTTP profile; see [LAN course demo](lan-course-demo.md), [ADR 009](design-decisions.md#adr-009-transport-security-for-lan-and-production), and [ADR 020](design-decisions.md#adr-020-staff-only-mobile-scanner).
 
 ---
 
@@ -94,7 +94,7 @@ The current scanner contains no demo login credentials. These account rows descr
 
 ## 4. Current mobile scanner
 
-The staff scanner does not connect to this legacy single-server demo. Pair it with an activated Event Node over HTTPS, or use the dedicated private-LAN HTTP profile with the Docker capstone workflow. Follow [LAN capstone demo](lan-capstone-demo.md) and [Staff scanner build instructions](../mobile/README.md).
+The staff scanner does not connect to this legacy single-server demo. Pair it with an activated Event Node over HTTPS, or use the dedicated private-LAN HTTP profile with the course-project Docker workflow. Follow [LAN course demo](lan-course-demo.md) and [Staff scanner build instructions](../mobile/README.md).
 
 ---
 

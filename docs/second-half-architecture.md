@@ -3,7 +3,7 @@
 **Status:** The cloud and Event Node architecture is implemented. The mobile app is now a staff-only Event Node scanner; student accounts, registration, ticket access, and transfers use the website. Safe authority recovery, automatic snapshot delivery, data-retention automation, and real payment-provider integration remain unimplemented. Paid checkout is simulated. Device and venue verification is deferred to the project owner.
 **Current implementation:** Cloud accounts, web registration and ticket transfers, organizer reporting, snapshot transfer, Event Node admission, guest and alumni passes, node walk-ins, entry and exit tracking, and retryable admission synchronization are implemented. Students with a verified institutional email can transfer eligible tickets before the event ends and before snapshot preparation. Accountless guest and alumni ticket holders can use a one-use redemption code to transfer an eligible public ticket while those same event limits allow it. Email activation verifies control of the institutional address, not current enrollment. Attendees can download ticket PDFs from the website; a saved PDF can display its static QR without internet. Admission requires the venue LAN and Event Node, but not public internet.
 
-The native app contains no student sign-in, event discovery, ticket wallet, or Cloud API client. Its EAS `preview` and `production` profiles use Android system certificate trust and require HTTPS. The dedicated capstone `lanDemo` profile accepts HTTP at private IPv4 Node addresses so the same APK can connect after the laptop changes networks. Use it only on an isolated private LAN. See [Staff scanner build instructions](../mobile/README.md).
+The native app contains no student sign-in, event discovery, ticket wallet, or Cloud API client. Its EAS `preview` and `production` profiles use Android system certificate trust and require HTTPS. The dedicated course-demo `lanDemo` profile accepts HTTP at private IPv4 Node addresses so the same APK can connect after the laptop changes networks. Use it only on an isolated private LAN. See [Staff scanner build instructions](../mobile/README.md).
 
 ## Runtime boundaries
 
@@ -159,7 +159,7 @@ Normal scanner setup uses a **Pair Scanner** QR containing a short-lived setup p
 ```text
 schema version
 node identifier
-HTTPS Event Node API URL (or private HTTP address in capstone LAN demo mode)
+HTTPS Event Node API URL (or private HTTP address in course-project LAN demo mode)
 one-time pairing token
 expiration
 ```
@@ -168,7 +168,7 @@ The pairing credential must not contain a permanent administrator password or re
 
 Manual Event Node address entry remains available to staff as a fallback. Standard preview and production builds require HTTPS; only the dedicated LAN demo build accepts private IPv4 HTTP endpoints.
 
-Android preview and production builds use system CA trust and HTTPS. The `lanDemo` profile permits cleartext HTTP only to private IPv4 Node addresses for the isolated capstone LAN demo. See [Staff scanner build instructions](../mobile/README.md).
+Android preview and production builds use system CA trust and HTTPS. The `lanDemo` profile permits cleartext HTTP only to private IPv4 Node addresses for the isolated course-project LAN demo. See [Staff scanner build instructions](../mobile/README.md).
 
 ## 6. Staff authentication during event operation
 
@@ -521,7 +521,7 @@ The design intentionally keeps one local admission authority so duplicate admiss
 
 After provisioning an assigned staff member's local credential, run `php artisan ingress:pair-node-staff CLOUD_USER_ID --url=https://node.example/api/v1` on the node. Show the terminal QR only to that staff member. It contains the node ID, API address, and a random one-use code that expires after three minutes. It does not contain the staff password or node transfer key. Issuing a new code, rotating the credential, or revoking it invalidates older unused codes. A terminal that supports ANSI colors and block characters is needed to display the QR.
 
-In the native app, select **Scan pairing code**, scan the operator's QR, and confirm the displayed node ID and address with the operator before pairing. Standard profiles require HTTPS and reject redirects. The dedicated `lanDemo` profile accepts private IPv4 HTTP only for the isolated capstone Docker workflow. The node checks the current assignment and local credential when exchanging the code for a 12-hour node staff session. The server enforces expiry. If the exchange response is lost, request a new code because the first may already be consumed. A QR code is a bearer credential: anyone who sees it before use can redeem it, so do not photograph or share it. The node ID shown by the app is a confirmation aid, not hardware attestation or certificate pinning.
+In the native app, select **Scan pairing code**, scan the operator's QR, and confirm the displayed node ID and address with the operator before pairing. Standard profiles require HTTPS and reject redirects. The dedicated `lanDemo` profile accepts private IPv4 HTTP only for the isolated course-project Docker workflow. The node checks the current assignment and local credential when exchanging the code for a 12-hour node staff session. The server enforces expiry. If the exchange response is lost, request a new code because the first may already be consumed. A QR code is a bearer credential: anyone who sees it before use can redeem it, so do not photograph or share it. The node ID shown by the app is a confirmation aid, not hardware attestation or certificate pinning.
 
 ## Node staff mobile session
 

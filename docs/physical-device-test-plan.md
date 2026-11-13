@@ -22,7 +22,7 @@ For an Event Node failure after authority activation, stop all gates. Preserve t
 1. Use the current Render cloud at `https://ingress-pp2u.onrender.com` and one Windows Event Node. Each runtime needs its own PostgreSQL 18 database and unique `APP_KEY`; never point the cloud and node at the same database. Do not reuse the legacy single-database demo. Safe legacy database migration is not implemented.
 2. Configure the cloud with `INGRESS_RUNTIME=cloud`, `APP_DEBUG=false`, `INGRESS_DEMO_MODE=false`, a cloud-only authority private key, an exact CORS allowlist if needed, and the Firebase web settings. Resend is optional. If invitation mail is enabled, run `send_render_mail_test.ps1` with Resend's shared development sender to check static delivery to the Resend account owner's inbox.
 3. Provision synthetic staging organizers and staff through `provision_render_staging_account.ps1`. Create students through Firebase and complete email verification before testing account registration, ticket display, PDF download, or transfers. Do not use local database records to bypass Firebase identity checks.
-4. For standard staging, configure one Windows Event Node using a profile from [Deployment and Operations](deployment.md#configure-a-windows-event-node), a stable campus DNS name, reserved LAN address, and publicly trusted certificate. Restrict the HTTPS listener to staff devices and keep PostgreSQL unreachable from attendee devices. For the capstone LAN demo, follow [LAN capstone demo](lan-capstone-demo.md) and use its Docker overlay plus `lanDemo` APK on an isolated private network.
+4. For standard staging, configure one Windows Event Node using a profile from [Deployment and Operations](deployment.md#configure-a-windows-event-node), a stable campus DNS name, reserved LAN address, and publicly trusted certificate. Restrict the HTTPS listener to staff devices and keep PostgreSQL unreachable from attendee devices. For the course-project LAN demo, follow [LAN course demo](lan-course-demo.md) and use its Docker overlay plus `lanDemo` APK on an isolated private network.
 5. For Docker, confirm the separate `ingress-scheduler` container is running; do not create a duplicate Windows scheduled task. For native WSL, confirm Linux cron is enabled and the Windows startup task starts the required services. For IIS, configure **Task Scheduler** to run Laravel's scheduler at startup and every minute. Confirm `/up` and the node API respond over HTTPS from staff Wi-Fi. After closing and reopening the mobile app, confirm the saved node token does not activate scanner access on its own. Tap **Continue as** to make a fresh `/me` request over the venue LAN; if the node is unavailable, scanner access stays inactive. Keep the venue LAN working when WAN is unavailable.
 6. Before using real attendee information, obtain an institution-approved retention schedule and operator-owned deletion procedure. Automatic snapshot and roster retention is not implemented. Use synthetic records until that policy exists.
 7. Prepare two synthetic events with two or more gates, staff assigned to specific gates, and a small capacity. Set one event to prohibit re-entry and the other to allow it. Enable the approved ID-check policy on one event. Finalize all policies before snapshot preparation. Use a Firebase-verified institutional student account for student-only cases, plus synthetic guest, alumni, and walk-in cases. If no verified test student is available, leave student-only physical checks pending.
@@ -42,7 +42,7 @@ The following items are separate from CI and remain pending until someone runs t
 - [ ] With WAN disconnected and staff Wi-Fi intact, the Event Node remains available for admission. After WAN returns, the scheduler retries synchronization without duplicate records.
 - [ ] A protected database backup is written outside the container and checkout, then copied to encrypted off-host storage. Restore is practiced only in an isolated test copy or after the original node is retired.
 
-### Capstone LAN-demo device checks
+### Course-project LAN demo device checks
 
 These checks are separate from HTTPS staging. Use only the private network dedicated to the demonstration:
 
@@ -53,7 +53,7 @@ These checks are separate from HTTPS staging. Use only the private network dedic
 
 ## 2. Build and install the Android staff scanner APK
 
-The `preview` EAS profile creates an internal Android APK with system CA trust and HTTPS. The `lanDemo` profile creates the capstone APK and permits HTTP only to private IPv4 Node addresses. The `production` profile creates a store AAB with HTTPS and is not the profile for direct device installation. The scanner has no Cloud API URL or student-account configuration.
+The `preview` EAS profile creates an internal Android APK with system CA trust and HTTPS. The `lanDemo` profile creates the course-demo APK and permits HTTP only to private IPv4 Node addresses. The `production` profile creates a store AAB with HTTPS and is not the profile for direct device installation. The scanner has no Cloud API URL or student-account configuration.
 
 Build the default preview APK in PowerShell:
 
