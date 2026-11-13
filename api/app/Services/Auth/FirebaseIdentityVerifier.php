@@ -3,6 +3,7 @@
 namespace App\Services\Auth;
 
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 class FirebaseIdentityVerifier
@@ -41,11 +42,26 @@ class FirebaseIdentityVerifier
         }
 
         if (! $response->successful()) {
+            $firebaseError = $response->json('error.message');
+            $firebaseErrorCode = is_string($firebaseError)
+                && preg_match('/\A[A-Z][A-Z0-9_]{0,63}\z/', $firebaseError) === 1
+                ? $firebaseError
+                : 'UNCLASSIFIED';
+
+            Log::warning('Firebase student identity lookup was rejected.', [
+                'http_status' => $response->status(),
+                'firebase_error_code' => $firebaseErrorCode,
+            ]);
+
             return null;
         }
 
         $users = $response->json('users');
         if (! is_array($users) || count($users) !== 1 || ! is_array($users[0])) {
+            Log::warning('Firebase student identity lookup returned an unexpected account record.', [
+                'reason' => 'user_record_missing_or_ambiguous',
+            ]);
+
             return null;
         }
 
@@ -56,11 +72,28 @@ class FirebaseIdentityVerifier
         $isPasswordAccount = is_array($providers)
             && collect($providers)->contains(fn (mixed $provider): bool => is_array($provider) && ($provider['providerId'] ?? null) === 'password');
 
-        if (! is_string($uid) || $uid === '' || strlen($uid) > 128
-            || ! is_string($email) || $email === '' || strlen($email) > 255
-            || ($firebaseUser['emailVerified'] ?? false) !== true
-            || ($firebaseUser['disabled'] ?? null) !== false
-            || ! $isPasswordAccount) {
+        $rejectionReasons = [];
+        if (! is_string($uid) || $uid === '' || strlen($uid) > 128) {
+            $rejectionReasons[] = 'invalid_uid';
+        }
+        if (! is_string($email) || $email === '' || strlen($email) > 255) {
+            $rejectionReasons[] = 'invalid_email';
+        }
+        if (($firebaseUser['emailVerified'] ?? false) !== true) {
+            $rejectionReasons[] = 'email_not_verified';
+        }
+        if (($firebaseUser['disabled'] ?? null) !== false) {
+            $rejectionReasons[] = 'account_disabled_or_status_missing';
+        }
+        if (! $isPasswordAccount) {
+            $rejectionReasons[] = 'email_password_provider_missing';
+        }
+
+        if ($rejectionReasons !== []) {
+            Log::warning('Firebase student identity lookup returned an ineligible account.', [
+                'reasons' => $rejectionReasons,
+            ]);
+
             return null;
         }
 
