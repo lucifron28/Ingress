@@ -15,6 +15,56 @@ class NodeOperatorConsoleTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_local_demo_operator_bootstrap_is_loopback_only_and_cannot_replace_an_operator(): void
+    {
+        $this->configureNodeOperatorConsole();
+        config([
+            'ingress.lan_demo' => true,
+            'ingress.node_bind_address' => '192.168.1.20',
+            'app.url' => 'http://192.168.1.20:8000',
+            'session.secure' => false,
+            'ingress.operator_allowed_cidrs' => ['127.0.0.1/32', '192.168.1.0/24'],
+        ]);
+        DB::table('runtime_identity')->insert(['id' => 1, 'mode' => 'node', 'identity' => 'node-1']);
+        $this->get('/node/operator/setup')->assertOk();
+        $this->withServerVariables(['REMOTE_ADDR' => '192.168.1.5'])
+            ->get('/node/operator/setup')->assertNotFound();
+        $this->withServerVariables(['REMOTE_ADDR' => '192.168.1.5'])
+            ->post('/node/operator/setup', [
+                'name' => 'Remote', 'email' => 'remote@example.test',
+                'password' => 'a-long-demo-password', 'password_confirmation' => 'a-long-demo-password',
+            ])->assertNotFound();
+        $this->withServerVariables(['REMOTE_ADDR' => '127.0.0.1'])
+            ->post('/node/operator/setup', [
+                'name' => 'Local operator',
+                'email' => 'operator@example.test',
+                'password' => 'a-long-demo-password',
+                'password_confirmation' => 'a-long-demo-password',
+            ])->assertRedirect('/node/operator/login');
+        $this->assertDatabaseCount('node_operators', 1);
+        $this->get('/node/operator/setup')->assertNotFound();
+        $this->post('/node/operator/setup', [
+            'name' => 'Another operator', 'email' => 'other@example.test',
+            'password' => 'another-demo-password', 'password_confirmation' => 'another-demo-password',
+        ])->assertStatus(409);
+        $this->assertDatabaseCount('node_operators', 1);
+    }
+
+    public function test_local_demo_bootstrap_accepts_the_exact_docker_operator_gateway(): void
+    {
+        $this->configureNodeOperatorConsole();
+        config([
+            'ingress.lan_demo' => true,
+            'ingress.node_bind_address' => '192.168.1.20',
+            'app.url' => 'http://192.168.1.20:8000',
+            'session.secure' => false,
+            'ingress.operator_gateway' => '172.29.241.1',
+            'ingress.operator_allowed_cidrs' => ['172.29.241.1/32'],
+        ]);
+        $this->withServerVariables(['REMOTE_ADDR' => '172.29.241.1'])
+            ->get('/node/operator/setup')->assertOk();
+    }
+
     public function test_login_page_is_node_only_and_private(): void
     {
         $this->configureNodeOperatorConsole();

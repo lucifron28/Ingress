@@ -85,6 +85,9 @@ Route::prefix('node/operator')->name('node.operator.')->middleware([
     'node.operator.environment',
 ])->group(function (): void {
     Route::get('/login', [NodeOperatorConsoleController::class, 'showLogin'])->name('login');
+    Route::get('/setup', [NodeOperatorConsoleController::class, 'showSetup'])->name('setup');
+    Route::post('/setup', [NodeOperatorConsoleController::class, 'createFirstOperator'])
+        ->middleware('throttle:node-operator-login')->name('setup.store');
     Route::post('/login', [NodeOperatorConsoleController::class, 'login'])
         ->middleware('throttle:node-operator-login')
         ->name('login.store');
