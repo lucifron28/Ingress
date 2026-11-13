@@ -112,6 +112,21 @@ class NodeAdmissionTest extends TestCase
         $this->assertDatabaseCount('admissions', 1);
     }
 
+    public function test_local_demo_marker_requires_demo_mode_and_keeps_admission_checks(): void
+    {
+        DB::table('local_demo_events')->insert(['event_id' => $this->eventId]);
+        $this->scan('/preview', $this->gateId)->assertForbidden();
+        config(['ingress.lan_demo' => true]);
+        $this->scan('/preview', $this->gateId)->assertForbidden();
+        DB::table('node_event_imports')->where('event_id', $this->eventId)->delete();
+        $this->scan('/preview', $this->otherGateId)->assertForbidden()->assertJsonPath('status', 'gate_mismatch');
+        $this->scan('/preview', $this->gateId)->assertOk()->assertJsonPath('status', 'valid');
+        $this->scan('', $this->gateId)->assertOk()->assertJsonPath('status', 'admitted');
+        $this->scan('', $this->gateId, 'new-scan')->assertStatus(409)->assertJsonPath('status', 'already_admitted');
+        DB::table('event_staff')->where('event_id', $this->eventId)->delete();
+        $this->scan('/preview', $this->gateId)->assertUnauthorized();
+    }
+
     public function test_revoked_assignment_and_corrupt_authority_fail_closed_even_on_replay(): void
     {
         app(ActivateEventAuthority::class)->execute($this->grant);
