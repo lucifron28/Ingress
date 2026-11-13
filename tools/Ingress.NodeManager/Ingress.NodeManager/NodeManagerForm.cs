@@ -62,7 +62,7 @@ public sealed class NodeManagerForm : Form
         };
         _refreshTimer.Tick += async (_, _) =>
         {
-            if (!_busy && Visible && _manager is not null)
+            if (!_busy && _networkPreview is null && Visible && _manager is not null)
             {
                 await RefreshStatusAsync(showProgress: false);
             }
@@ -71,7 +71,6 @@ public sealed class NodeManagerForm : Form
         {
             _refreshTimer.Stop();
             _activeOperation?.Cancel();
-            _activeOperation?.Dispose();
         };
     }
 
@@ -149,7 +148,7 @@ public sealed class NodeManagerForm : Form
         stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 76));
         stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         stack.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 54));
+        stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         _sidebar.Controls.Add(stack);
 
         var brand = new Panel { Dock = DockStyle.Fill, BackColor = _theme.Sidebar, Margin = Padding.Empty };
@@ -211,6 +210,11 @@ public sealed class NodeManagerForm : Form
             Padding = Padding.Empty,
         };
         stack.Controls.Add(nav, 0, 2);
+        nav.SizeChanged += (_, _) =>
+        {
+            foreach (var button in _navigation.Values)
+                button.Width = Math.Max(1, nav.ClientSize.Width - SystemInformation.VerticalScrollBarWidth);
+        };
         AddNavigation(nav, ManagerPage.Dashboard, "⌂", "Dashboard");
         AddNavigation(nav, ManagerPage.Network, "◉", "Network Manager");
         AddNavigation(nav, ManagerPage.Controls, "▣", "Event Node Controls");
@@ -220,7 +224,8 @@ public sealed class NodeManagerForm : Form
         var footer = new Label
         {
             Text = "Local operator tool\nPowerShell CLI remains available",
-            Dock = DockStyle.Fill,
+            Dock = DockStyle.Top,
+            AutoSize = true,
             ForeColor = _theme.SidebarMuted,
             Font = new Font("Segoe UI", 8.2F),
             TextAlign = ContentAlignment.MiddleLeft,
@@ -239,7 +244,7 @@ public sealed class NodeManagerForm : Form
             Font = new Font("Segoe UI", 9.4F, FontStyle.Bold),
             ForeColor = _theme.SidebarText,
             BackColor = _theme.Sidebar,
-            Size = new Size(192, 46),
+            Size = new Size(176, 42),
             Margin = new Padding(0, 3, 0, 4),
             Padding = new Padding(10, 0, 0, 0),
             Cursor = Cursors.Hand,
@@ -290,13 +295,10 @@ public sealed class NodeManagerForm : Form
         _lastUpdated.Font = new Font("Segoe UI", 8.5F);
         _lastUpdated.Margin = Padding.Empty;
 
-        _headerStatus.AutoSize = false;
-        _headerStatus.Dock = DockStyle.Fill;
-        _headerStatus.TextAlign = ContentAlignment.MiddleRight;
+        _headerStatus.AutoSize = true;
+        _headerStatus.TextAlign = ContentAlignment.MiddleLeft;
         _headerStatus.Font = new Font("Segoe UI", 8.8F, FontStyle.Bold);
-        _headerStatus.Padding = new Padding(8, 2, 0, 2);
-        _headerStatus.Margin = Padding.Empty;
-        panel.Controls.Add(_headerStatus, 1, 0);
+        _headerStatus.Margin = new Padding(0, 0, 12, 0);
 
         _activityLabel.AutoSize = true;
         _activityLabel.Font = new Font("Segoe UI", 8.4F, FontStyle.Bold);
@@ -311,6 +313,7 @@ public sealed class NodeManagerForm : Form
             BackColor = Color.Transparent,
             Margin = Padding.Empty,
         };
+        meta.Controls.Add(_headerStatus);
         meta.Controls.Add(_lastUpdated);
         meta.Controls.Add(_activityLabel);
         panel.Controls.Add(meta, 0, 1);
@@ -347,10 +350,12 @@ public sealed class NodeManagerForm : Form
         foreach (var pair in _navigation)
         {
             var selected = pair.Key == page;
-            pair.Value.BackColor = selected ? _theme.Accent : _theme.Sidebar;
-            pair.Value.ForeColor = selected ? _theme.Surface : _theme.SidebarText;
-            pair.Value.FlatAppearance.BorderSize = selected ? 2 : 0;
-            pair.Value.FlatAppearance.BorderColor = _theme.Accent;
+            pair.Value.BackColor = selected ? _theme.SurfaceMuted : _theme.Sidebar;
+            pair.Value.ForeColor = _theme.SidebarText;
+            pair.Value.FlatAppearance.MouseOverBackColor = _theme.SurfaceMuted;
+            pair.Value.FlatAppearance.MouseDownBackColor = _theme.SurfaceMuted;
+            pair.Value.FlatAppearance.BorderSize = selected ? 1 : 0;
+            pair.Value.FlatAppearance.BorderColor = _theme.SidebarMuted;
         }
 
         DisplayCurrentPage();
@@ -527,6 +532,15 @@ public sealed class NodeManagerForm : Form
 
         var selection = CreateCard(14);
         selection.Controls.Add(MakeLabel("Network adapter", 11, FontStyle.Bold, _theme.Ink));
+        if (_status.SchemaVersion == 0)
+        {
+            selection.Controls.Add(MakeLabel(_status.ErrorMessage is not null
+                ? "Adapter status is unavailable. Refresh to try again."
+                : _busy ? "Checking network adapters…" : "Select Refresh to check network adapters.",
+                9.5F, FontStyle.Regular, _theme.Muted));
+            root.Controls.Add(selection);
+            return root;
+        }
         var choices = new ComboBox
         {
             DropDownStyle = ComboBoxStyle.DropDownList,
@@ -536,7 +550,9 @@ public sealed class NodeManagerForm : Form
             Font = new Font("Segoe UI", 10F),
             Margin = new Padding(0, 9, 0, 2),
             FormattingEnabled = true,
+            Enabled = !_busy,
         };
+        choices.MinimumSize = new Size(0, choices.PreferredHeight);
         choices.Format += (_, args) =>
         {
             if (args.ListItem is NetworkAdapterStatus adapter)
@@ -557,6 +573,10 @@ public sealed class NodeManagerForm : Form
                 _selectedInterfaceIndex = adapter.InterfaceIndex;
                 _selectedBindAddress = adapter.Address;
                 _networkPreview = null;
+                BeginInvoke((Action)(() =>
+                {
+                    if (!choices.IsDisposed) RenderCurrentPage();
+                }));
             }
         };
         selection.Controls.Add(choices);
@@ -901,6 +921,7 @@ public sealed class NodeManagerForm : Form
             BorderStyle = BorderStyle.None,
             EnableHeadersVisualStyles = false,
         };
+        list.MinimumSize = new Size(0, list.Height);
         list.ColumnHeadersDefaultCellStyle.BackColor = _theme.SurfaceMuted;
         list.ColumnHeadersDefaultCellStyle.ForeColor = _theme.Muted;
         list.ColumnHeadersDefaultCellStyle.Font = new Font("Segoe UI", 8.5F, FontStyle.Bold);
@@ -1087,7 +1108,10 @@ public sealed class NodeManagerForm : Form
             {
                 var row = card.RowCount;
                 card.RowCount++;
-                card.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+                // Docked native controls can report a preferred height smaller than their contents.
+                card.RowStyles.Add(item is ComboBox or DataGridView or TextBox
+                    ? new RowStyle(SizeType.Absolute, Math.Max(item.Height, item.MinimumSize.Height) + item.Margin.Vertical)
+                    : new RowStyle(SizeType.AutoSize));
                 card.SetCellPosition(item, new TableLayoutPanelCellPosition(0, row));
                 SizeCardItem(card, item);
             }
@@ -1191,6 +1215,11 @@ public sealed class NodeManagerForm : Form
             button.ForeColor = _theme.Surface;
             button.FlatAppearance.MouseOverBackColor = _theme.AccentHover;
             button.FlatAppearance.MouseDownBackColor = _theme.AccentHover;
+            button.EnabledChanged += (_, _) =>
+            {
+                button.BackColor = button.Enabled ? _theme.Accent : _theme.SurfaceMuted;
+                button.ForeColor = button.Enabled ? _theme.Surface : _theme.Ink;
+            };
         }
         else
         {
@@ -1220,17 +1249,8 @@ public sealed class NodeManagerForm : Form
             return;
         }
 
-        if (showProgress)
-        {
-            await RunOperationAsync("Refreshing system status", async token =>
-            {
-                await RefreshStatusCoreAsync(token);
-            }, refreshAfter: false);
-        }
-        else
-        {
-            await RefreshStatusCoreAsync(CancellationToken.None);
-        }
+        await RunOperationAsync("Refreshing system status", RefreshStatusCoreAsync,
+            refreshAfter: false, showProgress: showProgress);
     }
 
     private async Task RefreshStatusCoreAsync(CancellationToken cancellationToken)
@@ -1261,11 +1281,13 @@ public sealed class NodeManagerForm : Form
             _lastUpdated.Text = "Status not verified";
         }
 
+        _networkPreview = null;
         SyncSelectedLanAdapter();
         RenderCurrentPage();
     }
 
-    private async Task RunOperationAsync(string description, Func<CancellationToken, Task> operation, bool refreshAfter = true)
+    private async Task RunOperationAsync(string description, Func<CancellationToken, Task> operation,
+        bool refreshAfter = true, bool showProgress = true)
     {
         if (_busy)
         {
@@ -1282,8 +1304,8 @@ public sealed class NodeManagerForm : Form
         using var cancellation = new CancellationTokenSource();
         _activeOperation = cancellation;
         _activityLabel.Text = description;
-        _activityLabel.Visible = true;
-        _cancelButton.Visible = true;
+        _activityLabel.Visible = showProgress;
+        _cancelButton.Visible = showProgress;
         _refreshButton.Enabled = false;
         RenderCurrentPage();
         try
@@ -1318,7 +1340,7 @@ public sealed class NodeManagerForm : Form
             _activityLabel.Visible = false;
             _cancelButton.Visible = false;
             _refreshButton.Enabled = true;
-            RenderCurrentPage();
+            if (!IsDisposed) RenderCurrentPage();
         }
     }
 
@@ -1390,6 +1412,7 @@ public sealed class NodeManagerForm : Form
         if (!preview.CanApplyNetworkChange)
         {
             _networkPreview = preview;
+            RenderCurrentPage();
             MessageBox.Show(this, string.Join(Environment.NewLine, preview.Blockers), "Server cannot start yet", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             if (!preview.FirewallAllowed) ShowPage(ManagerPage.Network);
             return;
@@ -1569,17 +1592,17 @@ public sealed class NodeManagerForm : Form
     private void UpdateHeaderStatus()
     {
         var node = _status.GetIndicator("Event Node");
-        var text = _status.ErrorMessage is not null ? "STATUS UNKNOWN" : node.Level switch
+        var text = _status.ErrorMessage is not null ? "Status unavailable"
+            : _status.SchemaVersion == 0 && _busy ? "Checking status" : node.Level switch
         {
-            HealthLevel.Healthy => "NODE HEALTHY",
-            HealthLevel.Warning => "REVIEW STATUS",
-            HealthLevel.Blocked => "ACTION NEEDED",
-            _ => "STATUS UNKNOWN",
+            HealthLevel.Healthy => "Node healthy",
+            HealthLevel.Warning => "Review status",
+            HealthLevel.Blocked => "Action needed",
+            _ => "Status unknown",
         };
         _headerStatus.Text = text;
         _headerStatus.ForeColor = _theme.ForLevel(_status.ErrorMessage is not null ? HealthLevel.Unknown : node.Level);
-        _headerStatus.BackColor = _theme.SurfaceForLevel(_status.ErrorMessage is not null ? HealthLevel.Unknown : node.Level);
-        _activityLabel.Visible = _busy;
+        _headerStatus.BackColor = Color.Transparent;
         _lastUpdated.Visible = !_busy;
     }
 
