@@ -252,6 +252,8 @@ public sealed class NodeManagerForm : Form
         };
         button.FlatAppearance.BorderSize = 0;
         button.FlatAppearance.MouseOverBackColor = _theme.SurfaceMuted;
+        button.MouseEnter += (_, _) => button.ForeColor = _theme.Ink;
+        button.MouseLeave += (_, _) => button.ForeColor = _theme.SidebarText;
         button.Click += (_, _) => ShowPage(page);
         _navigation.Add(page, button);
         parent.Controls.Add(button);
@@ -1213,8 +1215,10 @@ public sealed class NodeManagerForm : Form
             button.FlatAppearance.BorderSize = 0;
             button.BackColor = _theme.Accent;
             button.ForeColor = _theme.Surface;
-            button.FlatAppearance.MouseOverBackColor = _theme.AccentHover;
-            button.FlatAppearance.MouseDownBackColor = _theme.AccentHover;
+            button.FlatAppearance.MouseOverBackColor = _theme.SurfaceMuted;
+            button.FlatAppearance.MouseDownBackColor = _theme.SurfaceMuted;
+            button.MouseEnter += (_, _) => button.ForeColor = _theme.Ink;
+            button.MouseLeave += (_, _) => button.ForeColor = button.Enabled ? _theme.Surface : _theme.Ink;
             button.EnabledChanged += (_, _) =>
             {
                 button.BackColor = button.Enabled ? _theme.Accent : _theme.SurfaceMuted;
