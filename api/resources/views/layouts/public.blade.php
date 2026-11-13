@@ -392,6 +392,9 @@
                 @endif
             </a>
             @auth
+                @if (auth()->user()->isStudent())
+                    <a class="nav-action" href="{{ route('student.dashboard') }}">My tickets</a>
+                @endif
                 <form method="POST" action="{{ route('logout') }}">@csrf<button class="nav-action" type="submit">Sign out</button></form>
             @else
                 <a href="{{ route('student.auth') }}">Student sign in</a>
