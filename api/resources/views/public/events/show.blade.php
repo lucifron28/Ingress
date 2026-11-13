@@ -1,43 +1,113 @@
 @extends('layouts.public')
 
 @section('content')
-    <p class="eyebrow"><a href="{{ route('public.events.index') }}">Campus events</a> / Event details</p>
-    <div class="grid" style="grid-template-columns: minmax(0, 1.5fr) minmax(17rem, .8fr); align-items: start;">
-        <article class="card stack">
-            @if ($event->isCancelled()) <span class="tag">Cancelled</span> @endif
-            <h1>{{ $event->title }}</h1>
-            <p class="meta">{{ $event->starts_at->format('l, F j, Y · g:i A') }}–{{ $event->ends_at->format('g:i A') }}</p>
-            <p><strong>{{ $event->venue->name }}</strong>@if ($event->venue->location) · {{ $event->venue->location }}@endif</p>
-            @if ($event->description)<div style="white-space: pre-line;">{{ $event->description }}</div>@endif
-            <div class="notice">{{ $event->registration_eligibility === \App\Models\Event::ELIGIBILITY_STUDENT ? 'This event is reserved for verified MSEUF students.' : 'Public registration is open to guests. You do not need an Ingress account for public tickets.' }}</div>
+    <nav class="event-breadcrumbs" aria-label="Breadcrumb">
+        <a href="{{ route('public.events.index') }}">Campus events</a>
+        <span aria-hidden="true">/</span>
+        <span aria-current="page">{{ $event->title }}</span>
+    </nav>
+
+    <div class="event-detail-layout">
+        <article class="event-detail-card" aria-labelledby="event-title">
+            <header class="event-detail-heading">
+                <p class="eyebrow">Event details</p>
+                <div class="event-detail-badges">
+                    @if ($event->isCancelled())
+                        <span class="tag event-cancelled-badge">Cancelled</span>
+                    @endif
+                    <span class="tag">
+                        {{ $event->registration_eligibility === \App\Models\Event::ELIGIBILITY_STUDENT ? 'Verified students only' : 'Public event' }}
+                    </span>
+                </div>
+                <h1 id="event-title">{{ $event->title }}</h1>
+            </header>
+
+            <dl class="event-detail-facts">
+                <div class="event-detail-fact">
+                    <dt>Date and time</dt>
+                    <dd>
+                        <time datetime="{{ $event->starts_at->toIso8601String() }}">{{ $event->starts_at->format('l, F j, Y · g:i A') }}</time>
+                        <span aria-hidden="true">to</span>
+                        <time datetime="{{ $event->ends_at->toIso8601String() }}">{{ $event->ends_at->format('l, F j, Y · g:i A') }}</time>
+                    </dd>
+                </div>
+                <div class="event-detail-fact">
+                    <dt>Venue</dt>
+                    <dd>
+                        <span>{{ $event->venue->name }}</span>
+                        @if ($event->venue->location)
+                            <span class="meta">{{ $event->venue->location }}</span>
+                        @endif
+                    </dd>
+                </div>
+            </dl>
+
+            @if ($event->description)
+                <div class="event-description">{{ $event->description }}</div>
+            @endif
+
+            <p class="event-eligibility-note" role="note">
+                <strong>Who can register</strong>
+                <span>{{ $event->registration_eligibility === \App\Models\Event::ELIGIBILITY_STUDENT ? 'This event is reserved for verified MSEUF students.' : 'Public registration is open to guests. You do not need an Ingress account for public tickets.' }}</span>
+            </p>
         </article>
 
-        <aside class="card stack">
-            <div>
-                <p class="eyebrow">Ticket categories</p>
-                <p class="meta">{{ $remainingPlaces }} of {{ $event->capacity }} event {{ \Illuminate\Support\Str::plural('place', $event->capacity) }} remaining</p>
+        <aside class="ticket-panel" aria-labelledby="ticket-panel-heading">
+            <header class="ticket-panel-heading">
+                <p class="eyebrow">Registration</p>
+                <h2 id="ticket-panel-heading">Ticket categories</h2>
+                <p class="meta">{{ $remainingPlaces }} of {{ $event->capacity }} event places remaining</p>
+            </header>
+
+            <div class="ticket-category-list">
+                @forelse ($event->ticketCategories as $category)
+                    @php $categoryRemaining = $category->remainingCapacity(); @endphp
+                    <article class="ticket-category">
+                        <div class="ticket-category-heading">
+                            <h3>{{ $category->name }}</h3>
+                            <span class="ticket-category-price">{{ $category->price_minor === 0 ? 'Free' : '₱'.number_format($category->price_minor / 100, 2) }}</span>
+                        </div>
+                        <p class="ticket-category-eligibility">
+                            {{ $category->eligibility === \App\Models\TicketCategory::ELIGIBILITY_STUDENT ? 'Verified students only' : 'Open to the public' }}
+                        </p>
+                        @if ($categoryRemaining !== null)
+                            <p class="ticket-category-availability">
+                                @if ($categoryRemaining === 0)
+                                    <span class="ticket-category-sold-out">Sold out</span>
+                                @else
+                                    <strong>{{ $categoryRemaining }}</strong> category {{ \Illuminate\Support\Str::plural('place', $categoryRemaining) }} remaining
+                                @endif
+                            </p>
+                        @endif
+                        @if ($category->price_minor > 0)
+                            <p class="ticket-payment-note">{{ $event->canOfferSimulatedPayments() ? 'Simulated payment · No real money is charged.' : 'Paid checkout is not available.' }}</p>
+                        @endif
+                    </article>
+                @empty
+                    <p class="meta">No ticket categories are available.</p>
+                @endforelse
             </div>
-            @forelse ($event->ticketCategories as $category)
-                @php $categoryRemaining = $category->remainingCapacity(); @endphp
-                <div style="border-top: 1px solid var(--line); padding-top: .8rem;">
-                    <strong>{{ $category->name }}</strong>
-                    <p class="meta" style="margin: .2rem 0;">{{ $category->price_minor === 0 ? 'Free' : '₱'.number_format($category->price_minor / 100, 2) }} · {{ $category->eligibility === \App\Models\TicketCategory::ELIGIBILITY_STUDENT ? 'Verified students only' : 'Public' }}</p>
-                    @if ($categoryRemaining !== null)<p class="meta" style="margin: .2rem 0;">{{ $categoryRemaining }} category {{ \Illuminate\Support\Str::plural('place', $categoryRemaining) }} remaining</p>@endif
-                    @if ($category->price_minor > 0)
-                        <p class="meta">{{ $event->canOfferSimulatedPayments() ? 'Simulated payment · No real money is charged.' : 'Paid checkout is not available.' }}</p>
-                    @endif
-                </div>
-            @empty
-                <p class="meta">No ticket categories are available.</p>
-            @endforelse
 
             @if ($event->isCancelled())
-                <p class="notice">This event has been cancelled. Registration is unavailable.</p>
+                <div class="registration-status registration-status-cancelled" role="status">
+                    <strong>Registration unavailable</strong>
+                    <span>This event has been cancelled.</span>
+                </div>
             @elseif (! $hasAvailableCategory)
-                <p class="notice">No ticket categories are available. Sold-out categories cannot be checked out.</p>
+                <div class="registration-status registration-status-unavailable" role="status">
+                    <strong>Tickets unavailable</strong>
+                    <span>No available ticket categories can be checked out.</span>
+                </div>
             @elseif (! $registrationOpen)
-                <p class="notice">Registration is not open, has closed, or the event is full.</p>
+                <div class="registration-status registration-status-unavailable" role="status">
+                    <strong>Registration closed</strong>
+                    <span>Registration is not open yet, has closed, or the event is full.</span>
+                </div>
             @elseif ($event->ticketCategories->isNotEmpty())
+                <div class="registration-status registration-status-open" role="status">
+                    <strong>Registration open</strong>
+                    <span>{{ $remainingPlaces }} event {{ \Illuminate\Support\Str::plural('place', $remainingPlaces) }} remaining.</span>
+                </div>
                 <a class="button" href="{{ route('public.events.register', $event->slug) }}">Choose a ticket</a>
             @endif
         </aside>
