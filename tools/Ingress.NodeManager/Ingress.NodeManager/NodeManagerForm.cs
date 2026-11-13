@@ -1517,8 +1517,15 @@ public sealed class NodeManagerForm : Form
 
         var port = _status.OperatorPort > 0 ? _status.OperatorPort : 8444;
         var normalizedPath = path.StartsWith('/') ? path : "/" + path;
-        var scheme = _status.OperatorScheme == Uri.UriSchemeHttp ? Uri.UriSchemeHttp : Uri.UriSchemeHttps;
-        var uri = new UriBuilder(scheme, "127.0.0.1", port, "/node/operator" + normalizedPath).Uri;
+        if (_status.OperatorScheme != Uri.UriSchemeHttp)
+        {
+            MessageBox.Show(this,
+                "The running Node is not in HTTP LAN demo mode. Select your adapter on the Network page, preview changes, then choose Start on this network. Open the operator console again after the Node starts.",
+                "Start the LAN demo first", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            ShowPage(ManagerPage.Network);
+            return;
+        }
+        var uri = new UriBuilder(Uri.UriSchemeHttp, "127.0.0.1", port, "/node/operator" + normalizedPath).Uri;
         try
         {
             Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
