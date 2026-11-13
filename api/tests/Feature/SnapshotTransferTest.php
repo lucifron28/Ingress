@@ -842,6 +842,24 @@ class SnapshotTransferTest extends TestCase
         }
     }
 
+    public function test_snapshot_export_reports_when_the_cloud_key_cannot_decrypt_a_node_credential(): void
+    {
+        [$event, $owner] = $this->cloudEvent();
+        DB::table('event_nodes')->where('id', 'node-1')->update(['key_ciphertext' => 'invalid-node-key-ciphertext']);
+
+        $this->actingAs($owner)
+            ->from(route('organizer.events.show', $event))
+            ->post("/organizer/events/{$event->id}/snapshot/export", ['node_id' => 'node-1'])
+            ->assertSessionHasErrors([
+                'transfer' => 'The saved Event Node transfer credential could not be decrypted. Verify that the current Cloud APP_KEY matches the key used when this node was registered; if it changed, restore that original key before retrying.',
+            ]);
+
+        $this->assertDatabaseHas('event_snapshots', [
+            'event_id' => $event->id,
+            'target_node_id' => null,
+        ]);
+    }
+
     public function test_export_is_bound_to_one_node_and_rejects_revoked_nodes(): void
     {
         [$event, $owner] = $this->cloudEvent();
