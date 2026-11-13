@@ -23,7 +23,7 @@ Staff-only scanner app --venue LAN--> Event Node --PostgreSQL
 
 The snapshot transfer is a manual operator workflow. After authority activation, the Event Node records admissions and walk ins locally. Staff scanners need the venue LAN and the Event Node, but admission does not require public internet. Students can display previously downloaded ticket PDFs offline; the Event Node still validates each credential.
 
-Staff authenticate to the Event Node with local credentials or a one use pairing QR. The mobile app stores only the Event Node staff session. Standard preview and production scanner requests require HTTPS and use Android system CAs. The dedicated capstone `lanDemo` profile permits HTTP only to a private IPv4 Node address on the isolated venue LAN; this exposes credentials and ticket data to other devices on that network. See [Staff scanner build instructions](../mobile/README.md).
+Staff authenticate to the Event Node with local credentials or a one use pairing QR. The mobile app stores only the Event Node staff session. Standard preview and production scanner requests require HTTPS and use Android system CAs. The dedicated course-demo `lanDemo` profile permits HTTP only to a private IPv4 Node address on the isolated venue LAN; this exposes credentials and ticket data to other devices on that network. See [Staff scanner build instructions](../mobile/README.md).
 
 The organizer attendance page reports current presence and movement counts and provides a private CSV export. Events can require staff to confirm an approved ID check. The system does not collect photos. See [deployment and operating limits](second-half-architecture.md) and the [deployment guide](deployment.md) for recovery, retention, and production configuration details.
 

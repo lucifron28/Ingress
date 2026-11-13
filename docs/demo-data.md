@@ -9,7 +9,7 @@
 
 ## 1. Overview
 
-To ensure the Ingress demonstration is realistic, authentic, and defensible during capstone and academic presentations, all seeded events and venues are derived directly from official, publicly verifiable Manuel S. Enverga University Foundation resources.
+To keep the Ingress course final project demonstration realistic and defensible during academic presentations, all seeded events and venues are derived directly from official, publicly verifiable Manuel S. Enverga University Foundation resources.
 
 At the same time, operational parameters required to demonstrate the application—such as entrance gate names, seat capacities, registration windows, staff assignments, and ticket issuance—are explicitly identified as **synthetic Ingress demo values**.
 

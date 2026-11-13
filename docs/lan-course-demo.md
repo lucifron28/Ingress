@@ -1,6 +1,6 @@
-# LAN capstone demo
+# LAN course demo
 
-This workflow runs the existing Laravel Event Node and PostgreSQL database on a private Wi-Fi or hotspot network. It is for a controlled capstone demonstration, not a production or campus-wide service.
+This workflow runs the existing Laravel Event Node and PostgreSQL database on a private Wi-Fi or hotspot network. It supports the Ingress course final project demonstration; it is not a production or campus-wide service.
 
 The LAN demo uses plain HTTP. Other devices on that network can observe staff passwords, session tokens, pairing codes, ticket credentials, and attendee data. Use an isolated network controlled by the demo operator, keep the operator console on the laptop, and never use this mode on public, guest, or shared Wi-Fi. Cloud and standard Event Node deployments continue to use HTTPS.
 

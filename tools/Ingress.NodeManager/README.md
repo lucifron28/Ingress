@@ -41,7 +41,7 @@ Do not use Docker Compose down, remove, or volume commands for routine operation
 
 Unknown checks remain Unknown and block disruptive actions. The scheduler container can be checked, but the current Node does not expose a scheduler heartbeat. Windows cannot prove that a phone reaches the laptop over the active hotspot or that camera pairing and ticket scans work. Scanner readiness remains unverified until each physical phone passes the test.
 
-The LAN demo uses plain HTTP, so only run it on an isolated network controlled by the operator. The Node Manager scopes its firewall rule to Docker, the selected adapter, local private address and port, and that adapter's subnet. The operator listener stays on loopback. See the concise [LAN capstone demo guide](../../docs/lan-capstone-demo.md) for building one APK and pairing after changing hotspots.
+The LAN demo uses plain HTTP, so only run it on an isolated network controlled by the operator. The Node Manager scopes its firewall rule to Docker, the selected adapter, local private address and port, and that adapter's subnet. The operator listener stays on loopback. See the concise [LAN course demo guide](../../docs/lan-course-demo.md) for building one APK and pairing after changing hotspots.
 
 If a Node-only start or recreation fails after a network profile update, the manager atomically restores the previous `INGRESS_NODE_BIND_ADDRESS` and `APP_URL`. It does not issue a second restart automatically. Refresh status and use the safety-gated controls to recover the Node.
 
