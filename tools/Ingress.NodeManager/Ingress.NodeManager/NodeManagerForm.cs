@@ -1517,7 +1517,7 @@ public sealed class NodeManagerForm : Form
 
         var port = _status.OperatorPort > 0 ? _status.OperatorPort : 8444;
         var normalizedPath = path.StartsWith('/') ? path : "/" + path;
-        var scheme = _status.NodeUrl.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ? Uri.UriSchemeHttp : Uri.UriSchemeHttps;
+        var scheme = _status.OperatorScheme == Uri.UriSchemeHttp ? Uri.UriSchemeHttp : Uri.UriSchemeHttps;
         var uri = new UriBuilder(scheme, "127.0.0.1", port, "/node/operator" + normalizedPath).Uri;
         try
         {

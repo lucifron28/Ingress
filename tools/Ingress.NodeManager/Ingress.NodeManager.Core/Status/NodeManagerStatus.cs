@@ -34,6 +34,7 @@ public sealed record NodeManagerStatus
     public string NodeUrl { get; init; } = "Unknown";
     public string LanMapping { get; init; } = "Unknown";
     public int LanHttpPort { get; init; } = 8000;
+    public string OperatorScheme { get; init; } = "https";
     public string DockerStatus { get; init; } = "Unknown";
     public string CurrentBindAddress { get; init; } = "Unknown";
     public string TargetBindAddress { get; init; } = "Unknown";

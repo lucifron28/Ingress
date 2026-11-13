@@ -1274,6 +1274,7 @@ function Invoke-IngressLanDemoNetworkManager {
         SchedulerStatus = if ($schedulerState.Known) { "$($schedulerState.Status) ($($schedulerState.Health))" } else { 'unknown' }
         SchedulerDetail = 'The scheduler runs in WSL2 Docker; it remains running during a Node-only network change.'
         OperatorPortStatus = $operatorPortStatus; OperatorPort = $operatorPort
+        OperatorScheme = if ($actualPorts.Known -and $actualPorts.NodeBinding) { 'http' } else { 'https' }
         CertificateStatus = 'Not used in the isolated LAN demo'
         FirewallStatus = $firewallStatus
         AdmissionStatus = $admissionStatus
