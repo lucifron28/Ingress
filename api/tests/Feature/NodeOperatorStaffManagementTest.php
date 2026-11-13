@@ -47,13 +47,18 @@ class NodeOperatorStaffManagementTest extends TestCase
 
     public function test_staff_page_lists_current_names_and_gates_without_contact_details_or_scanner_auth(): void
     {
-        $this->importEvent();
+        [$event] = $this->importEvent();
+        config(['ingress.display_timezone' => 'Asia/Manila']);
+        $startsAtLocal = Carbon::parse($event->starts_at)->setTimezone('Asia/Manila');
+        $startsAt = $startsAtLocal->format('M j, Y g:i A').' Asia/Manila (UTC'.$startsAtLocal->format('P').')';
         $operator = NodeOperator::factory()->create();
 
         $response = $this->actingAs($operator, 'node_operator')
             ->get('/node/operator/staff')
             ->assertOk()
             ->assertSee('Event Staff Management')
+            ->assertSee('Starts ')
+            ->assertSee($startsAt)
             ->assertSee('North Gate')
             ->assertSee('Local credential: not provisioned')
             ->assertSee('Type PROVISION to continue')
@@ -80,6 +85,7 @@ class NodeOperatorStaffManagementTest extends TestCase
             return $qrCode->svgDataUri($payload);
         });
         $this->app->instance(NodeStaffPairingCode::class, $renderer);
+        config(['ingress.display_timezone' => 'Asia/Manila']);
 
         $response = $this->actingAs($operator, 'node_operator')
             ->withHeader('Host', 'attacker.example')
@@ -106,6 +112,12 @@ class NodeOperatorStaffManagementTest extends TestCase
         $this->assertDatabaseHas('node_staff_pairings', ['token_hash' => hash('sha256', $payload['token'])]);
         $this->assertDatabaseMissing('node_staff_pairings', ['token_hash' => $payload['token']]);
         $pairingRow = DB::table('node_staff_pairings')->where('user_id', $staff->id)->first();
+        $localExpiry = Carbon::parse($pairingRow->expires_at)->setTimezone('Asia/Manila');
+        $this->assertStringContainsString(
+            $localExpiry->format('M j, Y g:i:s A').' Asia/Manila (UTC'.$localExpiry->format('P').')',
+            $response->getContent(),
+        );
+        $this->assertStringContainsString($localExpiry->toIso8601String(), $response->getContent());
         $pairingLifetimeSeconds = Carbon::parse($pairingRow->created_at)
             ->diffInSeconds(Carbon::parse($pairingRow->expires_at));
         $this->assertGreaterThanOrEqual(179, $pairingLifetimeSeconds);
