@@ -257,6 +257,84 @@ class EventManagerAuthorizationTest extends TestCase
             ->assertForbidden();
     }
 
+    public function test_event_overview_shows_section_navigation_and_the_exact_snapshot_blocker(): void
+    {
+        config(['ingress.mode' => 'cloud']);
+
+        $owner = User::factory()->create(['role' => User::ROLE_ORGANIZER]);
+        $venue = Venue::create(['name' => 'Hall', 'code' => 'HALL', 'default_capacity' => 100]);
+        $event = $this->event($owner, $venue, 'Preparation Event', 'preparation-event');
+
+        $this->actingAs($owner)
+            ->get(route('organizer.events.show', $event))
+            ->assertOk()
+            ->assertSee('aria-label="Event sections"', false)
+            ->assertSee('href="#ticket-categories"', false)
+            ->assertSee('href="#gates-staff"', false)
+            ->assertSee('href="#node-handoff"', false)
+            ->assertSee('Event preparation')
+            ->assertSee('No active gates configured.')
+            ->assertSee('No scanner staff assigned.')
+            ->assertSee('Only published events can be prepared.')
+            ->assertSee('Not closed')
+            ->assertSee('Registration is not closed by organizer action or cutoff.')
+            ->assertSee('Attendance');
+    }
+
+    public function test_published_event_shows_the_registration_blocker_before_snapshot_preparation(): void
+    {
+        config(['ingress.mode' => 'cloud']);
+
+        $owner = User::factory()->create(['role' => User::ROLE_ORGANIZER]);
+        $venue = Venue::create(['name' => 'Hall', 'code' => 'HALL', 'default_capacity' => 100]);
+        $event = $this->event($owner, $venue, 'Open Registration', 'open-registration');
+        $event->forceFill(['status' => Event::STATUS_PUBLISHED])->save();
+
+        $this->actingAs($owner)
+            ->get(route('organizer.events.show', $event))
+            ->assertOk()
+            ->assertSee('Close registration before preparing a snapshot.')
+            ->assertSee('<p class="event-next-action"><strong>Next step:</strong> Close registration before preparing a snapshot.</p>', false)
+            ->assertSee('<button type="submit" class="btn-primary" disabled>Prepare Snapshot</button>', false);
+    }
+
+    public function test_event_section_navigation_only_links_to_sections_available_in_this_runtime(): void
+    {
+        config(['ingress.mode' => 'legacy']);
+
+        $owner = User::factory()->create(['role' => User::ROLE_ORGANIZER]);
+        $venue = Venue::create(['name' => 'Hall', 'code' => 'HALL', 'default_capacity' => 100]);
+        $event = $this->event($owner, $venue, 'Local Event', 'local-event');
+
+        $this->actingAs($owner)
+            ->get(route('organizer.events.show', $event))
+            ->assertOk()
+            ->assertSee('href="#gates-staff"', false)
+            ->assertDontSee('href="#ticket-categories"', false)
+            ->assertDontSee('href="#node-handoff"', false)
+            ->assertDontSee('Event preparation');
+    }
+
+    public function test_completed_event_is_not_described_as_cancelled_in_readiness(): void
+    {
+        config(['ingress.mode' => 'cloud']);
+
+        $owner = User::factory()->create(['role' => User::ROLE_ORGANIZER]);
+        $venue = Venue::create(['name' => 'Hall', 'code' => 'HALL', 'default_capacity' => 100]);
+        $event = $this->event($owner, $venue, 'Completed Event', 'completed-event');
+        $event->forceFill([
+            'status' => Event::STATUS_COMPLETED,
+            'registration_closes_at' => now()->subDay(),
+            'ends_at' => now()->subHour(),
+        ])->save();
+
+        $this->actingAs($owner)
+            ->get(route('organizer.events.show', $event))
+            ->assertOk()
+            ->assertSee('This event is complete and cannot be prepared for a new Event Node admission.')
+            ->assertDontSee('This event is cancelled. Create a new event if it should run.');
+    }
+
     private function event(User $owner, Venue $venue, string $title, string $slug): Event
     {
         return Event::create([
