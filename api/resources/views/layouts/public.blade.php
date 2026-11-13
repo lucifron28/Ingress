@@ -40,7 +40,7 @@
         .pass-qr svg { display: block; width: 100%; height: auto; }
         @media (max-width: 36rem) { main { padding-top: 1.5rem; } .card { padding: 1rem; } }
 
-        body.events-index-page {
+        body.public-events-theme {
             --ink: #0f172a;
             --muted: #475569;
             --line: #e2e8f0;
@@ -52,21 +52,21 @@
             color: var(--ink);
         }
 
-        .events-index-page .site-header {
+        .public-events-theme .site-header {
             background: var(--maroon);
             border-bottom: 3px solid var(--gold);
             color: #ffffff;
         }
 
-        .events-index-page .site-nav,
-        .events-index-page main,
-        .events-index-page .site-footer {
+        .public-events-theme .site-nav,
+        .public-events-theme main,
+        .public-events-theme .site-footer {
             width: min(100% - 2rem, 74rem);
         }
 
-        .events-index-page .site-nav { min-height: 4.25rem; }
+        .public-events-theme .site-nav { min-height: 4.25rem; }
 
-        .events-index-page .brand {
+        .public-events-theme .brand {
             display: inline-flex;
             align-items: center;
             gap: .65rem;
@@ -74,7 +74,7 @@
             letter-spacing: .04em;
         }
 
-        .events-index-page .brand-mark {
+        .public-events-theme .brand-mark {
             display: inline-flex;
             align-items: center;
             border-radius: .3rem;
@@ -82,10 +82,10 @@
             background: #ffffff;
         }
 
-        .events-index-page .brand-mark img { display: block; height: 1.4rem; width: auto; }
+        .public-events-theme .brand-mark img { display: block; height: 1.4rem; width: auto; }
 
-        .events-index-page .site-nav > a:not(.brand),
-        .events-index-page .site-nav .nav-action {
+        .public-events-theme .site-nav > a:not(.brand),
+        .public-events-theme .site-nav .nav-action {
             display: inline-flex;
             align-items: center;
             justify-content: center;
@@ -101,31 +101,31 @@
             text-decoration: none;
         }
 
-        .events-index-page .site-nav .nav-action { font-family: inherit; cursor: pointer; }
+        .public-events-theme .site-nav .nav-action { font-family: inherit; cursor: pointer; }
 
-        .events-index-page .site-nav > a:not(.brand):hover,
-        .events-index-page .site-nav .nav-action:hover {
+        .public-events-theme .site-nav > a:not(.brand):hover,
+        .public-events-theme .site-nav .nav-action:hover {
             background: rgb(255 255 255 / 12%);
         }
 
-        .events-index-page .site-nav a:focus-visible,
-        .events-index-page .site-nav button:focus-visible {
+        .public-events-theme .site-nav a:focus-visible,
+        .public-events-theme .site-nav button:focus-visible {
             outline: 3px solid #ffffff;
             outline-offset: 3px;
         }
 
-        .events-index-page main .button:focus-visible {
+        .public-events-theme main .button:focus-visible {
             outline: 3px solid var(--maroon);
             outline-offset: 3px;
         }
 
-        .events-index-page main {
+        .public-events-theme main {
             min-height: auto;
             padding: clamp(1.75rem, 4vw, 3rem) 0 3rem;
         }
 
         .events-index-page .events-intro { max-width: 52rem; margin-bottom: 1.75rem; }
-        .events-index-page .eyebrow { margin-bottom: .45rem; color: var(--maroon); }
+        .public-events-theme .eyebrow { margin-bottom: .45rem; color: var(--maroon); }
         .events-index-page .events-intro h1 { margin-bottom: .6rem; font-size: clamp(2rem, 4vw, 3rem); }
         .events-index-page .lede { margin-bottom: 0; max-width: 48rem; }
 
@@ -186,7 +186,7 @@
         .events-index-page .event-status-open { background: #ecfdf5; color: #166534; }
         .events-index-page .event-status-unavailable { background: #f1f5f9; color: #475569; }
 
-        .events-index-page .button {
+        .public-events-theme .button {
             flex: 0 0 auto;
             min-width: 8.5rem;
             border-radius: .4rem;
@@ -195,17 +195,17 @@
             transition: background-color 140ms ease, box-shadow 140ms ease;
         }
 
-        .events-index-page .button:hover { border-color: #5b0000; background: #5b0000; box-shadow: 0 4px 10px rgb(91 0 0 / 20%); }
-        .events-index-page .button:disabled,
-        .events-index-page .button[aria-disabled="true"] { opacity: .55; cursor: not-allowed; box-shadow: none; }
+        .public-events-theme .button:hover { border-color: #5b0000; background: #5b0000; box-shadow: 0 4px 10px rgb(91 0 0 / 20%); }
+        .public-events-theme .button:disabled,
+        .public-events-theme .button[aria-disabled="true"] { opacity: .55; cursor: not-allowed; box-shadow: none; }
         .events-index-page .events-empty { border-top: 3px solid var(--gold); }
 
         @media (max-width: 36rem) {
-            .events-index-page .site-nav { min-height: 4rem; }
-            .events-index-page .brand { gap: .45rem; font-size: .9rem; }
-            .events-index-page .brand-mark img { height: 1.2rem; }
-            .events-index-page .site-nav > a:not(.brand),
-            .events-index-page .site-nav .nav-action { padding-inline: .55rem; font-size: .82rem; }
+            .public-events-theme .site-nav { min-height: 4rem; }
+            .public-events-theme .brand { gap: .45rem; font-size: .9rem; }
+            .public-events-theme .brand-mark img { height: 1.2rem; }
+            .public-events-theme .site-nav > a:not(.brand),
+            .public-events-theme .site-nav .nav-action { padding-inline: .55rem; font-size: .82rem; }
             .events-index-page .event-card { padding: 1rem; }
             .events-index-page .event-card-footer { align-items: stretch; flex-direction: column; }
             .events-index-page .button { width: 100%; }
@@ -213,17 +213,178 @@
 
         @media (prefers-reduced-motion: reduce) {
             .events-index-page .event-card,
-            .events-index-page .button { transition: none; }
+            .public-events-theme .button { transition: none; }
+        }
+
+        .event-details-page .event-breadcrumbs {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: .5rem;
+            margin: 0 0 1.25rem;
+            color: var(--muted);
+            font-size: .9rem;
+        }
+
+        .event-details-page .event-breadcrumbs a {
+            color: var(--maroon);
+            font-weight: 700;
+            text-decoration: none;
+        }
+
+        .event-details-page .event-breadcrumbs a:hover { text-decoration: underline; }
+
+        .event-details-page .event-detail-layout {
+            display: grid;
+            grid-template-columns: minmax(0, 1.35fr) minmax(18rem, .8fr);
+            align-items: start;
+            gap: 1.25rem;
+        }
+
+        .event-details-page .event-detail-card,
+        .event-details-page .ticket-panel {
+            min-width: 0;
+            border: 1px solid var(--line);
+            border-radius: .65rem;
+            padding: clamp(1.15rem, 2.5vw, 1.75rem);
+            background: var(--paper);
+            box-shadow: 0 2px 8px rgb(15 23 42 / 5%);
+        }
+
+        .event-details-page .event-detail-card {
+            display: grid;
+            gap: 1.5rem;
+            border-top: 3px solid var(--maroon);
+        }
+
+        .event-details-page .ticket-panel {
+            display: grid;
+            gap: 1rem;
+            border-top: 3px solid var(--gold);
+        }
+
+        .event-details-page .event-detail-heading { display: grid; gap: .6rem; }
+        .event-details-page .event-detail-heading .eyebrow { margin: 0; }
+        .event-details-page .event-detail-heading h1 { margin: 0; font-size: clamp(2rem, 4vw, 2.8rem); overflow-wrap: anywhere; }
+        .event-details-page .event-detail-badges { display: flex; flex-wrap: wrap; gap: .5rem; }
+        .event-details-page .event-cancelled-badge { background: #fef2f2; color: #991b1b; }
+
+        .event-details-page .event-detail-facts {
+            display: grid;
+            gap: .85rem;
+            margin: 0;
+        }
+
+        .event-details-page .event-detail-fact {
+            min-width: 0;
+            border-left: 2px solid #ead5d5;
+            padding-left: .8rem;
+        }
+
+        .event-details-page .event-detail-fact dt,
+        .event-details-page .ticket-category-eligibility,
+        .event-details-page .ticket-category-availability {
+            color: var(--muted);
+            font-size: .82rem;
+            font-weight: 700;
+        }
+
+        .event-details-page .event-detail-fact dd {
+            display: flex;
+            flex-wrap: wrap;
+            gap: .2rem .4rem;
+            margin: .2rem 0 0;
+            color: var(--ink);
+            font-weight: 650;
+            overflow-wrap: anywhere;
+        }
+
+        .event-details-page .event-description {
+            margin: 0;
+            border-top: 1px solid var(--line);
+            padding-top: 1.25rem;
+            color: var(--muted);
+            white-space: pre-line;
+        }
+
+        .event-details-page .event-eligibility-note {
+            display: grid;
+            gap: .25rem;
+            margin: 0;
+            border-left: 3px solid var(--maroon);
+            border-radius: .35rem;
+            padding: .9rem 1rem;
+            background: #f8fafc;
+            color: var(--muted);
+        }
+
+        .event-details-page .event-eligibility-note strong { color: var(--ink); }
+        .event-details-page .ticket-panel-heading h2 { margin: 0 0 .35rem; font-size: 1.3rem; }
+        .event-details-page .ticket-panel-heading .eyebrow { margin: 0 0 .35rem; }
+        .event-details-page .ticket-panel-heading .meta { margin: 0; }
+        .event-details-page .ticket-category-list { display: grid; gap: .8rem; }
+
+        .event-details-page .ticket-category {
+            display: grid;
+            gap: .4rem;
+            border-top: 1px solid var(--line);
+            padding-top: .85rem;
+        }
+
+        .event-details-page .ticket-category-heading {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: .4rem .8rem;
+        }
+
+        .event-details-page .ticket-category-heading h3 { margin: 0; font-size: 1rem; }
+        .event-details-page .ticket-category-price { color: var(--maroon); font-weight: 750; white-space: nowrap; }
+        .event-details-page .ticket-category-eligibility,
+        .event-details-page .ticket-category-availability { margin: 0; font-weight: 500; }
+        .event-details-page .ticket-category-availability strong { color: var(--ink); }
+        .event-details-page .ticket-category-sold-out { color: #991b1b; font-weight: 700; }
+        .event-details-page .ticket-payment-note { margin: .15rem 0 0; color: var(--muted); font-size: .85rem; }
+
+        .event-details-page .registration-status {
+            display: grid;
+            gap: .2rem;
+            border-left: 3px solid;
+            border-radius: .35rem;
+            padding: .8rem .9rem;
+            font-size: .9rem;
+        }
+
+        .event-details-page .registration-status-open { border-color: #15803d; background: #ecfdf5; color: #166534; }
+        .event-details-page .registration-status-unavailable { border-color: #b7791f; background: #fff8e8; color: #704f12; }
+        .event-details-page .registration-status-cancelled { border-color: #b91c1c; background: #fef2f2; color: #991b1b; }
+        .event-details-page .registration-status strong { color: inherit; }
+        .event-details-page .ticket-panel .button { width: 100%; }
+
+        @media (max-width: 48rem) {
+            .event-details-page .event-detail-layout { grid-template-columns: minmax(0, 1fr); }
+        }
+
+        @media (max-width: 36rem) {
+            .event-details-page .event-breadcrumbs { margin-bottom: 1rem; }
+            .event-details-page .event-detail-layout { gap: 1rem; }
+            .event-details-page .event-detail-card,
+            .event-details-page .ticket-panel { padding: 1rem; }
         }
 
         @media print { body { background: #fff; } .site-header, .site-footer, .screen-only { display: none !important; } main { width: 100%; padding: 0; } .card { box-shadow: none; } }
     </style>
 </head>
-<body class="{{ request()->routeIs('public.events.index') ? 'events-index-page' : '' }}">
+@php
+    $isEventsListing = request()->routeIs('public.events.index');
+    $isEventDetails = request()->routeIs('public.events.show');
+@endphp
+<body class="{{ $isEventsListing || $isEventDetails ? 'public-events-theme' : '' }}{{ $isEventsListing ? ' events-index-page' : '' }}{{ $isEventDetails ? ' event-details-page' : '' }}">
     <header class="site-header">
         <nav class="site-nav" aria-label="Main navigation">
             <a class="brand" href="{{ route('public.events.index') }}">
-                @if (request()->routeIs('public.events.index'))
+                @if ($isEventsListing || $isEventDetails)
                     <span class="brand-mark"><img src="{{ asset('images/ingress-mark.png') }}" alt=""></span>
                     <span>INGRESS</span>
                 @else
