@@ -1369,7 +1369,7 @@ function Invoke-IngressLanDemoNetworkManager {
         param($address, $appUrl)
         $isHttp = $appUrl.StartsWith('http://', [StringComparison]::OrdinalIgnoreCase)
         $null = Write-IngressNodeBindAddress -Context $context -Address $address -AppUrl $appUrl -CommandRunner $CommandRunner -LanDemo:$isHttp
-    }.GetNewClosure()
+    }
     $applyNode = {
         param($forceRecreate)
         $up = New-IngressComposeUpArguments -Project $context.Project -WorkingDirectory $context.WorkingDirectory -EnvironmentFile $context.EnvironmentFile -ComposeFiles $context.ComposeFiles -ForceRecreate:$forceRecreate -Build:$context.LanDemoBuildRequired
@@ -1395,7 +1395,7 @@ function Invoke-IngressLanDemoNetworkManager {
         $ports = Get-IngressActualPortStatus -Context $context -ContainerId $nodeIds[0] -CommandRunner $CommandRunner -Address $targetAddress -HttpsPort 443 -OperatorPort $operatorPort -LanDemo -HttpPort $httpPort
         if (-not $ports.Known -or -not $ports.NodeMatches -or -not $ports.OperatorIsolated) { throw 'The LAN HTTP binding or loopback-only operator binding failed verification.' }
         if (-not (Get-IngressWindowsNetworkProbe -Address $targetAddress -Port $httpPort)) { throw 'The LAN HTTP port did not pass a local TCP probe.' }
-    }.GetNewClosure()
+    }
     $gateObject = [pscustomobject] @{ CanApply = $true }
     $outcome = Invoke-IngressPlannedChange -Gate $gateObject -BindChanged $bindChanged -NodeRunning ($nodeState.Status -eq 'running' -and $nodeHealthy) -TargetAddress $targetAddress -TargetAppUrl $targetAppUrl -PreviousAddress $previousAddress -PreviousAppUrl $previousAppUrl -WriteBinding $writeBinding -ApplyNode $applyNode
     $statusObject | Add-Member -Force -NotePropertyName LastOperation -NotePropertyValue $outcome.Outcome
@@ -1999,7 +1999,7 @@ function Invoke-IngressNetworkManager {
         param($address, $appUrl)
         $message = Write-IngressNodeBindAddress -Context $context -Address $address -AppUrl $appUrl -CommandRunner $CommandRunner
         Write-Host $message
-    }.GetNewClosure()
+    }
     $applyNode = {
         param($forceRecreate)
         $upArguments = New-IngressComposeUpArguments -Project $context.Project -WorkingDirectory $context.WorkingDirectory -EnvironmentFile $context.EnvironmentFile -ComposeFiles $context.ComposeFiles -ForceRecreate:$forceRecreate
@@ -2027,7 +2027,7 @@ function Invoke-IngressNetworkManager {
         if (-not (Get-IngressWindowsNetworkProbe -Address $targetAddress -Port $httpsPort)) {
             throw 'The selected HTTPS port did not pass a local TCP probe.'
         }
-    }.GetNewClosure()
+    }
 
     $outcome = Invoke-IngressPlannedChange -Gate $gate -BindChanged $bindChanged -NodeRunning ($nodeState.Status -eq 'running' -and $nodeHealthy) -TargetAddress $targetAddress -TargetAppUrl $targetAppUrl -PreviousAddress $currentAddress -PreviousAppUrl $currentAppUrl -WriteBinding $writeBinding -ApplyNode $applyNode
     Write-Host "Result: $($outcome.Outcome)"
