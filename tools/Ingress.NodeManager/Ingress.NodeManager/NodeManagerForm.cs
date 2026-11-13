@@ -140,7 +140,7 @@ public sealed class NodeManagerForm : Form
         {
             Dock = DockStyle.Fill,
             ColumnCount = 1,
-            RowCount = 4,
+            RowCount = 3,
             BackColor = _theme.Sidebar,
             Margin = Padding.Empty,
             Padding = Padding.Empty,
@@ -148,7 +148,6 @@ public sealed class NodeManagerForm : Form
         stack.RowStyles.Add(new RowStyle(SizeType.Absolute, 76));
         stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         stack.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        stack.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         _sidebar.Controls.Add(stack);
 
         var brand = new Panel { Dock = DockStyle.Fill, BackColor = _theme.Sidebar, Margin = Padding.Empty };
@@ -221,17 +220,6 @@ public sealed class NodeManagerForm : Form
         AddNavigation(nav, ManagerPage.Pairing, "◇", "Staff & Pairing");
         AddNavigation(nav, ManagerPage.Diagnostics, "≡", "Diagnostics");
 
-        var footer = new Label
-        {
-            Text = "Local operator tool\nPowerShell CLI remains available",
-            Dock = DockStyle.Top,
-            AutoSize = true,
-            ForeColor = _theme.SidebarMuted,
-            Font = new Font("Segoe UI", 8.2F),
-            TextAlign = ContentAlignment.MiddleLeft,
-            Padding = new Padding(2, 0, 0, 0),
-        };
-        stack.Controls.Add(footer, 0, 3);
     }
 
     private void AddNavigation(Control parent, ManagerPage page, string glyph, string text)
@@ -254,6 +242,14 @@ public sealed class NodeManagerForm : Form
         button.FlatAppearance.MouseOverBackColor = _theme.SurfaceMuted;
         button.MouseEnter += (_, _) => button.ForeColor = _theme.Ink;
         button.MouseLeave += (_, _) => button.ForeColor = _theme.SidebarText;
+        button.Paint += (_, args) =>
+        {
+            if (_currentPage == page)
+            {
+                using var brush = new SolidBrush(_theme.Accent);
+                args.Graphics.FillRectangle(brush, 0, 0, 3, button.ClientSize.Height);
+            }
+        };
         button.Click += (_, _) => ShowPage(page);
         _navigation.Add(page, button);
         parent.Controls.Add(button);
@@ -352,11 +348,11 @@ public sealed class NodeManagerForm : Form
         foreach (var pair in _navigation)
         {
             var selected = pair.Key == page;
-            pair.Value.BackColor = selected ? _theme.SurfaceMuted : _theme.Sidebar;
+            pair.Value.BackColor = selected ? Color.FromArgb(246, 224, 226) : _theme.Sidebar;
             pair.Value.ForeColor = _theme.SidebarText;
             pair.Value.FlatAppearance.MouseOverBackColor = _theme.SurfaceMuted;
             pair.Value.FlatAppearance.MouseDownBackColor = _theme.SurfaceMuted;
-            pair.Value.FlatAppearance.BorderSize = selected ? 1 : 0;
+            pair.Value.FlatAppearance.BorderSize = 0;
             pair.Value.FlatAppearance.BorderColor = _theme.SidebarMuted;
         }
 
@@ -420,6 +416,7 @@ public sealed class NodeManagerForm : Form
             loading.Controls.Add(MakeLabel("Checking local services", 11, FontStyle.Bold, _theme.Ink));
             loading.Controls.Add(MakeLabel("Ingress is checking the current network, Docker, PostgreSQL, and Event Node. This can take a few seconds.", 9.5F, FontStyle.Regular, _theme.Muted));
             root.Controls.Add(loading);
+            root.Controls.Add(CreateIndicatorGrid(DashboardIndicators(checking: true)));
             return root;
         }
         AddStartupError(root);
@@ -480,13 +477,11 @@ public sealed class NodeManagerForm : Form
         }
 
         var actions = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Top, WrapContents = true, BackColor = Color.Transparent, Margin = new Padding(0, 2, 0, 10) };
-        var refresh = MakeButton("Refresh status", primary: true);
-        refresh.Click += async (_, _) => await RefreshStatusAsync(showProgress: true);
-        var chooseNetwork = MakeButton("Choose network", primary: false);
+        var chooseNetwork = MakeButton("Choose network", primary: !CanStartNode());
         chooseNetwork.Click += (_, _) => ShowPage(ManagerPage.Network);
         var copyScannerAddress = MakeButton("Copy scanner address", primary: false);
         copyScannerAddress.Click += (_, _) => CopyScannerAddress();
-        var start = MakeButton("Start Server", primary: false);
+        var start = MakeButton("Start Server", primary: CanStartNode());
         start.Enabled = CanStartNode() && !_busy;
         start.AccessibleDescription = _status.NodeHealthy && _status.LanProbeReachable && _status.OperatorPortIsolated
             ? "Disabled because the LAN demo server is already reachable."
@@ -497,33 +492,27 @@ public sealed class NodeManagerForm : Form
         operatorConsole.Click += (_, _) => OpenOperatorConsole("/");
         var diagnostics = MakeButton("View Diagnostics", primary: false);
         diagnostics.Click += (_, _) => ShowPage(ManagerPage.Diagnostics);
-        actions.Controls.Add(refresh);
         actions.Controls.Add(chooseNetwork);
         actions.Controls.Add(copyScannerAddress);
         actions.Controls.Add(start);
         actions.Controls.Add(operatorConsole);
         actions.Controls.Add(diagnostics);
-        root.Controls.Add(actions);
+        hero.Controls.Add(actions);
 
-        var indicators = new[]
-        {
-            _status.GetIndicator("Network Mode"),
-            _status.GetIndicator("Docker / WSL2"),
-            _status.GetIndicator("Event Node"),
-            _status.GetIndicator("PostgreSQL"),
-            _status.GetIndicator("Database Migrations"),
-            _status.GetIndicator("Scheduler"),
-            _status.GetIndicator("LAN Transport"),
-            _status.GetIndicator("Windows Firewall"),
-            _status.GetIndicator("Operator Port"),
-            _status.GetIndicator("Admission Safety"),
-            _status.GetIndicator("Android Scanner"),
-        };
-        root.Controls.Add(CreateIndicatorGrid(indicators));
+        root.Controls.Add(CreateIndicatorGrid(DashboardIndicators(checking: false)));
         root.Controls.Add(CreatePhysicalTestNote());
         var warnings = CreateWarningsPanel();
         if (warnings is not null) root.Controls.Add(warnings);
         return root;
+    }
+
+    private IEnumerable<HealthIndicator> DashboardIndicators(bool checking)
+    {
+        foreach (var name in new[] { "Event Node", "PostgreSQL", "Windows Firewall" })
+        {
+            var indicator = _status.GetIndicator(name);
+            yield return checking ? indicator with { Detail = "Checking…" } : indicator;
+        }
     }
 
     private Control BuildNetworkPage()
@@ -867,7 +856,7 @@ public sealed class NodeManagerForm : Form
         title.Margin = Padding.Empty;
         var badge = new Label
         {
-            Text = indicator.Level.ToString().ToUpperInvariant(),
+            Text = indicator.Detail == "Checking…" ? "CHECKING" : indicator.Level.ToString().ToUpperInvariant(),
             AutoSize = true,
             TextAlign = ContentAlignment.MiddleCenter,
             Font = new Font("Segoe UI", 7.7F, FontStyle.Bold),
@@ -926,6 +915,8 @@ public sealed class NodeManagerForm : Form
         list.MinimumSize = new Size(0, list.Height);
         list.ColumnHeadersDefaultCellStyle.BackColor = _theme.SurfaceMuted;
         list.ColumnHeadersDefaultCellStyle.ForeColor = _theme.Muted;
+        list.ColumnHeadersDefaultCellStyle.SelectionBackColor = _theme.SurfaceMuted;
+        list.ColumnHeadersDefaultCellStyle.SelectionForeColor = _theme.Ink;
         list.ColumnHeadersDefaultCellStyle.Font = new Font("Segoe UI", 8.5F, FontStyle.Bold);
         list.DefaultCellStyle.BackColor = _theme.Surface;
         list.DefaultCellStyle.ForeColor = _theme.Ink;
@@ -935,7 +926,16 @@ public sealed class NodeManagerForm : Form
         list.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "ADAPTER", DataPropertyName = nameof(NetworkAdapterStatus.Name), FillWeight = 28 });
         list.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "IPv4", DataPropertyName = nameof(NetworkAdapterStatus.Address), FillWeight = 23 });
         list.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "NETWORK", DataPropertyName = nameof(NetworkAdapterStatus.NetworkCategory), FillWeight = 16 });
-        list.Columns.Add(new DataGridViewCheckBoxColumn { HeaderText = "UP", DataPropertyName = nameof(NetworkAdapterStatus.IsUp), FillWeight = 9 });
+        list.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "LINK", DataPropertyName = nameof(NetworkAdapterStatus.IsUp), FillWeight = 12 });
+        list.CellFormatting += (_, args) =>
+        {
+            if (args.ColumnIndex == 4 && args.Value is bool up)
+            {
+                args.Value = up ? "Up" : "Down";
+                args.CellStyle!.ForeColor = up ? _theme.Success : _theme.Muted;
+                args.FormattingApplied = true;
+            }
+        };
         list.DataSource = adapters.ToList();
         panel.Controls.Add(list);
         return panel;
@@ -1213,16 +1213,16 @@ public sealed class NodeManagerForm : Form
         {
             button.FlatStyle = FlatStyle.Flat;
             button.FlatAppearance.BorderSize = 0;
-            button.BackColor = _theme.Accent;
-            button.ForeColor = _theme.Surface;
+            button.BackColor = Color.FromArgb(224, 188, 112);
+            button.ForeColor = _theme.SidebarText;
             button.FlatAppearance.MouseOverBackColor = _theme.SurfaceMuted;
             button.FlatAppearance.MouseDownBackColor = _theme.SurfaceMuted;
             button.MouseEnter += (_, _) => button.ForeColor = _theme.Ink;
-            button.MouseLeave += (_, _) => button.ForeColor = button.Enabled ? _theme.Surface : _theme.Ink;
+            button.MouseLeave += (_, _) => button.ForeColor = button.Enabled ? _theme.SidebarText : _theme.Ink;
             button.EnabledChanged += (_, _) =>
             {
-                button.BackColor = button.Enabled ? _theme.Accent : _theme.SurfaceMuted;
-                button.ForeColor = button.Enabled ? _theme.Surface : _theme.Ink;
+                button.BackColor = button.Enabled ? Color.FromArgb(224, 188, 112) : _theme.SurfaceMuted;
+                button.ForeColor = button.Enabled ? _theme.SidebarText : _theme.Ink;
             };
         }
         else
@@ -1253,7 +1253,7 @@ public sealed class NodeManagerForm : Form
             return;
         }
 
-        await RunOperationAsync("Refreshing system status", RefreshStatusCoreAsync,
+        await RunOperationAsync("Checking local services…", RefreshStatusCoreAsync,
             refreshAfter: false, showProgress: showProgress);
     }
 
@@ -1605,6 +1605,7 @@ public sealed class NodeManagerForm : Form
             _ => "Status unknown",
         };
         _headerStatus.Text = text;
+        _headerStatus.Visible = !_activityLabel.Visible;
         _headerStatus.ForeColor = _theme.ForLevel(_status.ErrorMessage is not null ? HealthLevel.Unknown : node.Level);
         _headerStatus.BackColor = Color.Transparent;
         _lastUpdated.Visible = !_busy;
