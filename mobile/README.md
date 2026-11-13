@@ -19,7 +19,7 @@ Staff scan a one-time pairing QR or enter the current Node IP. The app stores th
 ## Android build profiles
 
 - `preview` creates an installable internal APK that uses Android system certificate trust and requires HTTPS.
-- `lanDemo` creates the installable capstone APK. It permits HTTP connections to private IPv4 addresses and accepts a different server IP at pairing time.
+- `lanDemo` creates the installable course-final demo APK. It accepts HTTP only for private IPv4 addresses and accepts a different server IP at pairing time. Its sign-in screen identifies this LAN-demo build.
 - `production` creates a Play Store AAB, uses Android system certificate trust, and requires HTTPS.
 
 All profiles bundle the JavaScript with the native app; they do not require Expo Metro at runtime. Expo documents internal APK profiles in its [Android APK build guide](https://docs.expo.dev/build-reference/apk/).

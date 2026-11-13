@@ -45,6 +45,8 @@ test('staff login is local and preserves one-time pairing and secure session res
   assert.match(loginSource, /useNodeStaff/);
   assert.match(loginSource, /parseNodePairingCode/);
   assert.match(loginSource, /Scan pairing code/);
+  assert.match(loginSource, /LAN DEMO BUILD · HTTP ONLY/);
+  assert.match(loginSource, /private IPv4 addresses/);
   assert.match(loginSource, /node\.resume\(\)/);
   assert.doesNotMatch(loginSource, /AuthContext|useAuth|staff-access|canUseStaffEntry/);
   assert.doesNotMatch(layoutSource, /AuthContext|useAuth|\/login/);

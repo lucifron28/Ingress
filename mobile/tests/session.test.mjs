@@ -77,6 +77,8 @@ test('Event Node authentication and pairing allow private HTTP only in the LAN d
       assert.equal(nodeSession.normalizeNodeUrl('192.168.55.158'), 'http://192.168.55.158:8000/api/v1');
       assert.equal(nodeSession.normalizeNodeUrl('http://192.168.55.158:8080/api/v1'), 'http://192.168.55.158:8080/api/v1');
       for (const url of [
+        'https://192.168.55.158/api/v1',
+        'https://node.example/api/v1',
         'http://8.8.8.8:8000/api/v1',
         'http://node.example:8000/api/v1',
         'http://localhost:8000/api/v1',
@@ -84,6 +86,26 @@ test('Event Node authentication and pairing allow private HTTP only in the LAN d
       ]) {
         assert.throws(() => nodeSession.normalizeNodeUrl(url));
       }
+      setLanDemoEnabled(false);
+    });
+
+    await t.test('LAN demo refuses HTTPS pairing codes and stored sessions', async () => {
+      setLanDemoEnabled(true);
+      const pairingCode = {
+        v: 1,
+        url: 'https://node.example/api/v1',
+        node: 'node-1',
+        token: 'a'.repeat(64),
+        expires: '2030-01-01T00:00:00Z',
+      };
+      assert.throws(() => nodeSession.parseNodePairingCode(JSON.stringify(pairingCode)), /valid Event Node pairing code/);
+      await SecureStore.setItemAsync('ingress_node_staff_session_v1', JSON.stringify({
+        url: pairingCode.url,
+        token: 'https-token',
+        user: staffUser,
+      }));
+      assert.equal(await nodeSession.getNodeSession(), null);
+      assert.equal(await SecureStore.getItemAsync('ingress_node_staff_session_v1'), null);
       setLanDemoEnabled(false);
     });
 

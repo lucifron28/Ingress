@@ -94,6 +94,7 @@ export default function NodeStaffLoginScreen() {
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.card}>
           <Text style={styles.title}>Staff scanner sign in</Text>
+          {lanDemo && <Text accessibilityRole="text" style={styles.modeBadge}>LAN DEMO BUILD · HTTP ONLY</Text>}
           <Text style={styles.body}>{lanDemo
             ? 'Connect to the laptop on the same Wi-Fi or hotspot. Enter its current IPv4 address or scan the operator pairing QR.'
             : 'Enter the HTTPS Event Node address and the local credential provided by your event operator. Confirm the address with the operator before signing in.'}</Text>
@@ -113,7 +114,7 @@ export default function NodeStaffLoginScreen() {
           </View>}
           <Text style={styles.label}>Event Node API address</Text>
           <TextInput accessibilityLabel="Event Node API address" style={styles.input} value={url} onChangeText={setUrl} autoCapitalize="none" autoCorrect={false} keyboardType="url" placeholder={lanDemo ? '192.168.1.50' : 'https://node.example/api/v1'} editable={!busy} />
-          {lanDemo && <Text style={styles.notice}>LAN demo uses HTTP. The scanner fills in port 8000 if you enter only the laptop IP.</Text>}
+          {lanDemo && <Text style={styles.notice}>This demo build accepts HTTP only for private IPv4 addresses. Port 8000 is filled in when you enter only the laptop IP.</Text>}
           <Text style={styles.label}>Staff email</Text>
           <TextInput accessibilityLabel="Staff email" style={styles.input} value={email} onChangeText={setEmail} autoCapitalize="none" autoCorrect={false} keyboardType="email-address" editable={!busy} />
           <Text style={styles.label}>Local staff password</Text>
@@ -134,6 +135,7 @@ const styles = StyleSheet.create({
   content: { flexGrow: 1, justifyContent: 'center', padding: 20 },
   card: { width: '100%', maxWidth: 420, alignSelf: 'center', backgroundColor: '#fff', borderRadius: 8, borderWidth: 1, borderColor: '#e2e8f0', borderTopWidth: 4, borderTopColor: '#800000', padding: 24 },
   title: { fontSize: 22, fontWeight: '800', color: '#0f172a', marginBottom: 12 },
+  modeBadge: { alignSelf: 'flex-start', backgroundColor: '#f7e7e8', borderRadius: 6, color: '#800000', fontSize: 12, fontWeight: '800', letterSpacing: 0.5, marginBottom: 10, paddingHorizontal: 10, paddingVertical: 6 },
   body: { fontSize: 15, lineHeight: 22, color: '#475569', marginBottom: 14 },
   notice: { color: '#7c2d12', fontSize: 14, lineHeight: 20, marginBottom: 8 },
   pairingCamera: { marginTop: 16 },
