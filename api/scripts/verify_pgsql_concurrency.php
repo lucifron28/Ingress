@@ -87,7 +87,11 @@ set_exception_handler(static function (Throwable $error): void {
         }
     }
 
-    fwrite(STDERR, 'POSTGRESQL CONCURRENCY VERIFICATION FAILED: '.get_class($error).$constraint.PHP_EOL);
+    $validationErrors = $error instanceof Illuminate\Validation\ValidationException
+        ? ' (validation: '.json_encode($error->errors(), JSON_UNESCAPED_SLASHES).')'
+        : '';
+
+    fwrite(STDERR, 'POSTGRESQL CONCURRENCY VERIFICATION FAILED: '.get_class($error).$constraint.$validationErrors.PHP_EOL);
     exit(1);
 });
 
