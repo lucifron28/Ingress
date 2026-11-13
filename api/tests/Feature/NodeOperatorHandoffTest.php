@@ -85,12 +85,54 @@ class NodeOperatorHandoffTest extends TestCase
         config(['app.url' => 'http://node.example.edu']);
         $this->actingAs($operator, 'node_operator')->get('/node/operator/handoff')
             ->assertSee('Handoff actions are disabled')
-            ->assertDontSee('Import snapshot and create receipt');
+            ->assertDontSee('Import snapshot and create receipt')
+            ->assertSee('APP_URL must be a valid node URL for this deployment');
         config(['app.url' => 'https://node.example.edu']);
 
         config(['ingress.mode' => 'cloud']);
         $this->get('/node/operator/handoff')->assertStatus(503);
         $this->assertDatabaseCount('node_event_authorities', 0);
+    }
+
+    public function test_handoff_preflight_allows_http_for_an_explicit_private_lan_demo(): void
+    {
+        $operator = NodeOperator::factory()->create();
+        config([
+            'app.url' => 'http://192.168.55.158:8000',
+            'ingress.lan_demo' => true,
+            'ingress.node_bind_address' => '192.168.55.158',
+            'ingress.authority_private_key' => null,
+            'session.secure' => false,
+        ]);
+
+        $response = $this->actingAs($operator, 'node_operator')
+            ->get('/node/operator/handoff')
+            ->assertOk()
+            ->assertSee('http://192.168.55.158:8000/api/v1')
+            ->assertDontSee('Handoff actions are disabled');
+
+        if ($this->iniBytes((string) ini_get('upload_max_filesize')) >= 16 * 1024 * 1024
+            && $this->iniBytes((string) ini_get('post_max_size')) >= 17 * 1024 * 1024) {
+            $response->assertSee('Stage an encrypted snapshot');
+        }
+    }
+
+    public function test_http_handoff_still_requires_a_matching_private_lan_bind_address(): void
+    {
+        $operator = NodeOperator::factory()->create();
+        config([
+            'app.url' => 'http://192.168.55.159:8000',
+            'ingress.lan_demo' => true,
+            'ingress.node_bind_address' => '192.168.55.158',
+            'ingress.authority_private_key' => null,
+            'session.secure' => true,
+        ]);
+
+        $this->actingAs($operator, 'node_operator')
+            ->get('/node/operator/handoff')
+            ->assertOk()
+            ->assertSee('Handoff actions are disabled')
+            ->assertSee('APP_URL must be a valid node URL for this deployment');
     }
 
     public function test_operator_dashboard_shows_verified_status_and_no_sync_action_without_pending_records(): void
@@ -500,5 +542,21 @@ class NodeOperatorHandoffTest extends TestCase
             'staff' => [],
             'registrations' => [],
         ];
+    }
+
+    private function iniBytes(string $value): int
+    {
+        if (! preg_match('/\A\s*(\d+)\s*([KMG]?)\s*\z/i', $value, $matches)) {
+            return 0;
+        }
+
+        $multiplier = match (strtoupper($matches[2])) {
+            'G' => 1024 * 1024 * 1024,
+            'M' => 1024 * 1024,
+            'K' => 1024,
+            default => 1,
+        };
+
+        return (int) $matches[1] * $multiplier;
     }
 }

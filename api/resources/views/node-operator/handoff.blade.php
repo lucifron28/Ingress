@@ -39,7 +39,7 @@
                 <dt>Node ID</dt>
                 <dd><code>{{ $preflight['node_id'] }}</code></dd>
                 <dt>Scanner API</dt>
-                <dd><code>{{ $preflight['node_api_url'] ?? 'APP_URL must use HTTPS with a stable hostname' }}</code></dd>
+                <dd><code>{{ $preflight['node_api_url'] ?? 'APP_URL must be a valid node URL for this deployment' }}</code></dd>
                 <dt>Runtime identity</dt>
                 <dd>{{ $preflight['runtime_identity_matches'] ? 'Matches this node' : 'Mismatch. Stop all gates.' }}</dd>
                 <dt>Database</dt>
@@ -51,9 +51,9 @@
                 <dt>Cloud signing private key</dt>
                 <dd>{{ $preflight['authority_private_key_present'] ? 'Present. Stop and ask the installer to remove it.' : 'Not present on this node' }}</dd>
                 <dt>Snapshot upload limits</dt>
-                <dd>{{ $preflight['snapshot_upload_ready'] ? 'Ready for encrypted packages up to 16 MiB' : 'PHP upload limits are too small. Ask the installer to set upload_max_filesize=30M and post_max_size=32M.' }}</dd>
+                <dd>{{ $preflight['snapshot_upload_ready'] ? 'Ready for encrypted packages up to 16 MiB' : 'PHP upload limits are too small. Ask the installer to set upload_max_filesize=17M and post_max_size=18M.' }}</dd>
             </dl>
-            <p>The console checks the HTTPS URL format; it cannot verify the venue DNS record, certificate chain, or scanner reachability. The installer must verify those before event setup.</p>
+            <p>The console checks the node URL against the deployment mode and selected LAN address; it cannot verify host reachability. Confirm scanner access before event setup.</p>
         </section>
 
         @if ($preflight['authority_private_key_present'] || ! $preflight['runtime_identity_matches'] || $preflight['database_driver'] !== 'pgsql')
@@ -66,7 +66,7 @@
         @if (! $preflight['handoff_ready'])
             <div class="status warning" role="alert">
                 <strong>Handoff actions are disabled</strong>
-                <span>Resolve the node identity, PostgreSQL, HTTPS APP_URL, sync-key, authority public-key, and signing-key checks before uploading or importing a snapshot.</span>
+                <span>Resolve the node identity, PostgreSQL, node URL, sync-key, authority public-key, and signing-key checks before uploading or importing a snapshot.</span>
             </div>
         @endif
 
@@ -84,7 +84,7 @@
         @if ($preflight['handoff_ready'] && ! $preflight['snapshot_upload_ready'])
             <div class="status warning" role="status">
                 <strong>Snapshot upload unavailable</strong>
-                <span>Configure PHP upload_max_filesize=30M and post_max_size=32M before uploading.</span>
+                <span>Configure PHP upload_max_filesize=17M and post_max_size=18M before uploading.</span>
             </div>
         @elseif ($preflight['handoff_ready'])
             <form method="post" action="{{ route('node.operator.handoff.snapshot.receive', absolute: false) }}" enctype="multipart/form-data" class="handoff-row">

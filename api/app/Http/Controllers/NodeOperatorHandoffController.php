@@ -9,6 +9,7 @@ use App\Actions\ImportReceivedSnapshot;
 use App\Actions\IssueImportReceipt;
 use App\Actions\ReceiveSnapshot;
 use App\Actions\SnapshotEnvelope;
+use App\Support\NodeDockerDeploymentConfiguration;
 use App\Support\NodeOperatorAuditRecorder;
 use Illuminate\Database\Query\JoinClause;
 use Illuminate\Http\RedirectResponse;
@@ -42,7 +43,7 @@ class NodeOperatorHandoffController extends Controller
         if (! $this->preflight()['handoff_ready']) {
             $audit->recordEventAction($this->operatorId(), 'snapshot.received', null, 'rejected');
 
-            return $this->failure('Node handoff preflight failed. Check the node identity, PostgreSQL database, HTTPS APP_URL, sync key, authority public key, and signing-key role before continuing.');
+            return $this->failure('Node handoff preflight failed. Check the node identity, PostgreSQL database, node URL, sync key, authority public key, and signing-key role before continuing.');
         }
         $request->validate(['snapshot' => ['required', 'file', 'max:16384']]);
         $file = $request->file('snapshot');
@@ -96,7 +97,7 @@ class NodeOperatorHandoffController extends Controller
         if (! $this->preflight()['handoff_ready']) {
             $audit->recordEventAction($this->operatorId(), 'snapshot.imported', $localEventId, 'rejected');
 
-            return $this->failure('Node handoff preflight failed. Check the node identity, PostgreSQL database, HTTPS APP_URL, sync key, authority public key, and signing-key role before continuing.');
+            return $this->failure('Node handoff preflight failed. Check the node identity, PostgreSQL database, node URL, sync key, authority public key, and signing-key role before continuing.');
         }
         try {
             [$localEventId, $receipt] = DB::transaction(function () use ($id, $import, $receipts): array {
@@ -160,7 +161,7 @@ class NodeOperatorHandoffController extends Controller
         if (! $preflight['handoff_ready']) {
             $audit->recordEventAction($this->operatorId(), 'authority.activated', $localEventId, 'rejected');
 
-            return $this->failure('Node handoff preflight failed. Check the node identity, PostgreSQL database, HTTPS APP_URL, sync key, authority public key, and signing-key role before continuing.');
+            return $this->failure('Node handoff preflight failed. Check the node identity, PostgreSQL database, node URL, sync key, authority public key, and signing-key role before continuing.');
         }
 
         $request->validate([
@@ -259,10 +260,15 @@ class NodeOperatorHandoffController extends Controller
         $identity = DB::table('runtime_identity')->where('id', 1)->first();
         $url = config('app.url');
         $parts = is_string($url) ? parse_url($url) : false;
+        $scheme = is_array($parts) ? strtolower((string) ($parts['scheme'] ?? '')) : '';
         $path = is_array($parts) ? rtrim((string) ($parts['path'] ?? ''), '/') : '';
         $safePath = $path === '' || preg_match('#\A(?:/[A-Za-z0-9_-]+)+\z#D', $path) === 1;
+        $lanDemoHttp = $scheme === 'http'
+            && config('ingress.mode') === 'node'
+            && config('ingress.lan_demo') === true
+            && NodeDockerDeploymentConfiguration::isLanDemoOrigin($url, config('ingress.node_bind_address'));
         $trustedUrl = is_string($url) && strlen($url) <= 480 && is_array($parts)
-            && ($parts['scheme'] ?? null) === 'https' && ! empty($parts['host'])
+            && ($scheme === 'https' || $lanDemoHttp) && ! empty($parts['host'])
             && ! isset($parts['user']) && ! isset($parts['pass']) && ! isset($parts['query']) && ! isset($parts['fragment'])
             && $safePath && filter_var($url, FILTER_VALIDATE_URL) !== false;
         $syncKey = config('ingress.node_sync_key');
@@ -276,7 +282,7 @@ class NodeOperatorHandoffController extends Controller
         return [
             'node_id' => is_string($nodeId) ? $nodeId : 'Not configured',
             'node_api_url' => $trustedUrl ? rtrim($url, '/').'/api/v1' : null,
-            'https_url_ready' => $trustedUrl,
+            'node_url_ready' => $trustedUrl,
             'runtime_identity_matches' => (bool) $identityMatches,
             'database_driver' => $databaseDriver,
             'sync_key_ready' => $syncKeyReady,
