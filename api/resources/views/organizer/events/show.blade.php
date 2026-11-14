@@ -6,7 +6,8 @@
         {{ $errors->first('event') ?: ($errors->first('registration') ?: ($errors->first('transfer') ?: ($errors->first('node_id') ?: $errors->first('receipt')))) }}
     </div>
 @endif
-<div id="event-overview" class="event-anchor" style="margin-bottom: 2rem;">
+<section id="overview-readiness" class="organizer-event-section event-anchor">
+<div id="event-overview" style="margin-bottom: 2rem;">
     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem;">
         <div>
             <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
@@ -25,10 +26,6 @@
         </div>
 
         <div style="display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.5rem; align-items: center;">
-            <a href="{{ route('organizer.attendance', $event) }}" class="btn-primary">
-                Attendance View
-            </a>
-
             @if ($event->isDraft())
                 <form method="POST" action="{{ route('organizer.events.publish', $event) }}" onsubmit="return confirm('Publish this event to make it visible to students?');">
                     @csrf
@@ -50,12 +47,12 @@
             @if ($event->isPublished() && ! $event->registration_closed_at && ! $event->snapshot_prepared_at)
                 <form method="POST" action="{{ route('organizer.events.registration.close', $event) }}" onsubmit="return confirm('Close registration? It cannot be reopened.');">
                     @csrf
-                    <button type="submit" class="btn-secondary">Close Registration</button>
+                    <button type="submit" class="btn-danger">Close Registration (cannot reopen)</button>
                 </form>
             @endif
 
             @if ($event->isPublished() && ! $authority)
-                <form method="POST" action="{{ route('organizer.events.cancel', $event) }}" onsubmit="return confirm('Are you sure you want to cancel this event?');">
+                <form method="POST" action="{{ route('organizer.events.cancel', $event) }}" onsubmit="return confirm('Cancel this event? This action cannot be undone.');">
                     @csrf
                     <button type="submit" class="btn-danger">
                         Cancel Event
@@ -71,18 +68,6 @@
         </div>
     </div>
 </div>
-
-<nav class="organizer-event-nav" aria-label="Event sections">
-    <a href="#event-overview">Overview</a>
-    @if (config('ingress.mode') === 'cloud' && auth()->user()->can('update', $event))
-        <a href="#ticket-categories">Tickets</a>
-    @endif
-    <a href="#gates-staff">Gates &amp; Staff</a>
-    @if (config('ingress.mode') === 'cloud' && auth()->user()->can('update', $event))
-        <a href="#node-handoff">Node Handoff</a>
-    @endif
-    <a href="{{ route('organizer.attendance', $event) }}">Attendance</a>
-</nav>
 
 @if (config('ingress.mode') === 'cloud')
 <section id="preparation" class="card event-preparation event-anchor">
@@ -128,7 +113,41 @@
 </section>
 @endif
 
-<div class="organizer-event-summary-grid" style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem; margin-bottom: 2rem;">
+<section class="card organizer-event-overview-details" aria-labelledby="event-schedule-heading">
+    <h2 id="event-schedule-heading">Event schedule and details</h2>
+    <dl class="organizer-event-schedule">
+        <div>
+            <dt>Registration period</dt>
+            <dd>
+                {{ $event->registration_opens_at->format('M d, Y h:i A') }} to {{ $event->registration_closes_at->format('M d, Y h:i A') }}
+                @if ($event->registration_closed_at)<span>Closed by organizer</span>@endif
+            </dd>
+        </div>
+        <div>
+            <dt>Event program</dt>
+            <dd>{{ $event->starts_at->format('M d, Y h:i A') }} to {{ $event->ends_at->format('M d, Y h:i A') }}</dd>
+        </div>
+        <div class="organizer-event-description">
+            <dt>Description</dt>
+            <dd>{{ $event->description ?: 'No description provided.' }}</dd>
+        </div>
+    </dl>
+</section>
+</section>
+
+<nav class="organizer-event-nav" aria-label="Event sections">
+    <a href="#overview-readiness">Overview &amp; Readiness</a>
+    @if (config('ingress.mode') === 'cloud' && auth()->user()->can('update', $event))
+        <a href="#tickets-registration">Tickets &amp; Registration</a>
+    @endif
+    <a href="#gates-staff">Gates &amp; Staff</a>
+    @if (config('ingress.mode') === 'cloud' && auth()->user()->can('update', $event))
+        <a href="#node-handoff">Node Handoff</a>
+    @endif
+    <a href="#attendance">Attendance</a>
+</nav>
+
+<section id="tickets-registration" class="organizer-event-section event-anchor">
     @if (config('ingress.mode') === 'cloud' && auth()->user()->can('update', $event))
         <section id="ticket-categories" class="card event-anchor" style="grid-column: 1 / -1;">
             <h2>Ticket categories</h2>
@@ -213,58 +232,6 @@
         </section>
     @endif
     @if (config('ingress.mode') === 'cloud' && auth()->user()->can('update', $event))
-        <section id="node-handoff" class="card event-handoff event-anchor" style="grid-column: 1 / -1;">
-            <h2>Node Handoff</h2>
-            <p>{{ $readiness['handoffNextStep'] }}</p>
-            @if (! $event->snapshot_prepared_at)
-                <p>Preparing a snapshot freezes event, ticket, gate, and staff changes. The Node must import it and return receipts before authority can be transferred.</p>
-                <form method="POST" action="{{ route('organizer.events.snapshot.prepare', $event) }}">
-                    @csrf
-                    <button type="submit" class="btn-primary" @disabled($readiness['snapshotPreparationBlockReason'] !== null)>Prepare Snapshot</button>
-                </form>
-                @if ($readiness['snapshotPreparationBlockReason'])
-                    <p class="event-next-action" role="status"><strong>Snapshot preparation unavailable:</strong> {{ $readiness['snapshotPreparationBlockReason'] }}</p>
-                @endif
-            @else
-                <p>Snapshot prepared. Event changes are locked. Node admission requires an activated authority grant.</p>
-                <p>Download the encrypted package and import it on the named node. Return the node's receipts here. Activate the authority grant on the node before admission.</p>
-                @if ($receiptNodeId)
-                    <p>Received by node {{ $receiptNodeId }}.</p>
-                @endif
-                @if ($importReceiptNodeId)
-                    <p>Import confirmed by node {{ $importReceiptNodeId }}.</p>
-                @endif
-                @if ($authority)
-                    <p>Authority was transferred to node {{ $authority->node_id }}. Cloud cancellation and snapshot changes are locked. Activate the grant on the node before scanning.</p>
-                @endif
-                @if ($importReceiptNodeId || $authority)
-                    <form method="POST" action="{{ route('organizer.events.authority.transfer', $event) }}" onsubmit="return confirm('This locks cloud cancellation and snapshot changes. Recovery is not available. Activate this grant on the node before scanning. Continue?');">
-                        @csrf
-                        <button type="submit" class="btn-secondary">{{ $authority ? 'Download Authority Grant Again' : 'Transfer Authority and Download Grant' }}</button>
-                    </form>
-                @endif
-                <form method="POST" action="{{ route('organizer.events.snapshot.export', $event) }}">
-                    @csrf
-                    <label for="node-id">Node ID</label>
-                    <input id="node-id" name="node_id" required maxlength="64" class="form-input">
-                    <button type="submit" class="btn-secondary">Download Package</button>
-                </form>
-                <form method="POST" action="{{ route('organizer.events.snapshot.receipt', $event) }}" style="margin-top: 1rem;">
-                    @csrf
-                    <label for="snapshot-receipt">Node receipt</label>
-                    <textarea id="snapshot-receipt" name="receipt" required maxlength="4096" class="form-input"></textarea>
-                    <button type="submit" class="btn-secondary">Confirm Receipt</button>
-                </form>
-                <form method="POST" action="{{ route('organizer.events.snapshot.import-receipt', $event) }}" style="margin-top: 1rem;">
-                    @csrf
-                    <label for="import-receipt">Node import receipt</label>
-                    <textarea id="import-receipt" name="receipt" required maxlength="4096" class="form-input"></textarea>
-                    <button type="submit" class="btn-secondary">Confirm Import</button>
-                </form>
-            @endif
-        </section>
-    @endif
-    @if (config('ingress.mode') === 'cloud' && auth()->user()->can('update', $event))
         <section class="card" style="grid-column: 1 / -1;">
             <h2>Guest and alumni passes</h2>
             @if ($errors->hasAny(['guest', 'guest_name', 'guest_email', 'attendee_type', 'identity_verified']))
@@ -302,15 +269,6 @@
                 <p>No guest or alumni passes issued.</p>
             @endforelse
         </section>
-        @if ($walkInRecoveries->isNotEmpty())
-            <section class="card" style="grid-column: 1 / -1;">
-                <h2>Recent walk-in pass recoveries</h2>
-                <p>Showing up to 50 synchronized recoveries. Records may be delayed while the node is offline.</p>
-                @foreach ($walkInRecoveries as $recovery)
-                    <p>{{ $recovery->recovered_at }} &middot; {{ $recovery->staff_name }} &middot; {{ $recovery->public_id }} &middot; {{ $recovery->node_id }} &middot; {{ $recovery->identity_label }} &middot; {{ $recovery->reason_label }}</p>
-                @endforeach
-            </section>
-        @endif
     @endif
     @if (auth()->user()->can('update', $event))
         <section class="card" style="grid-column: 1 / -1;">
@@ -329,66 +287,10 @@
             {{ $ticketTransfers->links() }}
         </section>
     @endif
-    <!-- Event Details Card -->
-    <div class="card">
-        <h2 style="font-size: 1.1rem; font-weight: 600; color: var(--neutral-dark); margin-bottom: 1rem; border-bottom: 1px solid var(--neutral-border); padding-bottom: 0.5rem;">
-            Event Schedule &amp; Configuration
-        </h2>
-
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-bottom: 1.25rem;">
-            <div>
-                <div style="font-size: 0.75rem; text-transform: uppercase; color: var(--neutral-muted); font-weight: 600;">Registration Period</div>
-                <div style="font-size: 0.875rem; margin-top: 0.25rem;">
-                    {{ $event->registration_opens_at->format('M d, Y h:i A') }}<br>
-                    to {{ $event->registration_closes_at->format('M d, Y h:i A') }}
-                    @if ($event->registration_closed_at)
-                        <br><strong>Closed by organizer</strong>
-                    @endif
-                </div>
-            </div>
-            <div>
-                <div style="font-size: 0.75rem; text-transform: uppercase; color: var(--neutral-muted); font-weight: 600;">Event Program Schedule</div>
-                <div style="font-size: 0.875rem; margin-top: 0.25rem;">
-                    {{ $event->starts_at->format('M d, Y h:i A') }}<br>
-                    to {{ $event->ends_at->format('M d, Y h:i A') }}
-                </div>
-            </div>
-        </div>
-
-        <div>
-            <div style="font-size: 0.75rem; text-transform: uppercase; color: var(--neutral-muted); font-weight: 600;">Description</div>
-            <div style="font-size: 0.875rem; margin-top: 0.25rem; color: var(--neutral-body); line-height: 1.6;">
-                {{ $event->description ?: 'No description provided.' }}
-            </div>
-        </div>
-    </div>
-
-    <!-- Quick Stats Card -->
-    <div class="card">
-        <h2 style="font-size: 1.1rem; font-weight: 600; color: var(--neutral-dark); margin-bottom: 1rem; border-bottom: 1px solid var(--neutral-border); padding-bottom: 0.5rem;">
-            Capacity Summary
-        </h2>
-        <div style="margin-bottom: 1rem;">
-            <div style="font-size: 0.8rem; color: var(--neutral-muted);">Max Capacity</div>
-            <div style="font-size: 1.75rem; font-weight: 700; color: var(--neutral-dark);" class="mono">{{ $event->capacity }}</div>
-        </div>
-        <div style="margin-bottom: 1rem;">
-            <div style="font-size: 0.8rem; color: var(--neutral-muted);">Registered Attendees</div>
-            <div style="font-size: 1.75rem; font-weight: 700; color: var(--mseuf-maroon);" class="mono">
-                {{ $event->registrations()->where('status', \App\Models\Registration::STATUS_CONFIRMED)->count() }}
-            </div>
-        </div>
-        <div>
-            <div style="font-size: 0.8rem; color: var(--neutral-muted);">Admitted / Checked In</div>
-            <div style="font-size: 1.75rem; font-weight: 700; color: var(--state-success);" class="mono">
-                {{ \App\Models\Admission::forCurrentCredential()->whereHas('ticket.registration', fn($q) => $q->where('event_id', $event->id))->count() }}
-            </div>
-        </div>
-    </div>
-</div>
+    </section>
 
 <!-- Multi-Gate Access Points & Staff Management -->
-<div id="gates-staff" class="organizer-event-gates-grid event-anchor" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+<section id="gates-staff" class="organizer-event-section organizer-event-gates-grid event-anchor">
     <!-- Access Points Card -->
     <div class="card">
         <h2 style="font-size: 1.1rem; font-weight: 600; color: var(--neutral-dark); margin-bottom: 1rem; border-bottom: 1px solid var(--neutral-border); padding-bottom: 0.5rem;">
@@ -569,7 +471,7 @@
         </section>
     @endif
 
-    <section class="card" style="grid-column: 1 / -1;">
+    <section class="card organizer-event-audit">
         <h2 style="font-size: 1.1rem; font-weight: 600; color: var(--neutral-dark); margin-bottom: 1rem; border-bottom: 1px solid var(--neutral-border); padding-bottom: 0.5rem;">
             Event Responsibility Audit
         </h2>
@@ -581,5 +483,100 @@
             @endforelse
         </ol>
     </section>
-</div>
+</section>
+
+@if (config('ingress.mode') === 'cloud' && auth()->user()->can('update', $event))
+<section id="node-handoff" class="card event-handoff event-anchor organizer-event-handoff" aria-labelledby="node-handoff-heading">
+    <h2 id="node-handoff-heading">Node Handoff</h2>
+    <p>{{ $readiness['handoffNextStep'] }}</p>
+    @if (! $event->snapshot_prepared_at)
+        <p>Preparing a snapshot freezes event, ticket, gate, and staff changes. The Node must import it and return receipts before authority can be transferred.</p>
+        <form method="POST" action="{{ route('organizer.events.snapshot.prepare', $event) }}">
+            @csrf
+            <button type="submit" class="btn-primary" @disabled($readiness['snapshotPreparationBlockReason'] !== null)>Prepare Snapshot</button>
+        </form>
+        @if ($readiness['snapshotPreparationBlockReason'])
+            <p class="event-next-action" role="status"><strong>Snapshot preparation unavailable:</strong> {{ $readiness['snapshotPreparationBlockReason'] }}</p>
+        @endif
+    @else
+        <p>Snapshot prepared. Event changes are locked. Node admission requires an activated authority grant.</p>
+        <p>Download the encrypted package and import it on the named node. Return the node's receipts here. Activate the authority grant on the node before admission.</p>
+        @if ($receiptNodeId)
+            <p>Received by node {{ $receiptNodeId }}.</p>
+        @endif
+        @if ($importReceiptNodeId)
+            <p>Import confirmed by node {{ $importReceiptNodeId }}.</p>
+        @endif
+        @if ($authority)
+            <p>Authority was transferred to node {{ $authority->node_id }}. Cloud cancellation and snapshot changes are locked. Activate the grant on the node before scanning.</p>
+        @endif
+        @if ($importReceiptNodeId || $authority)
+            @if ($authority)
+                <form method="POST" action="{{ route('organizer.events.authority.transfer', $event) }}" onsubmit="return confirm('Download the existing authority grant again? Authority remains with this node.');">
+                    @csrf
+                    <button type="submit" class="btn-secondary">Download Authority Grant Again</button>
+                </form>
+            @else
+                <form method="POST" action="{{ route('organizer.events.authority.transfer', $event) }}" onsubmit="return confirm('This irreversibly locks cloud cancellation and snapshot changes. Recovery is not available. Activate this grant on the node before scanning. Continue?');">
+                    @csrf
+                    <button type="submit" class="btn-danger">Transfer Authority (irreversible)</button>
+                </form>
+            @endif
+        @endif
+        <form method="POST" action="{{ route('organizer.events.snapshot.export', $event) }}">
+            @csrf
+            <label for="node-id">Node ID</label>
+            <input id="node-id" name="node_id" required maxlength="64" class="form-input">
+            <button type="submit" class="btn-secondary">Download Package</button>
+        </form>
+        <form method="POST" action="{{ route('organizer.events.snapshot.receipt', $event) }}" style="margin-top: 1rem;">
+            @csrf
+            <label for="snapshot-receipt">Node receipt</label>
+            <textarea id="snapshot-receipt" name="receipt" required maxlength="4096" class="form-input"></textarea>
+            <button type="submit" class="btn-secondary">Confirm Receipt</button>
+        </form>
+        <form method="POST" action="{{ route('organizer.events.snapshot.import-receipt', $event) }}" style="margin-top: 1rem;">
+            @csrf
+            <label for="import-receipt">Node import receipt</label>
+            <textarea id="import-receipt" name="receipt" required maxlength="4096" class="form-input"></textarea>
+            <button type="submit" class="btn-secondary">Confirm Import</button>
+        </form>
+    @endif
+</section>
+@endif
+
+<section id="attendance" class="organizer-event-section event-anchor">
+    <section class="card organizer-event-attendance" aria-labelledby="attendance-summary-heading">
+        <div class="organizer-event-attendance-header">
+            <div>
+                <h2 id="attendance-summary-heading">Attendance</h2>
+                <p>Admission totals may be delayed while the Event Node is offline. Open the attendance view for ticket and scan records.</p>
+            </div>
+            <a href="{{ route('organizer.attendance', $event) }}" class="btn-primary">Open attendance view</a>
+        </div>
+        <dl class="organizer-event-metrics">
+            <div>
+                <dt>Event capacity</dt>
+                <dd class="mono">{{ $event->capacity }}</dd>
+            </div>
+            <div>
+                <dt>Registered attendees</dt>
+                <dd class="mono">{{ $event->registrations()->where('status', \App\Models\Registration::STATUS_CONFIRMED)->count() }}</dd>
+            </div>
+            <div>
+                <dt>Admitted / checked in</dt>
+                <dd class="mono">{{ \App\Models\Admission::forCurrentCredential()->whereHas('ticket.registration', fn ($query) => $query->where('event_id', $event->id))->count() }}</dd>
+            </div>
+        </dl>
+    </section>
+    @if (config('ingress.mode') === 'cloud' && auth()->user()->can('update', $event) && $walkInRecoveries->isNotEmpty())
+        <section class="card" aria-labelledby="walk-in-recoveries-heading">
+            <h2 id="walk-in-recoveries-heading">Recent walk-in pass recoveries</h2>
+            <p>Showing up to 50 synchronized recoveries. Records may be delayed while the node is offline.</p>
+            @foreach ($walkInRecoveries as $recovery)
+                <p>{{ $recovery->recovered_at }} &middot; {{ $recovery->staff_name }} &middot; {{ $recovery->public_id }} &middot; {{ $recovery->node_id }} &middot; {{ $recovery->identity_label }} &middot; {{ $recovery->reason_label }}</p>
+            @endforeach
+        </section>
+    @endif
+</section>
 @endsection

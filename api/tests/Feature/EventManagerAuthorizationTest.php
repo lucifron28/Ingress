@@ -269,9 +269,15 @@ class EventManagerAuthorizationTest extends TestCase
             ->get(route('organizer.events.show', $event))
             ->assertOk()
             ->assertSee('aria-label="Event sections"', false)
-            ->assertSee('href="#ticket-categories"', false)
+            ->assertSee('href="#overview-readiness"', false)
+            ->assertSee('href="#tickets-registration"', false)
             ->assertSee('href="#gates-staff"', false)
             ->assertSee('href="#node-handoff"', false)
+            ->assertSee('href="#attendance"', false)
+            ->assertSee('Tickets &amp; Registration', false)
+            ->assertSee('Overview &amp; Readiness', false)
+            ->assertSee('id="node-handoff"', false)
+            ->assertSee('id="attendance"', false)
             ->assertSee('Event preparation')
             ->assertSee('No active gates configured.')
             ->assertSee('No scanner staff assigned.')
@@ -295,6 +301,7 @@ class EventManagerAuthorizationTest extends TestCase
             ->assertOk()
             ->assertSee('Close registration before preparing a snapshot.')
             ->assertSee('<p class="event-next-action"><strong>Next step:</strong> Close registration before preparing a snapshot.</p>', false)
+            ->assertSee('<button type="submit" class="btn-danger">Close Registration (cannot reopen)</button>', false)
             ->assertSee('<button type="submit" class="btn-primary" disabled>Prepare Snapshot</button>', false);
     }
 
@@ -309,8 +316,10 @@ class EventManagerAuthorizationTest extends TestCase
         $this->actingAs($owner)
             ->get(route('organizer.events.show', $event))
             ->assertOk()
+            ->assertSee('href="#overview-readiness"', false)
             ->assertSee('href="#gates-staff"', false)
-            ->assertDontSee('href="#ticket-categories"', false)
+            ->assertSee('href="#attendance"', false)
+            ->assertDontSee('href="#tickets-registration"', false)
             ->assertDontSee('href="#node-handoff"', false)
             ->assertDontSee('Event preparation');
     }
