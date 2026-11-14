@@ -294,7 +294,11 @@ public sealed record NodeManagerStatus
     {
         if (!FirewallStateKnown)
         {
-            return new HealthIndicator("Windows Firewall", HealthLevel.Unknown, "The active profile and scoped rule could not be verified.");
+            var detail = string.IsNullOrWhiteSpace(FirewallStatus)
+                || FirewallStatus.Equals("Unknown", StringComparison.OrdinalIgnoreCase)
+                    ? "The active profile and scoped rule could not be verified."
+                    : FirewallStatus;
+            return new HealthIndicator("Windows Firewall", HealthLevel.Unknown, detail);
         }
 
         return FirewallAllowed

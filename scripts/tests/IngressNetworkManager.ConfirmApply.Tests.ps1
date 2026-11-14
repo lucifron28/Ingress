@@ -37,6 +37,7 @@ function New-ApplyConfirmationFixture {
             INGRESS_NODE_BIND_ADDRESS = '192.168.55.158'
             APP_URL = 'https://192.168.55.158'
             INGRESS_NODE_HTTPS_PORT = '443'
+            INGRESS_NODE_HTTP_PORT = '8000'
             INGRESS_OPERATOR_PORT = '8444'
             DB_PASSWORD = 'fixture-db-secret'
         }
@@ -61,6 +62,10 @@ function Install-ApplyConfirmationFixtures {
         Set-Item Function:\Get-IngressComposeContext -Value {
             return $script:ApplyConfirmationFixture.Context
         }
+        Set-Item Function:\Add-IngressLanDemoComposeFile -Value {
+            param($Context, $CommandRunner)
+            return $Context
+        }
         Set-Item Function:\Read-IngressNodeEnvironment -Value {
             return $script:ApplyConfirmationFixture.Settings
         }
@@ -74,11 +79,12 @@ function Install-ApplyConfirmationFixtures {
             return [pscustomobject] @{ Known = $true; Enabled = $true }
         }
         Set-Item Function:\Get-IngressComposeSummary -Value {
+            param($Context, $BindAddress, $AppUrl, $CommandRunner, [switch] $LanDemo)
             [pscustomobject] @{
                 Valid = $true
                 BindMatches = $true
                 OperatorPortIsolated = $true
-                AppUrl = $script:ApplyConfirmationFixture.Profile.AppUrl
+                AppUrl = if ($LanDemo) { $AppUrl } else { $script:ApplyConfirmationFixture.Profile.AppUrl }
                 CertificatePath = '/fixture/node.crt'
             }
         }
@@ -115,6 +121,7 @@ function Install-ApplyConfirmationFixtures {
             return [pscustomobject] @{ Known = $true; PendingSyncRecords = 0; AuthorityUncertain = $false }
         }
         Set-Item Function:\Get-IngressActualPortStatus -Value {
+            param($Context, $ContainerId, $CommandRunner, $Address, $HttpsPort, $OperatorPort, [switch] $LanDemo, $HttpPort)
             return [pscustomobject] @{
                 Known = $true
                 NodeMatches = $true
@@ -124,12 +131,14 @@ function Install-ApplyConfirmationFixtures {
             }
         }
         Set-Item Function:\Test-IngressFirewallPolicy -Value {
+            param($Rules, $Candidate, $Port, $RuleName, $FirewallProfileEnabled)
             return [pscustomobject] @{ Allowed = $true; RuleName = 'fixture scoped rule'; RequiredRemoteScope = '192.168.55.0/24' }
         }
         Set-Item Function:\Get-IngressLanDemoHost -Value {
             return $null
         }
         Set-Item Function:\Get-IngressWindowsNetworkProbe -Value {
+            param($Address, $Port)
             return $true
         }
         Set-Item Function:\Invoke-IngressPlannedChange -Value {
@@ -243,6 +252,21 @@ Describe 'Ingress Network Manager apply confirmation' {
             $status.CanApplyNetworkChange | Should Be $false
             $fixture.PlannedChangeCalls | Should Be 0
         }
+    }
+
+    It 'explains a stale LAN bind before evaluating the firewall for a new adapter' {
+        $fixture = New-ApplyConfirmationFixture
+        $fixture.Settings.INGRESS_NODE_BIND_ADDRESS = '10.212.56.36'
+        $fixture.Settings.APP_URL = 'http://10.212.56.36:8000'
+        $fixture.Adapter.IPv4Addresses[0].Address = '192.168.55.179'
+        Install-ApplyConfirmationFixtures $fixture
+
+        $status = Invoke-IngressNetworkManager -LanDemo -Status -Json `
+            -Adapters @($fixture.Adapter) -FirewallRules @()
+
+        $status.FirewallStatus | Should Be 'Select the current LAN adapter and private IPv4 address to check its scoped firewall rule.'
+        ($status.Blockers -join ' ') | Should Match ([regex]::Escape('The saved Node IP 10.212.56.36 does not match one unique active adapter. Choose the current LAN adapter and private IPv4 address, then preview the change.'))
+        ($status.Blockers -join ' ') | Should Not Match 'Windows Firewall profile|LAN demo firewall rule'
     }
 
     It 'preserves Safe Stop confirmation and stops only ingress-node' {
