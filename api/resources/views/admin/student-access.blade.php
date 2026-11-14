@@ -24,9 +24,9 @@
         </div>
 
         @if ($requiresInstitutionalEmail)
-            <p style="margin-top: 1rem; color: var(--neutral-body);">New student accounts and registrations must use the exact <code>{{ '@'.$institutionalDomain }}</code> domain. Existing verified student accounts keep access to their account and tickets, but personal-email accounts cannot make new student registrations. Student-only event and ticket-category eligibility remains a separate rule.</p>
+            <p style="margin-top: 1rem; color: var(--neutral-body);">New student accounts and registrations, including student-only events and ticket categories, must use the exact <code>{{ '@'.$institutionalDomain }}</code> domain. Existing verified student accounts keep access to their account and tickets. Email verification confirms access to a mailbox; it does not confirm current university enrollment.</p>
         @else
-            <p style="margin-top: 1rem; color: var(--neutral-body);">Any valid email address may be used for a Firebase-verified student account. Email verification proves access to the mailbox, not current enrollment. Student-only event and ticket-category eligibility remains a separate rule.</p>
+            <p style="margin-top: 1rem; color: var(--neutral-body);">Any valid email address may be used for a Firebase-verified student account and new registration, including student-only events and ticket categories. Email verification confirms access to a mailbox; it does not confirm current university enrollment.</p>
         @endif
 
         <form method="POST" action="{{ route('admin.settings.student-access') }}" style="margin-top: 1.25rem;">

@@ -242,7 +242,6 @@ class StudentAuthController extends Controller
 
         if (! $event || ! $category || ! $event->isRegistrationOpen()
             || ! $this->studentEmailEligibility->canRegister($user)
-            || ! $this->studentEmailEligibility->isVerifiedInstitutionalStudent($user)
             || ($event->registration_eligibility !== Event::ELIGIBILITY_STUDENT
                 && $category->eligibility !== TicketCategory::ELIGIBILITY_STUDENT)) {
             $request->session()->forget('public_registration_intent');

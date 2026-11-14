@@ -4,7 +4,7 @@
     <section class="events-intro" aria-labelledby="events-heading">
         <p class="eyebrow">Campus events</p>
         <h1 id="events-heading">Find your next event.</h1>
-        <p class="lede">Browse public events and see ticket availability before you register. Public tickets support guest checkout; student-only events require a verified MSEUF student account.</p>
+        <p class="lede">Browse public events and see ticket availability before you register. Public tickets support guest checkout; student-only events require a Firebase-verified student account. @if ($requiresInstitutionalEmail) New registrations must use <strong>{{ '@'.$institutionalDomain }}</strong>. @else Personal email addresses are accepted under the current student access policy. @endif Email verification confirms mailbox access, not current enrollment.</p>
     </section>
 
     <div class="events-grid">
@@ -19,7 +19,7 @@
                     @if ($event->isCancelled())
                         <span class="tag event-tag event-tag-cancelled">Cancelled</span>
                     @elseif ($event->registration_eligibility === \App\Models\Event::ELIGIBILITY_STUDENT)
-                        <span class="tag event-tag">MSEUF students</span>
+                        <span class="tag event-tag">Student account required</span>
                     @else
                         <span class="tag event-tag">Public event</span>
                     @endif

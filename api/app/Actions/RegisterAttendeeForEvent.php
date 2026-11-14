@@ -7,6 +7,7 @@ use App\Models\Registration;
 use App\Models\Ticket;
 use App\Models\TicketCategory;
 use App\Models\User;
+use App\Services\Auth\StudentEmailEligibility;
 use App\Services\Checkout\AttendeeRegistrationDetails;
 use App\Services\Checkout\CheckoutCapacity;
 use Illuminate\Support\Facades\DB;
@@ -19,6 +20,7 @@ class RegisterAttendeeForEvent
         private AttendeeRegistrationDetails $attendeeDetails,
         private CheckoutCapacity $capacity,
         private ExpireCheckoutReservations $expiration,
+        private StudentEmailEligibility $studentEmailEligibility,
     ) {}
 
     /**
@@ -35,6 +37,9 @@ class RegisterAttendeeForEvent
         string $guestType = 'guest',
     ): array {
         return DB::transaction(function () use ($eventId, $categoryId, $user, $guestName, $guestEmail, $guestType): array {
+            if ($user !== null) {
+                $this->studentEmailEligibility->lockPolicyForUpdate();
+            }
             $event = Event::query()->whereKey($eventId)->lockForUpdate()->first();
 
             if (! $event) {

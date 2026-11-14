@@ -45,6 +45,11 @@ class StudentEmailPolicySettingsTest extends TestCase
             'old_required' => false,
             'new_required' => true,
         ]);
+        $this->actingAs($admin)
+            ->get('/admin/settings/student-access')
+            ->assertOk()
+            ->assertSee('including student-only events and ticket categories')
+            ->assertSee('@student.mseuf.edu.ph');
         $this->assertNotNull(
             DB::table('student_access_settings')->where('id', 1)->value('policy_enabled_at'),
         );
@@ -64,6 +69,11 @@ class StudentEmailPolicySettingsTest extends TestCase
             'require_institutional_email' => false,
             'policy_enabled_at' => null,
         ]);
+        $this->actingAs($admin)
+            ->get('/admin/settings/student-access')
+            ->assertOk()
+            ->assertSee('including student-only events and ticket categories')
+            ->assertSee('Personal email allowed');
     }
 
     public function test_non_admin_cannot_view_or_change_student_email_policy(): void

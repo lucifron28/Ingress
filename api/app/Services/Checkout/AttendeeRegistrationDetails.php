@@ -30,9 +30,9 @@ class AttendeeRegistrationDetails
 
         if (($event->registration_eligibility === Event::ELIGIBILITY_STUDENT
                 || $category?->eligibility === TicketCategory::ELIGIBILITY_STUDENT)
-            && ! $this->studentEmailEligibility->isVerifiedInstitutionalStudent($user)) {
+            && ($eligibilityError = $this->studentEmailEligibility->registrationError($user)) !== null) {
             throw ValidationException::withMessages([
-                'ticket_category_id' => ['This event or ticket category requires a verified institutional student account.'],
+                'ticket_category_id' => [$eligibilityError],
             ]);
         }
 

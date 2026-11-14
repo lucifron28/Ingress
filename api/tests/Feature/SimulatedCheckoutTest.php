@@ -658,6 +658,10 @@ class SimulatedCheckoutTest extends TestCase
 
     public function test_paid_student_category_requires_verified_institutional_identity(): void
     {
+        DB::table('student_access_settings')->where('id', 1)->update([
+            'require_institutional_email' => true,
+            'policy_enabled_at' => now(),
+        ]);
         $this->event->update([
             'registration_eligibility' => Event::ELIGIBILITY_STUDENT,
             'simulated_payments_enabled' => true,
@@ -703,6 +707,36 @@ class SimulatedCheckoutTest extends TestCase
         $this->assertSame('student', $order->attendee_type);
         $this->assertNull($order->guest_email);
         $this->assertNull($order->guest_name);
+    }
+
+    public function test_paid_student_category_accepts_verified_personal_email_when_institutional_policy_is_off(): void
+    {
+        $this->event->update([
+            'registration_eligibility' => Event::ELIGIBILITY_STUDENT,
+            'simulated_payments_enabled' => true,
+        ]);
+        $category = $this->category($this->event, 'Student Admission', priceMinor: 12500, isDefault: true);
+        $category->update(['eligibility' => TicketCategory::ELIGIBILITY_STUDENT]);
+        DB::table('student_access_settings')->where('id', 1)->update(['require_institutional_email' => false]);
+        $student = User::factory()->create([
+            'role' => User::ROLE_STUDENT,
+            'email' => 'checkout.personal@gmail.com',
+            'firebase_uid' => 'firebase-personal-checkout',
+            'email_verified_at' => now(),
+        ]);
+
+        $this->actingAs($student)
+            ->post(route('public.events.register.store', $this->event->slug), [
+                'ticket_category_id' => $category->id,
+                'idempotency_key' => $this->registrationFormKey(),
+            ])
+            ->assertRedirect();
+
+        $order = CheckoutOrder::query()->sole();
+        $this->assertSame($student->id, $order->user_id);
+        $this->assertSame('student', $order->attendee_type);
+        $this->assertSame(0, Registration::count());
+        $this->assertSame(0, Ticket::count());
     }
 
     public function test_failed_attempt_can_be_retried_without_releasing_its_seat_or_losing_history(): void

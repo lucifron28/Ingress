@@ -1,6 +1,9 @@
 @extends('layouts.public')
 
 @section('content')
+    @php
+        $hasStudentOnlyCategories = $event->ticketCategories->contains(fn ($category) => $category->eligibility === \App\Models\TicketCategory::ELIGIBILITY_STUDENT);
+    @endphp
     <nav class="event-breadcrumbs" aria-label="Breadcrumb">
         <a href="{{ route('public.events.index') }}">Campus events</a>
         <span aria-hidden="true">/</span>
@@ -16,7 +19,7 @@
                         <span class="tag event-cancelled-badge">Cancelled</span>
                     @endif
                     <span class="tag">
-                        {{ $event->registration_eligibility === \App\Models\Event::ELIGIBILITY_STUDENT ? 'Verified students only' : 'Public event' }}
+                        {{ $event->registration_eligibility === \App\Models\Event::ELIGIBILITY_STUDENT ? 'Student account required' : 'Public event' }}
                     </span>
                 </div>
                 <h1 id="event-title">{{ $event->title }}</h1>
@@ -48,7 +51,18 @@
 
             <p class="event-eligibility-note" role="note">
                 <strong>Who can register</strong>
-                <span>{{ $event->registration_eligibility === \App\Models\Event::ELIGIBILITY_STUDENT ? 'This event is reserved for verified MSEUF students.' : 'Public registration is open to guests. You do not need an Ingress account for public tickets.' }}</span>
+                <span>{{ $event->registration_eligibility === \App\Models\Event::ELIGIBILITY_STUDENT ? 'This event requires a Firebase-verified student account.' : 'Public categories are open to guests. You do not need an Ingress account for those tickets.' }}</span>
+                @if ($event->registration_eligibility === \App\Models\Event::ELIGIBILITY_STUDENT || $hasStudentOnlyCategories)
+                    @if ($event->registration_eligibility !== \App\Models\Event::ELIGIBILITY_STUDENT)
+                        <span>Student-only ticket categories require a Firebase-verified student account.</span>
+                    @endif
+                    @if ($requiresInstitutionalEmail)
+                        <span>New registrations require an email ending in {{ '@'.$institutionalDomain }}.</span>
+                    @else
+                        <span>Personal email addresses are accepted under the current student access policy.</span>
+                    @endif
+                    <span>Email verification confirms mailbox access, not current enrollment.</span>
+                @endif
             </p>
         </article>
 
@@ -68,7 +82,7 @@
                             <span class="ticket-category-price">{{ $category->price_minor === 0 ? 'Free' : '₱'.number_format($category->price_minor / 100, 2) }}</span>
                         </div>
                         <p class="ticket-category-eligibility">
-                            {{ $category->eligibility === \App\Models\TicketCategory::ELIGIBILITY_STUDENT ? 'Verified students only' : 'Open to the public' }}
+                            {{ $category->eligibility === \App\Models\TicketCategory::ELIGIBILITY_STUDENT ? 'Student account required' : 'Open to the public' }}
                         </p>
                         @if ($categoryRemaining !== null)
                             <p class="ticket-category-availability">

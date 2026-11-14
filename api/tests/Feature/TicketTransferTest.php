@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Models\Venue;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class TicketTransferTest extends TestCase
@@ -221,6 +222,25 @@ class TicketTransferTest extends TestCase
             'recipient' => $this->recipient->email,
         ])->assertUnprocessable();
         $this->assertDatabaseCount('ticket_transfers', 0);
+    }
+
+    public function test_personal_email_recipient_can_accept_a_student_ticket_when_policy_is_off(): void
+    {
+        DB::table('student_access_settings')->where('id', 1)->update(['require_institutional_email' => false]);
+        $this->recipient->forceFill([
+            'email' => 'personal.recipient@gmail.com',
+        ])->save();
+
+        $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/tickets/{$this->ticket->id}/transfers", [
+            'recipient' => $this->recipient->email,
+        ])->assertCreated();
+        $transferId = TicketTransfer::query()->sole()->id;
+
+        $this->actingAs($this->recipient, 'sanctum')
+            ->postJson("/api/v1/ticket-transfers/{$transferId}/accept")
+            ->assertOk();
+
+        $this->assertSame($this->recipient->id, $this->ticket->fresh()->registration->user_id);
     }
 
     public function test_transfer_requires_a_verified_student_sender_and_rejects_admitted_tickets(): void
