@@ -1203,7 +1203,7 @@ function Invoke-IngressLanDemoNetworkManager {
     }
     elseif ($composeSummary.OperatorPortIsolated) { 'configured for 127.0.0.1 only; runtime binding unavailable' }
     else { 'not verified as loopback-only' }
-    $firewallStatus = if (-not $firewallKnown) { 'active firewall policy could not be read' } elseif (-not $firewallProfileState.Enabled) { "the active $($candidate.NetworkCategory) firewall profile is disabled" } elseif ($firewallResult.Allowed) { "scoped rule '$($firewallResult.RuleName)' allows TCP/$httpPort" } else { "add the app-scoped LAN rule for TCP/$httpPort on $targetAddress and $($firewallResult.RequiredRemoteScope)" }
+    $firewallStatus = if ($null -eq $candidate) { 'Select the current LAN adapter and private IPv4 address to check its scoped firewall rule.' } elseif (-not $firewallKnown) { 'active firewall policy could not be read' } elseif (-not $firewallProfileState.Enabled) { "the active $($candidate.NetworkCategory) firewall profile is disabled" } elseif ($firewallResult.Allowed) { "scoped rule '$($firewallResult.RuleName)' allows TCP/$httpPort" } else { "add the app-scoped LAN rule for TCP/$httpPort on $targetAddress and $($firewallResult.RequiredRemoteScope)" }
     $admissionStatus = if (-not $admissionState.Known) { 'unknown; restart blocked' } elseif ($admissionState.Active) { 'admissions can run; restart blocked' } else { 'no admission-enabled event window' }
     $scannerReadiness = if ($nodeHealthy -and $actualPorts.NodeMatches -and $firewallResult.Allowed -and $tcpProbe) { 'LAN path ready; verify scanner pairing and ticket scans on an Android device' } else { 'Start the Node and resolve the network checks before connecting a scanner' }
     $adapterStatuses = @(
@@ -1239,6 +1239,14 @@ function Invoke-IngressLanDemoNetworkManager {
         NodeStateSafe = [bool] (Test-IngressNodeStateSafe -State $nodeState)
     }
     $gate = Test-IngressLanDemoApplyGate -Facts $facts
+    $blockers = @($gate.Blockers)
+    if ($null -eq $candidate) {
+        $blockers = @($blockers | Where-Object {
+            $_ -ne 'The active Windows Firewall profile could not be read.' -and
+            $_ -ne 'The LAN demo firewall rule does not allow this adapter and subnet.'
+        })
+        $blockers += "The saved Node IP $currentAddress does not match one unique active adapter. Choose the current LAN adapter and private IPv4 address, then preview the change."
+    }
     $safeStopGate = Test-IngressSafeStopGate -Facts ([pscustomobject] @{
         NodeStateKnown = [bool] $nodeState.Known; NodeHealthy = [bool] $nodeHealthy; DatabaseHealthy = [bool] $databaseHealthy
         AdmissionStateKnown = [bool] $admissionState.Known; AdmissionsPossible = [bool] $admissionState.Active
@@ -1283,7 +1291,7 @@ function Invoke-IngressLanDemoNetworkManager {
         AuthorityUncertain = [bool] $operations.AuthorityUncertain
         LanProbeReachable = [bool] $tcpProbe; LanDemoHostMatches = [bool] $appUrlMatches; LanDemoTrustVerified = $false
         CanApplyNetworkChange = [bool] $gate.CanApply; CanSafelyStop = [bool] $safeStopGate.CanStop
-        Blockers = @($gate.Blockers); SafeStopBlockers = @($safeStopGate.Blockers); Warnings = @($gate.Warnings)
+        Blockers = $blockers; SafeStopBlockers = @($safeStopGate.Blockers); Warnings = @($gate.Warnings)
         Adapters = $adapterStatuses; ProfileDiscoveryKnown = $true; TargetProfileMatches = $true
         SavedProfiles = @(); TargetProfileName = 'Current LAN'; TargetAppUrl = Get-IngressSafeDisplayUrl -Url $targetAppUrl
         CurrentBindAddress = $currentAddress; TargetBindAddress = $targetAddress

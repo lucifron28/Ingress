@@ -19,6 +19,19 @@ public sealed class NodeManagerStatusTests
     }
 
     [Fact]
+    public void UnknownFirewallStateShowsTheSpecificNextStepWhenAvailable()
+    {
+        const string nextStep = "Select the current LAN adapter and private IPv4 address to check its scoped firewall rule.";
+        var status = NodeManagerStatus.Parse("""
+            {"FirewallStatus":"Select the current LAN adapter and private IPv4 address to check its scoped firewall rule."}
+            """);
+
+        var firewall = status.GetIndicator("Windows Firewall");
+        Assert.Equal(HealthLevel.Unknown, firewall.Level);
+        Assert.Equal(nextStep, firewall.Detail);
+    }
+
+    [Fact]
     public void MissingWslOrDockerEvidenceStaysUnknownAndCannotApply()
     {
         var status = NodeManagerStatus.Parse("""
