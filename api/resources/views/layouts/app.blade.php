@@ -139,6 +139,57 @@
             outline: 3px solid var(--mseuf-gold);
             outline-offset: 2px;
         }
+        .organizer-event-section {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr);
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        .organizer-event-gates-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .organizer-event-audit { grid-column: 1 / -1; }
+        .organizer-event-schedule {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+        .organizer-event-schedule dt,
+        .organizer-event-metrics dt {
+            color: var(--neutral-muted);
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .organizer-event-schedule dd { margin-top: 0.3rem; }
+        .organizer-event-description { grid-column: 1 / -1; }
+        .organizer-event-attendance-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 1rem;
+        }
+        .organizer-event-metrics {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 0.75rem;
+            margin-top: 1.25rem;
+        }
+        .organizer-event-metrics > div {
+            min-width: 0;
+            padding: 0.85rem;
+            border: 1px solid var(--neutral-border);
+            border-radius: 6px;
+            background: var(--surface-subtle);
+        }
+        .organizer-event-metrics dd {
+            margin-top: 0.3rem;
+            color: var(--mseuf-maroon);
+            font-size: 1.35rem;
+            font-weight: 700;
+        }
         .event-anchor { scroll-margin-top: 1rem; }
         .event-preparation { margin-bottom: 1.5rem; border-top: 4px solid var(--mseuf-gold); }
         .event-readiness-grid {
@@ -248,7 +299,12 @@
 
         @media (max-width: 640px) {
             .organizer-event-nav a { flex: 1 1 auto; text-align: center; }
-            .organizer-event-summary-grid, .organizer-event-gates-grid { grid-template-columns: 1fr !important; }
+            .organizer-event-gates-grid,
+            .organizer-event-schedule,
+            .organizer-event-metrics { grid-template-columns: 1fr; }
+            .organizer-event-description,
+            .organizer-event-audit { grid-column: auto; }
+            .organizer-event-attendance-header { flex-direction: column; }
         }
     </style>
 </head>
