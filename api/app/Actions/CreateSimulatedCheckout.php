@@ -6,6 +6,7 @@ use App\Models\CheckoutOrder;
 use App\Models\Event;
 use App\Models\TicketCategory;
 use App\Models\User;
+use App\Services\Auth\StudentEmailEligibility;
 use App\Services\Checkout\AttendeeRegistrationDetails;
 use App\Services\Checkout\CheckoutCapacity;
 use Illuminate\Support\Facades\DB;
@@ -18,6 +19,7 @@ class CreateSimulatedCheckout
         private AttendeeRegistrationDetails $attendeeDetails,
         private CheckoutCapacity $capacity,
         private ExpireCheckoutReservations $expiration,
+        private StudentEmailEligibility $studentEmailEligibility,
     ) {}
 
     public function execute(
@@ -32,6 +34,9 @@ class CreateSimulatedCheckout
         return DB::transaction(function () use (
             $eventId, $categoryId, $user, $guestName, $guestEmail, $idempotencyKey, $guestType,
         ): CheckoutOrder {
+            if ($user !== null) {
+                $this->studentEmailEligibility->lockPolicyForUpdate();
+            }
             $event = Event::query()->whereKey($eventId)->lockForUpdate()->first();
 
             if (! $event) {

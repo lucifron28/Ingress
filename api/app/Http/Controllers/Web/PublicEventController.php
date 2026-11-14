@@ -9,6 +9,7 @@ use App\Models\Event;
 use App\Models\Registration;
 use App\Models\TicketCategory;
 use App\Models\User;
+use App\Services\Auth\StudentEmailEligibility;
 use App\Services\Tickets\TicketSessionAccess;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -19,7 +20,7 @@ use Illuminate\View\View;
 
 class PublicEventController extends Controller
 {
-    public function index(): View
+    public function index(StudentEmailEligibility $studentEmailEligibility): View
     {
         $events = Event::query()
             ->whereIn('status', [Event::STATUS_PUBLISHED, Event::STATUS_CANCELLED])
@@ -39,10 +40,13 @@ class PublicEventController extends Controller
             ->orderBy('starts_at')
             ->get();
 
-        return view('public.events.index', compact('events'));
+        $requiresInstitutionalEmail = $studentEmailEligibility->requiresInstitutionalEmail();
+        $institutionalDomain = $studentEmailEligibility->domain();
+
+        return view('public.events.index', compact('events', 'requiresInstitutionalEmail', 'institutionalDomain'));
     }
 
-    public function show(Event $event): View
+    public function show(Event $event, StudentEmailEligibility $studentEmailEligibility): View
     {
         abort_unless(in_array($event->status, [Event::STATUS_PUBLISHED, Event::STATUS_CANCELLED], true), 404);
 
@@ -64,10 +68,13 @@ class PublicEventController extends Controller
         );
         $registrationOpen = $event->isRegistrationOpen() && $remainingPlaces > 0 && $hasAvailableCategory;
 
-        return view('public.events.show', compact('event', 'remainingPlaces', 'registrationOpen', 'hasAvailableCategory'));
+        $requiresInstitutionalEmail = $studentEmailEligibility->requiresInstitutionalEmail();
+        $institutionalDomain = $studentEmailEligibility->domain();
+
+        return view('public.events.show', compact('event', 'remainingPlaces', 'registrationOpen', 'hasAvailableCategory', 'requiresInstitutionalEmail', 'institutionalDomain'));
     }
 
-    public function register(Event $event, Request $request): View
+    public function register(Event $event, Request $request, StudentEmailEligibility $studentEmailEligibility): View
     {
         abort_unless(in_array($event->status, [Event::STATUS_PUBLISHED, Event::STATUS_CANCELLED], true), 404);
 
@@ -100,7 +107,10 @@ class PublicEventController extends Controller
         $formKeys[(string) $event->id] = array_slice($eventKeys, -10, null, true);
         $request->session()->put('public_checkout_form_keys', array_slice($formKeys, -10, null, true));
 
-        return view('public.events.register', compact('event', 'categories', 'selectedCategoryId', 'hasAvailableCategory', 'idempotencyKey'));
+        $requiresInstitutionalEmail = $studentEmailEligibility->requiresInstitutionalEmail();
+        $institutionalDomain = $studentEmailEligibility->domain();
+
+        return view('public.events.register', compact('event', 'categories', 'selectedCategoryId', 'hasAvailableCategory', 'idempotencyKey', 'requiresInstitutionalEmail', 'institutionalDomain'));
     }
 
     public function store(

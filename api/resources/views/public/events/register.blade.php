@@ -26,7 +26,15 @@
             <div class="notice">No ticket categories are available for registration.</div>
         @else
             @if ($eventRequiresStudent)
-                <div class="notice">A verified MSEUF student account is required. Guests cannot register for this event.</div>
+                <div class="notice">
+                    A Firebase-verified student account is required. Guests cannot register for this event.
+                    @if ($requiresInstitutionalEmail)
+                        New registrations must use an email ending in {{ '@'.$institutionalDomain }}.
+                    @else
+                        Personal email addresses are accepted under the current student access policy.
+                    @endif
+                    Email verification confirms mailbox access, not current enrollment.
+                </div>
             @else
                 <div class="notice">Public tickets use guest checkout. No account is required. Student-only categories require verified student sign-in. @if ($event->canOfferSimulatedPayments()) Paid checkout is simulated; no real money is charged and no card details are collected. @endif</div>
             @endif
@@ -42,7 +50,7 @@
                                 $categoryRemaining = $category->remainingCapacity();
                                 $unavailable = ($category->price_minor > 0 && ! $event->canOfferSimulatedPayments()) || $categoryRemaining === 0;
                                 $categoryLabel = $category->name.' · '.($category->price_minor === 0 ? 'Free' : '₱'.number_format($category->price_minor / 100, 2));
-                                if ($category->eligibility === \App\Models\TicketCategory::ELIGIBILITY_STUDENT) $categoryLabel .= ' · Verified students';
+                                if ($category->eligibility === \App\Models\TicketCategory::ELIGIBILITY_STUDENT) $categoryLabel .= ' · Student account required';
                                 if ($categoryRemaining === 0) $categoryLabel .= ' · Sold out';
                                 elseif ($category->price_minor > 0 && $event->canOfferSimulatedPayments()) $categoryLabel .= ' · Simulated checkout';
                                 elseif ($category->price_minor > 0) $categoryLabel .= ' · Payment unavailable';
@@ -54,7 +62,15 @@
 
                 @if (! $eventRequiresStudent)
                     @if ($hasStudentOnlyCategories)
-                        <p id="student-category-note" class="notice" role="status" @if (! $selectedCategoryRequiresStudent) hidden @endif>Student-only tickets require a verified student account. Guest contact details are not needed for student-only tickets.</p>
+                        <p id="student-category-note" class="notice" role="status" @if (! $selectedCategoryRequiresStudent) hidden @endif>
+                            Student-only tickets require a Firebase-verified student account.
+                            @if ($requiresInstitutionalEmail)
+                                New registrations must use an email ending in {{ '@'.$institutionalDomain }}.
+                            @else
+                                Personal email addresses are accepted under the current student access policy.
+                            @endif
+                            Guest contact details are not needed. Email verification confirms mailbox access, not current enrollment.
+                        </p>
                     @endif
                     <div id="guest-checkout-fields" @if ($selectedCategoryRequiresStudent) hidden @endif>
                         <div class="field">

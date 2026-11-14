@@ -110,9 +110,9 @@ class StudentEmailEligibility
         return $this->registrationError($user) === null;
     }
 
-    public function registrationError(User $user): ?string
+    public function registrationError(?User $user): ?string
     {
-        if (! $this->hasVerifiedFirebaseIdentity($user)) {
+        if (! $user instanceof User || ! $this->hasVerifiedFirebaseIdentity($user)) {
             return 'Only verified student accounts can register.';
         }
 
@@ -132,13 +132,6 @@ class StudentEmailEligibility
     public function hasVerifiedFirebaseIdentity(User $user): bool
     {
         return $this->isVerifiedStudentAccount($user);
-    }
-
-    public function isVerifiedInstitutionalStudent(?User $user): bool
-    {
-        return $user instanceof User
-            && $this->isVerifiedStudentAccount($user)
-            && $this->isInstitutionalEmail($user->email);
     }
 
     private function isVerifiedStudentAccount(User $user): bool

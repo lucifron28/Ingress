@@ -52,13 +52,14 @@ class TicketTransferController extends Controller
         }
 
         $transfer = DB::transaction(function () use ($eventId, $ticket, $sender, $validated) {
+            $this->studentEmailEligibility->lockPolicyForUpdate();
             $event = Event::whereKey($eventId)->lockForUpdate()->firstOrFail();
             $lockedTicket = Ticket::whereKey($ticket->id)->lockForUpdate()->firstOrFail();
             $registration = Registration::whereKey($lockedTicket->registration_id)->lockForUpdate()->firstOrFail();
 
             $this->assertTransferAllowed($event);
             if ((int) $registration->user_id !== (int) $sender->id
-                || ! $this->studentEmailEligibility->isVerifiedInstitutionalStudent($sender)
+                || ! $this->studentEmailEligibility->hasVerifiedFirebaseIdentity($sender)
                 || $registration->attendee_type !== 'student'
                 || $registration->status !== Registration::STATUS_CONFIRMED
                 || ! $lockedTicket->isActive()
@@ -71,8 +72,11 @@ class TicketTransferController extends Controller
                 $query->whereRaw('LOWER(email) = ?', [$recipientIdentifier])
                     ->orWhereRaw('LOWER(student_id) = ?', [$recipientIdentifier]);
             })->first();
-            if (! $this->studentEmailEligibility->isVerifiedInstitutionalStudent($recipient)
-                || (int) $recipient->id === (int) $sender->id) {
+            $recipientError = $this->studentEmailEligibility->registrationError($recipient);
+            if ($recipientError !== null) {
+                throw ValidationException::withMessages(['recipient' => [$recipientError]]);
+            }
+            if ((int) $recipient->id === (int) $sender->id) {
                 throw ValidationException::withMessages(['recipient' => 'Choose a different verified student account.']);
             }
 
@@ -133,6 +137,9 @@ class TicketTransferController extends Controller
     private function resolve(User $actor, TicketTransfer $transfer, string $decision): void
     {
         DB::transaction(function () use ($actor, $transfer, $decision) {
+            if ($decision === 'accept') {
+                $this->studentEmailEligibility->lockPolicyForUpdate();
+            }
             $event = Event::whereKey($transfer->event_id)->lockForUpdate()->firstOrFail();
             $lockedTransfer = TicketTransfer::whereKey($transfer->id)->lockForUpdate()->firstOrFail();
 
@@ -156,8 +163,9 @@ class TicketTransferController extends Controller
                     || Admission::where('ticket_id', $ticket->id)->exists()) {
                     throw ValidationException::withMessages(['transfer' => 'This ticket is no longer eligible for transfer.']);
                 }
-                if (! $this->studentEmailEligibility->isVerifiedInstitutionalStudent($actor)) {
-                    throw ValidationException::withMessages(['transfer' => 'Only verified student accounts can accept a ticket transfer.']);
+                $eligibilityError = $this->studentEmailEligibility->registrationError($actor);
+                if ($eligibilityError !== null) {
+                    throw ValidationException::withMessages(['transfer' => [$eligibilityError]]);
                 }
 
                 $alreadyRegistered = Registration::where('event_id', $event->id)

@@ -82,9 +82,90 @@ class PublicEventRegistrationTest extends TestCase
 
         $this->get(route('public.events.register', $this->event->slug))
             ->assertOk()
-            ->assertSee('A verified MSEUF student account is required.')
+            ->assertSee('A Firebase-verified student account is required.')
+            ->assertSee('Personal email addresses are accepted under the current student access policy.')
+            ->assertSee('Email verification confirms mailbox access, not current enrollment.')
             ->assertDontSee('id="guest_name"', false)
             ->assertDontSee('id="guest_email"', false);
+    }
+
+    public function test_verified_personal_student_can_register_for_a_student_only_category_when_policy_is_off(): void
+    {
+        $category = $this->category($this->event, 'Student Admission', eligibility: 'student', isDefault: true);
+        $student = User::factory()->create([
+            'role' => User::ROLE_STUDENT,
+            'email' => 'category.personal@gmail.com',
+            'firebase_uid' => 'firebase-personal-category-student',
+            'email_verified_at' => now(),
+        ]);
+
+        $this->actingAs($student)
+            ->post(route('public.events.register.store', $this->event->slug), [
+                'ticket_category_id' => $category->id,
+            ])
+            ->assertRedirect();
+
+        $this->assertDatabaseHas('registrations', [
+            'event_id' => $this->event->id,
+            'ticket_category_id' => $category->id,
+            'user_id' => $student->id,
+            'attendee_type' => 'student',
+        ]);
+        $this->assertSame(1, Ticket::count());
+    }
+
+    public function test_verified_personal_student_can_register_for_student_only_event_when_policy_is_off_and_is_blocked_when_enabled(): void
+    {
+        $this->event->update(['registration_eligibility' => Event::ELIGIBILITY_STUDENT]);
+        $category = $this->category($this->event, 'Student Admission', isDefault: true);
+        $personalStudent = User::factory()->create([
+            'role' => User::ROLE_STUDENT,
+            'email' => 'personal.student@gmail.com',
+            'firebase_uid' => 'firebase-personal-student-off',
+            'email_verified_at' => now(),
+        ]);
+
+        $this->post(route('public.events.register.store', $this->event->slug), [
+            'ticket_category_id' => $category->id,
+            'guest_name' => 'Ignored Guest',
+            'guest_email' => 'guest@example.test',
+        ])->assertRedirect(route('student.auth'));
+
+        $response = $this->actingAs($personalStudent)
+            ->post(route('public.events.register.store', $this->event->slug), [
+                'ticket_category_id' => $category->id,
+            ]);
+
+        $response->assertRedirect();
+        $this->assertDatabaseHas('registrations', [
+            'event_id' => $this->event->id,
+            'user_id' => $personalStudent->id,
+            'attendee_type' => 'student',
+        ]);
+        $response->assertRedirect(route('public.tickets.show', Registration::query()->sole()->id));
+
+        $this->assertSame(1, Ticket::count());
+
+        DB::table('student_access_settings')->where('id', 1)->update([
+            'require_institutional_email' => true,
+            'policy_enabled_at' => now(),
+        ]);
+        $newPersonalStudent = User::factory()->create([
+            'role' => User::ROLE_STUDENT,
+            'email' => 'another.personal@gmail.com',
+            'firebase_uid' => 'firebase-personal-student-on',
+            'email_verified_at' => now(),
+        ]);
+
+        $this->actingAs($newPersonalStudent)
+            ->from(route('public.events.register', $this->event->slug))
+            ->post(route('public.events.register.store', $this->event->slug), [
+                'ticket_category_id' => $category->id,
+            ])
+            ->assertSessionHasErrors('ticket_category_id');
+
+        $this->assertSame(1, Registration::count());
+        $this->assertSame(1, Ticket::count());
     }
 
     public function test_student_only_category_hides_guest_details_without_affecting_public_guest_checkout(): void
@@ -98,7 +179,7 @@ class PublicEventRegistrationTest extends TestCase
 
         $studentResponse = $this->get(route('public.events.register', $this->event->slug).'?category='.$studentCategory->id)
             ->assertOk()
-            ->assertSee('Guest contact details are not needed for student-only tickets.')
+            ->assertSeeText('Guest contact details are not needed. Email verification confirms mailbox access, not current enrollment.')
             ->assertSee('data-student-only="true"', false);
         $this->assertMatchesRegularExpression('/<div id="guest-checkout-fields"\s+hidden(?:\s|>)/', $studentResponse->getContent());
 
@@ -243,6 +324,10 @@ class PublicEventRegistrationTest extends TestCase
 
     public function test_student_only_category_requires_a_verified_institutional_firebase_identity(): void
     {
+        DB::table('student_access_settings')->where('id', 1)->update([
+            'require_institutional_email' => true,
+            'policy_enabled_at' => now(),
+        ]);
         $category = $this->category($this->event, 'Student Admission', eligibility: 'student', isDefault: true);
 
         $this->from(route('public.events.register', $this->event->slug))
@@ -305,6 +390,7 @@ class PublicEventRegistrationTest extends TestCase
     public function test_firebase_sign_in_returns_to_the_pending_student_category_without_using_an_external_redirect(): void
     {
         $category = $this->category($this->event, 'Student Admission', eligibility: 'student', isDefault: true);
+        DB::table('student_access_settings')->where('id', 1)->update(['require_institutional_email' => false]);
         config([
             'services.firebase.api_key' => 'public-test-api-key',
             'services.firebase.project_id' => 'ingress-test',
@@ -314,7 +400,7 @@ class PublicEventRegistrationTest extends TestCase
             'identitytoolkit.googleapis.com/v1/accounts:lookup*' => Http::response([
                 'users' => [[
                     'localId' => 'firebase-student-pending',
-                    'email' => 'pending@student.mseuf.edu.ph',
+                    'email' => 'pending.personal@gmail.com',
                     'emailVerified' => true,
                     'displayName' => 'Pending Student',
                     'disabled' => false,
@@ -442,6 +528,29 @@ class PublicEventRegistrationTest extends TestCase
         $this->assertSame(0, Ticket::count());
     }
 
+    public function test_student_api_registration_allows_verified_personal_email_for_student_only_categories_when_policy_is_off(): void
+    {
+        $this->category($this->event, 'Student Admission', eligibility: 'student', isDefault: true);
+        DB::table('student_access_settings')->where('id', 1)->update(['require_institutional_email' => false]);
+        $student = User::factory()->create([
+            'role' => User::ROLE_STUDENT,
+            'email' => 'api.personal@gmail.com',
+            'firebase_uid' => 'firebase-api-personal-student',
+            'email_verified_at' => now(),
+        ]);
+
+        $this->actingAs($student)
+            ->postJson("/api/v1/events/{$this->event->id}/registration")
+            ->assertCreated();
+
+        $this->assertDatabaseHas('registrations', [
+            'event_id' => $this->event->id,
+            'user_id' => $student->id,
+            'attendee_type' => 'student',
+        ]);
+        $this->assertSame(1, Ticket::count());
+    }
+
     public function test_student_api_registration_respects_the_active_institutional_email_policy(): void
     {
         $this->category($this->event, 'General Admission', isDefault: true);
@@ -530,21 +639,25 @@ class PublicEventRegistrationTest extends TestCase
         $this->assertSame(0, Ticket::count());
     }
 
-    public function test_student_api_cannot_bypass_event_wide_student_eligibility(): void
+    public function test_student_api_respects_enabled_institutional_email_policy_for_student_only_events(): void
     {
+        DB::table('student_access_settings')->where('id', 1)->update([
+            'require_institutional_email' => true,
+            'policy_enabled_at' => now(),
+        ]);
         $this->event->update(['registration_eligibility' => Event::ELIGIBILITY_STUDENT]);
         $this->event->ticketCategories()->where('is_default', true)->update(['eligibility' => 'student']);
-        $unverified = User::factory()->create([
+        $personalStudent = User::factory()->create([
             'role' => User::ROLE_STUDENT,
-            'email' => 'unverified.personal@gmail.com',
+            'email' => 'verified.personal@gmail.com',
             'firebase_uid' => 'firebase-unverified-event-eligibility-api',
             'email_verified_at' => now(),
         ]);
 
-        $this->actingAs($unverified)
+        $this->actingAs($personalStudent)
             ->postJson("/api/v1/events/{$this->event->id}/registration")
-            ->assertStatus(422)
-            ->assertJsonValidationErrors(['ticket_category_id']);
+            ->assertForbidden()
+            ->assertJsonPath('message', 'New student registrations require an @student.mseuf.edu.ph email address.');
 
         $this->assertSame(0, Registration::count());
         $this->assertSame(0, Ticket::count());
