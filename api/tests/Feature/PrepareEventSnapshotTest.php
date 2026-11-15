@@ -139,11 +139,16 @@ class PrepareEventSnapshotTest extends TestCase
         $this->post("/organizer/events/{$event->id}/staff", ['user_id' => $staff->id])
             ->assertSessionHasErrors('event');
         $this->post("/organizer/events/{$event->id}/publish")->assertSessionHasErrors('event');
+        $opensAt = now()->subDay();
+        $closesAt = now()->subMinute();
+        $startsAt = now();
+        $endsAt = now()->addDays(2);
         $this->put("/organizer/events/{$event->id}", [
             'venue_id' => $event->venue_id, 'title' => 'Changed', 'capacity' => 20,
-            'registration_opens_at' => now()->subDay()->toDateTimeString(),
-            'registration_closes_at' => now()->subSecond()->toDateTimeString(),
-            'starts_at' => now()->toDateTimeString(), 'ends_at' => now()->addDays(2)->toDateTimeString(),
+            'registration_opens_at' => $opensAt->setTimezone('Asia/Manila')->format('Y-m-d\\TH:i'),
+            'registration_closes_at' => $closesAt->setTimezone('Asia/Manila')->format('Y-m-d\\TH:i'),
+            'starts_at' => $startsAt->setTimezone('Asia/Manila')->format('Y-m-d\\TH:i'),
+            'ends_at' => $endsAt->setTimezone('Asia/Manila')->format('Y-m-d\\TH:i'),
         ])->assertSessionHasErrors('event');
         $this->assertSame('Event', $event->fresh()->title);
         $this->assertDatabaseCount('access_points', 0);
@@ -227,11 +232,16 @@ class PrepareEventSnapshotTest extends TestCase
     {
         $event = $this->createEvent();
         $owner = User::findOrFail($event->organizer_id);
+        $opensAt = now()->subDay();
+        $closesAt = now()->subMinute();
+        $startsAt = now();
+        $endsAt = now()->addDays(2);
         $this->actingAs($owner)->put("/organizer/events/{$event->id}", [
             'venue_id' => $event->venue_id, 'title' => 'Changed', 'capacity' => 20,
-            'registration_opens_at' => now()->subDay()->toDateTimeString(),
-            'registration_closes_at' => now()->subSecond()->toDateTimeString(),
-            'starts_at' => now()->toDateTimeString(), 'ends_at' => now()->addDays(2)->toDateTimeString(),
+            'registration_opens_at' => $opensAt->setTimezone('Asia/Manila')->format('Y-m-d\\TH:i'),
+            'registration_closes_at' => $closesAt->setTimezone('Asia/Manila')->format('Y-m-d\\TH:i'),
+            'starts_at' => $startsAt->setTimezone('Asia/Manila')->format('Y-m-d\\TH:i'),
+            'ends_at' => $endsAt->setTimezone('Asia/Manila')->format('Y-m-d\\TH:i'),
             'snapshot_version' => 99, 'snapshot_prepared_at' => now()->toDateTimeString(),
         ])->assertRedirect();
         $this->assertSame(0, $event->fresh()->snapshot_version);
