@@ -27,7 +27,7 @@
 
         <div style="display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.5rem; align-items: center;">
             @if ($event->isDraft())
-                <form method="POST" action="{{ route('organizer.events.publish', $event) }}" onsubmit="return confirm('Publish this event to make it visible to students?');">
+                <form id="publish-event" method="POST" action="{{ route('organizer.events.publish', $event) }}" onsubmit="return confirm('Publish this event to make it visible to students?');">
                     @csrf
                     <button type="submit" class="btn-primary">
                         Publish Event
@@ -45,7 +45,7 @@
             @endif
 
             @if ($event->isPublished() && ! $event->registration_closed_at && ! $event->snapshot_prepared_at)
-                <form method="POST" action="{{ route('organizer.events.registration.close', $event) }}" onsubmit="return confirm('Close registration? It cannot be reopened.');">
+                <form id="registration-close-control" method="POST" action="{{ route('organizer.events.registration.close', $event) }}" onsubmit="return confirm('Close registration? It cannot be reopened.');">
                     @csrf
                     <button type="submit" class="btn-danger">Close Registration (cannot reopen)</button>
                 </form>
@@ -68,6 +68,44 @@
         </div>
     </div>
 </div>
+
+@if (config('ingress.mode') === 'cloud' && auth()->user()->can('update', $event))
+    @php
+        $configurationTasks = [];
+        if ($readiness['activeTicketCategories'] === 0) $configurationTasks[] = 'add or activate a ticket category';
+        if ($readiness['activeGates'] === 0) $configurationTasks[] = 'activate an access point';
+        if ($readiness['scannerAssignments'] === 0) $configurationTasks[] = 'assign scanner staff';
+        $configurationComplete = $configurationTasks === [];
+        $configureState = $configurationComplete ? 'complete' : 'current';
+        $publishState = $event->isPublished() ? 'complete' : ($configurationComplete ? 'current' : 'upcoming');
+        $prepareState = $authority !== null ? 'complete' : ($event->isPublished() && $configurationComplete ? 'current' : 'upcoming');
+    @endphp
+    <section class="card event-progress-guide" aria-labelledby="event-progress-heading">
+        <p class="event-create-eyebrow">YOUR NEXT STEPS</p>
+        <h2 id="event-progress-heading">Create → Configure → Publish → Prepare for Admission</h2>
+        <ol class="event-progress-list">
+            <li data-state="complete"><strong>1. Created</strong><small>Draft saved. Nothing is published yet.</small></li>
+            <li data-state="{{ $configureState }}"><strong>2. Configure</strong><small>{{ $configurationComplete ? 'Tickets, gates, and scanner staff are set.' : 'Review ticket categories, gates, and scanner staff.' }}</small></li>
+            <li data-state="{{ $publishState }}"><strong>3. Publish</strong><small>{{ $event->isPublished() ? 'Visible to attendees.' : 'Review the event, then publish it.' }}</small></li>
+            <li data-state="{{ $prepareState }}"><strong>4. Prepare for Admission</strong><small>{{ $authority ? 'Authority transferred; activate the grant on the Node.' : 'Close registration, prepare the snapshot, and complete the Node handoff.' }}</small></li>
+        </ol>
+
+        @if ($event->isCancelled() || $event->status === \App\Models\Event::STATUS_COMPLETED)
+            <p class="event-next-action"><strong>Next:</strong> {{ $readiness['nextAction'] }}</p>
+        @elseif (! $configurationComplete)
+            <p class="event-next-action">
+                <strong>Next:</strong> {{ ucfirst(implode(', ', $configurationTasks)) }}.
+                <a href="#tickets-registration">Tickets and registration</a> · <a href="#gates-staff">Gates and staff</a>
+            </p>
+        @elseif ($event->isDraft())
+            <p class="event-next-action"><strong>Next:</strong> Review the schedule and ticket setup, then <a href="#publish-event">publish the event</a> when ready.</p>
+        @else
+            <p class="event-next-action"><strong>Next:</strong> {{ $readiness['nextAction'] }} <a href="#preparation">View the readiness checklist</a> · <a href="#node-handoff">Open Node handoff</a></p>
+        @endif
+
+        <p>Ticket categories and access points are configured here after event creation. Closing registration cannot be undone. Preparing a snapshot locks event, ticket, gate, and staff details. Transferring authority to the Node is irreversible; the Node must activate the grant before scanning.</p>
+    </section>
+@endif
 
 @if (config('ingress.mode') === 'cloud')
 <section id="preparation" class="card event-preparation event-anchor">
