@@ -4308,8 +4308,9 @@ tbody tr:hover > th[scope='row'] {
 }
 
 @media (max-width: 900px) {
+    .public-event-grid,
     .public-event-detail-layout {
-        grid-template-columns: minmax(0, 1fr) minmax(270px, 0.85fr);
+        grid-template-columns: minmax(0, 1fr);
     }
 }
 
