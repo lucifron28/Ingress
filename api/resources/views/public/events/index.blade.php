@@ -28,11 +28,11 @@
                     <h2>{{ $event->title }}</h2>
                     <div class="event-facts">
                         <div class="event-fact">
-                            <span class="event-fact-label">Date and time</span>
+                            <span class="event-fact-label">Date and time (PHT)</span>
                             <p class="event-fact-value">
-                                <time datetime="{{ $event->starts_at->toIso8601String() }}">{{ $event->starts_at->format('M j, Y · g:i A') }}</time>
+                                <time datetime="{{ \App\Support\EventSchedule::local($event->starts_at)->toIso8601String() }}">{{ \App\Support\EventSchedule::local($event->starts_at)->format('M j, Y · g:i A') }}</time>
                                 <span>to</span>
-                                <time datetime="{{ $event->ends_at->toIso8601String() }}">{{ $event->ends_at->format('M j, Y · g:i A') }}</time>
+                                <time datetime="{{ \App\Support\EventSchedule::local($event->ends_at)->toIso8601String() }}">{{ \App\Support\EventSchedule::local($event->ends_at)->format('M j, Y · g:i A') }}</time>
                             </p>
                         </div>
                         <div class="event-fact">

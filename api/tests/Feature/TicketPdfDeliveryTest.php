@@ -68,10 +68,13 @@ class TicketPdfDeliveryTest extends TestCase
         $response->assertRedirect(route('public.tickets.show', $registration));
 
         $html = app(TicketPdfGenerator::class)->renderHtml($registration->load(['event.venue', 'ticketCategory', 'ticket']), $ticket->getQrPayload());
+        $localStart = $registration->event->starts_at->copy()->setTimezone('Asia/Manila')->format('l, F j, Y · g:i A');
         $this->assertStringContainsString('PDF Delivery Event', $html);
         $this->assertStringContainsString('Ticket Holder', $html);
         $this->assertStringContainsString('General Admission', $html);
         $this->assertStringContainsString($ticket->public_id, $html);
+        $this->assertStringContainsString($localStart, $html);
+        $this->assertStringContainsString('PHT', $html);
         $this->assertStringContainsString('data:image/svg+xml;base64,', $html);
         $this->assertStringNotContainsString('holder@example.test', $html);
         $this->assertMatchesRegularExpression('/src="data:image\/svg\+xml;base64,([^"]+)"/', $html);
@@ -92,6 +95,10 @@ class TicketPdfDeliveryTest extends TestCase
         $download->assertHeader('Content-Disposition', 'attachment; filename="Ingress-ticket-'.$ticket->public_id.'.pdf"');
         $this->assertStringNotContainsString('holder@example.test', (string) $download->headers->get('Content-Disposition'));
         $this->assertDatabaseHas('tickets', ['id' => $ticket->id, 'status' => Ticket::STATUS_ACTIVE]);
+        $this->get(route('public.tickets.show', $registration))
+            ->assertOk()
+            ->assertSee($localStart)
+            ->assertSee('PHT');
 
         $this->travel(16)->minutes();
         $this->get(route('public.tickets.pdf', $registration))->assertNotFound();

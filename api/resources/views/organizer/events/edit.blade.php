@@ -53,27 +53,32 @@
                 <textarea id="description" name="description" rows="4" class="form-textarea">{{ old('description', $event->description) }}</textarea>
             </div>
 
+            <div class="form-group">
+                <strong>Schedule</strong>
+                <p style="color: var(--neutral-muted); font-size: 0.875rem;">All schedule times use Philippine Time (PHT).</p>
+            </div>
+
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
                 <div class="form-group">
                     <label for="registration_opens_at" class="form-label">Registration Opens *</label>
-                    <input id="registration_opens_at" type="datetime-local" name="registration_opens_at" value="{{ old('registration_opens_at', $event->registration_opens_at->format('Y-m-d\TH:i')) }}" required class="form-input">
+                    <input id="registration_opens_at" type="datetime-local" name="registration_opens_at" value="{{ old('registration_opens_at', \App\Support\EventSchedule::localInput($event->registration_opens_at)) }}" required class="form-input">
                 </div>
 
                 <div class="form-group">
                     <label for="registration_closes_at" class="form-label">Registration Closes *</label>
-                    <input id="registration_closes_at" type="datetime-local" name="registration_closes_at" value="{{ old('registration_closes_at', $event->registration_closes_at->format('Y-m-d\TH:i')) }}" required class="form-input">
+                    <input id="registration_closes_at" type="datetime-local" name="registration_closes_at" value="{{ old('registration_closes_at', \App\Support\EventSchedule::localInput($event->registration_closes_at)) }}" required class="form-input">
                 </div>
             </div>
 
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
                 <div class="form-group">
                     <label for="starts_at" class="form-label">Event Starts *</label>
-                    <input id="starts_at" type="datetime-local" name="starts_at" value="{{ old('starts_at', $event->starts_at->format('Y-m-d\TH:i')) }}" required class="form-input">
+                    <input id="starts_at" type="datetime-local" name="starts_at" value="{{ old('starts_at', \App\Support\EventSchedule::localInput($event->starts_at)) }}" required class="form-input">
                 </div>
 
                 <div class="form-group">
                     <label for="ends_at" class="form-label">Event Ends *</label>
-                    <input id="ends_at" type="datetime-local" name="ends_at" value="{{ old('ends_at', $event->ends_at->format('Y-m-d\TH:i')) }}" required class="form-input">
+                    <input id="ends_at" type="datetime-local" name="ends_at" value="{{ old('ends_at', \App\Support\EventSchedule::localInput($event->ends_at)) }}" required class="form-input">
                 </div>
             </div>
 

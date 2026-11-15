@@ -100,7 +100,7 @@
             @if ($readiness['registrationClosed'])
                 <p>Registration has closed by organizer action or by its cutoff.</p>
             @else
-                <p>Registration is not closed by organizer action or cutoff. The cutoff is {{ $event->registration_closes_at->format('M j, Y g:i A') }} UTC. Close registration early if the Node handoff must start sooner.</p>
+                <p>Registration is not closed by organizer action or cutoff. The cutoff is {{ \App\Support\EventSchedule::local($event->registration_closes_at)->format('M j, Y g:i A') }} PHT. Close registration early if the Node handoff must start sooner.</p>
             @endif
         </li>
         <li class="event-readiness-item">
@@ -114,18 +114,18 @@
 @endif
 
 <section class="card organizer-event-overview-details" aria-labelledby="event-schedule-heading">
-    <h2 id="event-schedule-heading">Event schedule and details</h2>
+    <h2 id="event-schedule-heading">Event schedule and details (Philippine Time, PHT)</h2>
     <dl class="organizer-event-schedule">
         <div>
             <dt>Registration period</dt>
             <dd>
-                {{ $event->registration_opens_at->format('M d, Y h:i A') }} to {{ $event->registration_closes_at->format('M d, Y h:i A') }}
+                {{ \App\Support\EventSchedule::local($event->registration_opens_at)->format('M d, Y h:i A') }} to {{ \App\Support\EventSchedule::local($event->registration_closes_at)->format('M d, Y h:i A') }}
                 @if ($event->registration_closed_at)<span>Closed by organizer</span>@endif
             </dd>
         </div>
         <div>
             <dt>Event program</dt>
-            <dd>{{ $event->starts_at->format('M d, Y h:i A') }} to {{ $event->ends_at->format('M d, Y h:i A') }}</dd>
+            <dd>{{ \App\Support\EventSchedule::local($event->starts_at)->format('M d, Y h:i A') }} to {{ \App\Support\EventSchedule::local($event->ends_at)->format('M d, Y h:i A') }}</dd>
         </div>
         <div class="organizer-event-description">
             <dt>Description</dt>
