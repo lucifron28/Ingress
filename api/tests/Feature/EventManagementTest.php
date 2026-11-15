@@ -80,6 +80,142 @@ class EventManagementTest extends TestCase
         $this->assertTrue($event->accessPoints()->where('code', 'GATE-B')->exists());
     }
 
+    public function test_event_create_wizard_explains_the_four_steps_and_current_student_email_policy(): void
+    {
+        $this->actingAs($this->organizerA)
+            ->get(route('organizer.events.create'))
+            ->assertOk()
+            ->assertSee('Step 1 of 4')
+            ->assertSee('data-event-step="1"', false)
+            ->assertSee('data-event-step="2"', false)
+            ->assertSee('data-event-step="3"', false)
+            ->assertSee('data-event-step="4"', false)
+            ->assertSee('Public — guests can check out without a Firebase account')
+            ->assertSee('Students — a verified Firebase student account is required')
+            ->assertSee('current policy allows personal email for verified Firebase student accounts')
+            ->assertSee('All four times use Philippine Time (PHT).')
+            ->assertSee('For a demo, use future placeholder dates and label the event “Demo” or “Simulation.”')
+            ->assertSee('Allow re-entry')
+            ->assertSee('Allow ticket transfers')
+            ->assertSee('Approved ID check')
+            ->assertSee('This creates a draft only.')
+            ->assertSee('Main Entrance, Gate A, and Gate B');
+
+        DB::table('student_access_settings')->where('id', 1)->update([
+            'require_institutional_email' => true,
+            'policy_enabled_at' => now(),
+        ]);
+
+        $this->get(route('organizer.events.create'))
+            ->assertOk()
+            ->assertSee('student.mseuf.edu.ph')
+            ->assertSee('Email verification confirms mailbox access, not current enrollment.');
+    }
+
+    public function test_create_wizard_returns_to_schedule_step_and_preserves_values_after_validation_error(): void
+    {
+        $opensAt = Carbon::now('Asia/Manila')->addDays(5)->setTime(8, 0);
+        $startsAt = $opensAt->copy()->addHours(3);
+        $this->actingAs($this->organizerA)
+            ->from(route('organizer.events.create'))
+            ->post(route('organizer.events.store'), [
+                'venue_id' => $this->venue->id,
+                'title' => 'Schedule Error Demo',
+                'capacity' => 80,
+                'registration_opens_at' => $opensAt->format('Y-m-d\\TH:i'),
+                'registration_closes_at' => $startsAt->format('Y-m-d\\TH:i'),
+                'starts_at' => $startsAt->format('Y-m-d\\TH:i'),
+                'ends_at' => $startsAt->copy()->addHours(4)->format('Y-m-d\\TH:i'),
+            ])
+            ->assertRedirect(route('organizer.events.create'))
+            ->assertSessionHasErrors('registration_closes_at')
+            ->assertSessionHasInput('title', 'Schedule Error Demo')
+            ->assertSessionHasInput('registration_closes_at', $startsAt->format('Y-m-d\\TH:i'));
+
+        $this->withViewErrors([
+            'registration_closes_at' => ['Registration must close before the event starts.'],
+        ])->view('organizer.events.create', [
+            'venues' => collect([$this->venue]),
+            'requiresInstitutionalEmail' => true,
+            'institutionalDomain' => 'student.mseuf.edu.ph',
+        ])
+            ->assertSee('data-start-step="2"', false)
+            ->assertSee('Some details need attention.')
+            ->assertSee('Registration must close before the event starts.');
+        $this->assertDatabaseMissing('events', ['title' => 'Schedule Error Demo']);
+    }
+
+    public function test_student_demo_setup_has_free_student_tickets_multiple_gates_and_optional_reentry(): void
+    {
+        $startsAt = Carbon::now('Asia/Manila')->addDays(10)->setTime(8, 0);
+        $this->actingAs($this->organizerA)->post(route('organizer.events.store'), [
+            'venue_id' => $this->venue->id,
+            'title' => 'MSEUF Intramurals 2026 — Demo',
+            'capacity' => 120,
+            'registration_eligibility' => Event::ELIGIBILITY_STUDENT,
+            'registration_opens_at' => $startsAt->copy()->subDay()->format('Y-m-d\\TH:i'),
+            'registration_closes_at' => $startsAt->copy()->subHour()->format('Y-m-d\\TH:i'),
+            'starts_at' => $startsAt->format('Y-m-d\\TH:i'),
+            'ends_at' => $startsAt->copy()->addHours(6)->format('Y-m-d\\TH:i'),
+        ])->assertRedirect();
+
+        $event = Event::where('title', 'MSEUF Intramurals 2026 — Demo')->firstOrFail();
+        $category = $event->ticketCategories()->firstOrFail();
+        $this->assertSame(Event::STATUS_DRAFT, $event->status);
+        $this->assertSame(0, $category->price_minor);
+        $this->assertSame('student', $category->eligibility);
+        $this->assertFalse($event->re_entry_allowed);
+        $this->assertSame(['GATE-A', 'GATE-B', 'MAIN'], $event->accessPoints()->orderBy('code')->pluck('code')->all());
+    }
+
+    public function test_ccms_demo_can_enable_student_ticket_reentry(): void
+    {
+        $startsAt = Carbon::now('Asia/Manila')->addDays(12)->setTime(18, 0);
+        $this->actingAs($this->organizerA)->post(route('organizer.events.store'), [
+            'venue_id' => $this->venue->id,
+            'title' => 'CCMS Year End Party — Demo',
+            'capacity' => 100,
+            'registration_eligibility' => Event::ELIGIBILITY_STUDENT,
+            'registration_opens_at' => $startsAt->copy()->subDays(5)->format('Y-m-d\\TH:i'),
+            'registration_closes_at' => $startsAt->copy()->subHour()->format('Y-m-d\\TH:i'),
+            'starts_at' => $startsAt->format('Y-m-d\\TH:i'),
+            'ends_at' => $startsAt->copy()->addHours(5)->format('Y-m-d\\TH:i'),
+            're_entry_allowed' => true,
+        ])->assertRedirect();
+
+        $event = Event::where('title', 'CCMS Year End Party — Demo')->firstOrFail();
+        $this->assertTrue($event->re_entry_allowed);
+        $this->assertSame(0, $event->ticketCategories()->firstOrFail()->price_minor);
+    }
+
+    public function test_public_demo_event_starts_with_free_category_and_can_be_configured_after_creation(): void
+    {
+        config(['ingress.mode' => 'cloud']);
+        $startsAt = Carbon::now('Asia/Manila')->addDays(10)->setTime(8, 0);
+        $this->actingAs($this->organizerA)->post(route('organizer.events.store'), [
+            'venue_id' => $this->venue->id,
+            'title' => 'Miss Enverga University 2026 — Demo',
+            'capacity' => 80,
+            'registration_eligibility' => Event::ELIGIBILITY_PUBLIC,
+            'registration_opens_at' => $startsAt->copy()->subDays(2)->format('Y-m-d\\TH:i'),
+            'registration_closes_at' => $startsAt->copy()->subHour()->format('Y-m-d\\TH:i'),
+            'starts_at' => $startsAt->format('Y-m-d\\TH:i'),
+            'ends_at' => $startsAt->copy()->addHours(4)->format('Y-m-d\\TH:i'),
+        ])->assertRedirect();
+
+        $event = Event::where('title', 'Miss Enverga University 2026 — Demo')->firstOrFail();
+        $category = $event->ticketCategories()->firstOrFail();
+        $this->assertSame(0, $category->price_minor);
+        $this->assertSame('public', $category->eligibility);
+        $this->get(route('organizer.events.show', $event))
+            ->assertOk()
+            ->assertSee('Price (PHP)')
+            ->assertSee('Ticket categories and access points are configured here after event creation.')
+            ->assertSee('Create → Configure → Publish → Prepare for Admission')
+            ->assertSee('Preparing a snapshot locks event, ticket, gate, and staff details.')
+            ->assertSee('Transferring authority to the Node is irreversible');
+    }
+
     public function test_organizer_schedule_round_trips_as_philippine_time_while_storing_utc(): void
     {
         config(['ingress.mode' => 'cloud']);

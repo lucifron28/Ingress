@@ -18,6 +18,7 @@ use App\Models\Registration;
 use App\Models\TicketTransfer;
 use App\Models\User;
 use App\Models\Venue;
+use App\Services\Auth\StudentEmailEligibility;
 use App\Services\Checkout\CheckoutCapacity;
 use App\Support\EventSchedule;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -84,13 +85,15 @@ class OrganizerEventController extends Controller
     /**
      * Show create event form.
      */
-    public function create(): View
+    public function create(StudentEmailEligibility $studentEmailEligibility): View
     {
         Gate::authorize('create', Event::class);
 
         $venues = Venue::orderBy('name')->get();
+        $requiresInstitutionalEmail = $studentEmailEligibility->requiresInstitutionalEmail();
+        $institutionalDomain = $studentEmailEligibility->domain();
 
-        return view('organizer.events.create', compact('venues'));
+        return view('organizer.events.create', compact('venues', 'requiresInstitutionalEmail', 'institutionalDomain'));
     }
 
     /**
