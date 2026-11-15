@@ -107,9 +107,9 @@ ingress/
 
 ---
 
-## Demo Mode and Demo Accounts
+## Local Demo Data
 
-Demo mode is for local development only. The `.env.example` opt-in creates predictable demo credentials and sample events; `APP_ENV=production` refuses to start when demo mode is enabled. Never enable it on Render or an Event Node. The current seeded sample data is documented in [Demo Data](docs/demo-data.md).
+The new MSEUF event fixture is separate from the legacy demo-account seeders. It requires explicit opt-in and an existing local organizer, creates only three draft events, and refuses Render, Neon, Event Node, production, or other non-local database targets. It creates no accounts or attendee records. See [Local MSEUF demo events](docs/demo-data.md) for exact settings and setup instructions. The separate `INGRESS_DEMO_MODE` flag controls the legacy account/event fixture; never enable that mode on Render or an Event Node.
 
 Do not create cloud administrators with Tinker or public registration. From a trusted Windows checkout, use `api\scripts\create_render_admin.ps1` for the first administrator. Use `api\scripts\provision_render_staging_account.ps1` for synthetic organizer, staff, or student accounts and reference venues. Use `api\scripts\register_render_node.ps1` to register an Event Node. Each script requires the cloud HTTPS origin, Neon direct URL with verified TLS, and a local trusted CA bundle; passwords and database secrets are prompted locally. Follow [Deployment and Operations](docs/deployment.md) and run these scripts only against the designated staging database.
 
@@ -269,4 +269,4 @@ npx eas-cli@latest build --platform android --profile preview
 - [REST API Reference](docs/api.md)
 - [Classroom LAN Defense Guide](docs/lan-demo.md)
 - [Architecture Decision Records (ADRs)](docs/design-decisions.md)
-- [Demo Data & Official MSEUF Sources](docs/demo-data.md)
+- [Local MSEUF demo events](docs/demo-data.md)
