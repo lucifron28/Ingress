@@ -27,11 +27,11 @@
 
             <dl class="event-detail-facts">
                 <div class="event-detail-fact">
-                    <dt>Date and time</dt>
+                    <dt>Date and time (PHT)</dt>
                     <dd>
-                        <time datetime="{{ $event->starts_at->toIso8601String() }}">{{ $event->starts_at->format('l, F j, Y · g:i A') }}</time>
+                        <time datetime="{{ \App\Support\EventSchedule::local($event->starts_at)->toIso8601String() }}">{{ \App\Support\EventSchedule::local($event->starts_at)->format('l, F j, Y · g:i A') }}</time>
                         <span aria-hidden="true">to</span>
-                        <time datetime="{{ $event->ends_at->toIso8601String() }}">{{ $event->ends_at->format('l, F j, Y · g:i A') }}</time>
+                        <time datetime="{{ \App\Support\EventSchedule::local($event->ends_at)->toIso8601String() }}">{{ \App\Support\EventSchedule::local($event->ends_at)->format('l, F j, Y · g:i A') }}</time>
                     </dd>
                 </div>
                 <div class="event-detail-fact">

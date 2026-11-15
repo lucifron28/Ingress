@@ -7,7 +7,7 @@
             <div class="notice">This event has been cancelled. Contact the event organizer for updates.</div>
         @endif
         <h1 style="font-size: 2rem;">{{ $registration->event->title }}</h1>
-        <p class="meta">{{ $registration->event->starts_at->format('l, F j, Y · g:i A') }}</p>
+        <p class="meta">{{ \App\Support\EventSchedule::local($registration->event->starts_at)->format('l, F j, Y · g:i A') }} PHT</p>
         <p><strong>{{ $registration->event->venue->name }}</strong></p>
         <p>{{ $registration->attendeeName() }}</p>
         @if ($registration->ticketCategory)<p class="meta">{{ $registration->ticketCategory->name }}</p>@endif

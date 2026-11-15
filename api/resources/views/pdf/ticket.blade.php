@@ -25,7 +25,7 @@
     <hr class="rule">
 
     <h1>{{ $registration->event->title }}</h1>
-    <p class="muted">{{ $registration->event->starts_at->format('l, F j, Y · g:i A') }}–{{ $registration->event->ends_at->format('g:i A') }}</p>
+    <p class="muted">{{ \App\Support\EventSchedule::local($registration->event->starts_at)->format('l, F j, Y · g:i A') }}–{{ \App\Support\EventSchedule::local($registration->event->ends_at)->format('g:i A') }} PHT</p>
     @if ($registration->event->isCancelled())
         <p class="notice">This event has been cancelled. Contact the event organizer for updates.</p>
     @endif

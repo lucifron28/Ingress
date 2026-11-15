@@ -50,7 +50,7 @@
                 @endphp
                 <article style="border-top: 1px solid #dfe3e8; padding: 16px 0;">
                     <h3>{{ $registration->event->title }}</h3>
-                    <p>{{ $registration->event->starts_at->format('M j, Y · g:i A') }} · {{ $registration->event->venue->name }}</p>
+                    <p>{{ \App\Support\EventSchedule::local($registration->event->starts_at)->format('M j, Y · g:i A') }} PHT · {{ $registration->event->venue->name }}</p>
                     <p>Category: {{ $registration->ticketCategory?->name ?? 'General Admission' }} · Ticket status: {{ $ticketIsActive ? 'Active' : ucfirst($registration->status === \App\Models\Registration::STATUS_CANCELLED ? 'cancelled' : ($registration->ticket?->status ?? 'unavailable')) }}</p>
                     @if ($ticketIsActive)
                         <p><a href="{{ route('public.tickets.show', $registration) }}">View ticket</a> · <a href="{{ route('public.tickets.pdf', $registration) }}">Download PDF</a></p>

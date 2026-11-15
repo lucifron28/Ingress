@@ -12,7 +12,7 @@
                 </span>
             </div>
             <p style="color: var(--neutral-muted); font-size: 0.875rem;">
-                Venue: <strong>{{ $event->venue->name }}</strong> &bull; Schedule: {{ $event->starts_at->format('M d, Y h:i A') }} to {{ $event->ends_at->format('h:i A') }}
+                Venue: <strong>{{ $event->venue->name }}</strong> &bull; Schedule (PHT): {{ \App\Support\EventSchedule::local($event->starts_at)->format('M d, Y h:i A') }} to {{ \App\Support\EventSchedule::local($event->ends_at)->format('h:i A') }}
             </p>
         </div>
 

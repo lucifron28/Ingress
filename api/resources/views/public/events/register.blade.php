@@ -10,7 +10,7 @@
     <p class="eyebrow"><a href="{{ route('public.events.show', $event->slug) }}">{{ $event->title }}</a> / Registration</p>
     <section class="card" style="max-width: 42rem; margin: 0 auto;">
         <h1 style="font-size: 2rem;">Register for {{ $event->title }}</h1>
-        <p class="meta">{{ $event->starts_at->format('M j, Y · g:i A') }} · {{ $event->venue->name }}</p>
+        <p class="meta">{{ \App\Support\EventSchedule::local($event->starts_at)->format('M j, Y · g:i A') }} PHT · {{ $event->venue->name }}</p>
 
         @if ($errors->any())
             <div class="error" role="alert"><ul style="margin: 0; padding-left: 1.2rem;">@foreach ($errors->all() as $error)<li>{{ $error }}</li>@endforeach</ul></div>

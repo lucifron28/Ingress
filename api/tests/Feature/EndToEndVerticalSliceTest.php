@@ -2,10 +2,8 @@
 
 namespace Tests\Feature;
 
-use App\Models\AccessPoint;
 use App\Models\Admission;
 use App\Models\Event;
-use App\Models\EventStaff;
 use App\Models\Registration;
 use App\Models\Ticket;
 use App\Models\User;
@@ -97,15 +95,16 @@ class EndToEndVerticalSliceTest extends TestCase
         $this->actingAs($organizer);
 
         // Organizer creates event with capacity of 10
+        $schedule = Carbon::now('Asia/Manila');
         $createResponse = $this->post('/organizer/events', [
             'venue_id' => $venue->id,
             'title' => 'Ingress Launch Showcase 2026',
             'description' => 'Official demonstration symposium for MSEUF Ingress ticketing platform.',
             'capacity' => 10,
-            'registration_opens_at' => Carbon::now()->subDay()->toDateTimeString(),
-            'registration_closes_at' => Carbon::now()->addDay()->toDateTimeString(),
-            'starts_at' => Carbon::now()->addDays(2)->setHour(9)->setMinute(0)->toDateTimeString(),
-            'ends_at' => Carbon::now()->addDays(2)->setHour(17)->setMinute(0)->toDateTimeString(),
+            'registration_opens_at' => $schedule->copy()->subDay()->setTimezone('Asia/Manila')->format('Y-m-d\TH:i'),
+            'registration_closes_at' => $schedule->copy()->addDay()->setTimezone('Asia/Manila')->format('Y-m-d\TH:i'),
+            'starts_at' => $schedule->copy()->addDays(2)->setHour(9)->setMinute(0)->format('Y-m-d\TH:i'),
+            'ends_at' => $schedule->copy()->addDays(2)->setHour(17)->setMinute(0)->format('Y-m-d\TH:i'),
         ]);
 
         $event = Event::where('title', 'Ingress Launch Showcase 2026')->first();
@@ -277,7 +276,7 @@ class EndToEndVerticalSliceTest extends TestCase
                 ],
             ]);
 
-        $this->assertEquals(1, Admission::whereHas('ticket', fn($q) => $q->where('public_id', $ticketPublicId))->count());
+        $this->assertEquals(1, Admission::whereHas('ticket', fn ($q) => $q->where('public_id', $ticketPublicId))->count());
 
         // ---------------------------------------------------------
         // 7. IDEMPOTENT RETRY ON GATE A (NETWORK RE-TRANSMISSION)

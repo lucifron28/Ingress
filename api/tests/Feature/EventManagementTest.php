@@ -9,6 +9,8 @@ use App\Models\User;
 use App\Models\Venue;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Crypt;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class EventManagementTest extends TestCase
@@ -52,16 +54,17 @@ class EventManagementTest extends TestCase
 
     public function test_organizer_can_create_event_with_default_access_points(): void
     {
+        $now = Carbon::now();
         $response = $this->actingAs($this->organizerA)
             ->post('/organizer/events', [
                 'venue_id' => $this->venue->id,
                 'title' => 'C-Sharpening Workshop',
                 'description' => 'A workshop on C# and .NET.',
                 'capacity' => 45,
-                'registration_opens_at' => Carbon::now()->toDateTimeString(),
-                'registration_closes_at' => Carbon::now()->addDays(5)->toDateTimeString(),
-                'starts_at' => Carbon::now()->addDays(6)->toDateTimeString(),
-                'ends_at' => Carbon::now()->addDays(6)->addHours(4)->toDateTimeString(),
+                'registration_opens_at' => $now->copy()->setTimezone('Asia/Manila')->format('Y-m-d\TH:i'),
+                'registration_closes_at' => $now->copy()->addDays(5)->setTimezone('Asia/Manila')->format('Y-m-d\TH:i'),
+                'starts_at' => $now->copy()->addDays(6)->setTimezone('Asia/Manila')->format('Y-m-d\TH:i'),
+                'ends_at' => $now->copy()->addDays(6)->addHours(4)->setTimezone('Asia/Manila')->format('Y-m-d\TH:i'),
             ]);
 
         $event = Event::where('title', 'C-Sharpening Workshop')->first();
@@ -77,6 +80,62 @@ class EventManagementTest extends TestCase
         $this->assertTrue($event->accessPoints()->where('code', 'GATE-B')->exists());
     }
 
+    public function test_organizer_schedule_round_trips_as_philippine_time_while_storing_utc(): void
+    {
+        config(['ingress.mode' => 'cloud']);
+
+        $opensAt = Carbon::now('Asia/Manila')->addDays(10)->setTime(8, 0);
+        $closesAt = $opensAt->copy()->addHours(2);
+        $startsAt = $opensAt->copy()->addHours(3);
+        $endsAt = $opensAt->copy()->addHours(4);
+        $schedule = [
+            'registration_opens_at' => $opensAt,
+            'registration_closes_at' => $closesAt,
+            'starts_at' => $startsAt,
+            'ends_at' => $endsAt,
+        ];
+
+        $this->actingAs($this->organizerA)
+            ->post('/organizer/events', [
+                'venue_id' => $this->venue->id,
+                'title' => 'Philippine Time Event',
+                'capacity' => 45,
+                ...array_map(fn (Carbon $time): string => $time->format('Y-m-d\\TH:i'), $schedule),
+            ]);
+
+        $event = Event::where('title', 'Philippine Time Event')->firstOrFail();
+
+        foreach ($schedule as $field => $time) {
+            $this->assertSame($time->copy()->utc()->toISOString(), $event->$field->toISOString());
+        }
+
+        $this->get(route('organizer.events.edit', $event))
+            ->assertOk()
+            ->assertSee('name="starts_at" value="'.$startsAt->format('Y-m-d\\TH:i').'"', false)
+            ->assertSee('Philippine Time (PHT)');
+
+        $this->get(route('organizer.events.show', $event))
+            ->assertOk()
+            ->assertSee($startsAt->format('M d, Y h:i A'))
+            ->assertSee($endsAt->format('M d, Y h:i A'))
+            ->assertSee('Philippine Time, PHT');
+
+        $this->post(route('organizer.events.publish', $event))->assertRedirect();
+        $this->get(route('public.events.show', $event->slug))
+            ->assertOk()
+            ->assertSee('Date and time (PHT)')
+            ->assertSee($startsAt->format('F j, Y'))
+            ->assertSee($startsAt->format('g:i A'));
+
+        $this->post(route('organizer.events.registration.close', $event))->assertRedirect();
+        $this->post(route('organizer.events.snapshot.prepare', $event))->assertRedirect();
+        $snapshot = DB::table('event_snapshots')->where('event_id', $event->id)->first();
+        $this->assertNotNull($snapshot);
+        $payload = json_decode(Crypt::decryptString($snapshot->payload_ciphertext), true, 512, JSON_THROW_ON_ERROR);
+        $this->assertSame($opensAt->copy()->utc()->toISOString(), $payload['event']['registration_opens_at']);
+        $this->assertSame($startsAt->copy()->utc()->toISOString(), $payload['event']['starts_at']);
+    }
+
     public function test_create_form_defaults_registration_to_close_before_the_event_starts(): void
     {
         $this->freezeTime();
@@ -84,24 +143,24 @@ class EventManagementTest extends TestCase
         $this->actingAs($this->organizerA)
             ->get('/organizer/events/create')
             ->assertOk()
-            ->assertSee('name="registration_closes_at" value="'.now()->addDay()->format('Y-m-d\\TH:i').'"', false)
-            ->assertSee('name="starts_at" value="'.now()->addDays(2)->setHour(8)->setMinute(0)->format('Y-m-d\\TH:i').'"', false);
+            ->assertSee('name="registration_closes_at" value="'.Carbon::now('Asia/Manila')->addDay()->format('Y-m-d\\TH:i').'"', false)
+            ->assertSee('name="starts_at" value="'.Carbon::now('Asia/Manila')->addDays(2)->setHour(8)->setMinute(0)->format('Y-m-d\\TH:i').'"', false);
     }
 
     public function test_organizer_cannot_create_an_event_that_accepts_registrations_after_it_starts(): void
     {
         $this->freezeTime();
-        $now = Carbon::now()->toImmutable();
+        $now = Carbon::now('Asia/Manila')->toImmutable();
 
         $this->actingAs($this->organizerA)
             ->post('/organizer/events', [
                 'venue_id' => $this->venue->id,
                 'title' => 'Late Registration Event',
                 'capacity' => 45,
-                'registration_opens_at' => $now->toDateTimeString(),
-                'registration_closes_at' => $now->addDays(3)->toDateTimeString(),
-                'starts_at' => $now->addDays(2)->toDateTimeString(),
-                'ends_at' => $now->addDays(4)->toDateTimeString(),
+                'registration_opens_at' => $now->format('Y-m-d\\TH:i'),
+                'registration_closes_at' => $now->addDays(3)->format('Y-m-d\\TH:i'),
+                'starts_at' => $now->addDays(2)->format('Y-m-d\\TH:i'),
+                'ends_at' => $now->addDays(4)->format('Y-m-d\\TH:i'),
             ])
             ->assertSessionHasErrors('registration_closes_at');
 
@@ -130,10 +189,10 @@ class EventManagementTest extends TestCase
                 'venue_id' => $this->venue->id,
                 'title' => $event->title,
                 'capacity' => $event->capacity,
-                'registration_opens_at' => $now->toDateTimeString(),
-                'registration_closes_at' => $now->addDays(3)->toDateTimeString(),
-                'starts_at' => $now->addDays(2)->toDateTimeString(),
-                'ends_at' => $now->addDays(4)->toDateTimeString(),
+                'registration_opens_at' => $now->setTimezone('Asia/Manila')->format('Y-m-d\\TH:i'),
+                'registration_closes_at' => $now->addDays(3)->setTimezone('Asia/Manila')->format('Y-m-d\\TH:i'),
+                'starts_at' => $now->addDays(2)->setTimezone('Asia/Manila')->format('Y-m-d\\TH:i'),
+                'ends_at' => $now->addDays(4)->setTimezone('Asia/Manila')->format('Y-m-d\\TH:i'),
             ])
             ->assertSessionHasErrors('registration_closes_at');
 
@@ -347,16 +406,17 @@ class EventManagementTest extends TestCase
 
     public function test_capacity_cannot_be_lowered_below_confirmed_registrations(): void
     {
+        $now = Carbon::now();
         $event = Event::create([
             'organizer_id' => $this->organizerA->id,
             'venue_id' => $this->venue->id,
             'title' => 'Capacity Floor Event',
             'slug' => 'capacity-floor-event',
             'capacity' => 500,
-            'registration_opens_at' => Carbon::now()->subDay(),
-            'registration_closes_at' => Carbon::now()->addDays(5),
-            'starts_at' => Carbon::now()->addDays(6),
-            'ends_at' => Carbon::now()->addDays(6)->addHours(3),
+            'registration_opens_at' => $now->copy()->subDay(),
+            'registration_closes_at' => $now->copy()->addDays(5),
+            'starts_at' => $now->copy()->addDays(6),
+            'ends_at' => $now->copy()->addDays(6)->addHours(3),
             'status' => Event::STATUS_PUBLISHED,
         ]);
 
@@ -374,10 +434,10 @@ class EventManagementTest extends TestCase
             'title' => $event->title,
             'description' => null,
             'capacity' => $capacity,
-            'registration_opens_at' => Carbon::now()->subDay()->toDateTimeString(),
-            'registration_closes_at' => Carbon::now()->addDays(5)->toDateTimeString(),
-            'starts_at' => Carbon::now()->addDays(6)->toDateTimeString(),
-            'ends_at' => Carbon::now()->addDays(6)->addHours(3)->toDateTimeString(),
+            'registration_opens_at' => $now->copy()->subDay()->setTimezone('Asia/Manila')->format('Y-m-d\\TH:i'),
+            'registration_closes_at' => $now->copy()->addDays(5)->setTimezone('Asia/Manila')->format('Y-m-d\\TH:i'),
+            'starts_at' => $now->copy()->addDays(6)->setTimezone('Asia/Manila')->format('Y-m-d\\TH:i'),
+            'ends_at' => $now->copy()->addDays(6)->addHours(3)->setTimezone('Asia/Manila')->format('Y-m-d\\TH:i'),
         ];
 
         $this->actingAs($this->organizerA)

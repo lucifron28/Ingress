@@ -20,8 +20,8 @@
                 <tr>
                     <th>Title</th>
                     <th>Venue</th>
-                    <th>Registration Window</th>
-                    <th>Event Date</th>
+                    <th>Registration Window (PHT)</th>
+                    <th>Event Date (PHT)</th>
                     <th>Capacity</th>
                     <th>Status</th>
                     <th style="text-align: right;">Actions</th>
@@ -37,10 +37,10 @@
                         </td>
                         <td>{{ $event->venue->name }}</td>
                         <td style="font-size: 0.8rem;">
-                            {{ $event->registration_opens_at->format('M d') }} - {{ $event->registration_closes_at->format('M d, Y') }}
+                            {{ \App\Support\EventSchedule::local($event->registration_opens_at)->format('M d') }} - {{ \App\Support\EventSchedule::local($event->registration_closes_at)->format('M d, Y') }}
                         </td>
                         <td style="font-size: 0.8rem;">
-                            {{ $event->starts_at->format('M d, Y h:i A') }}
+                            {{ \App\Support\EventSchedule::local($event->starts_at)->format('M d, Y h:i A') }} PHT
                         </td>
                         <td class="mono">{{ $event->capacity }}</td>
                         <td>

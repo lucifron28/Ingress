@@ -19,6 +19,7 @@ use App\Models\TicketTransfer;
 use App\Models\User;
 use App\Models\Venue;
 use App\Services\Checkout\CheckoutCapacity;
+use App\Support\EventSchedule;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -105,14 +106,15 @@ class OrganizerEventController extends Controller
             'description' => ['nullable', 'string'],
             'capacity' => ['required', 'integer', 'min:1'],
             'registration_eligibility' => ['sometimes', 'in:public,student'],
-            'registration_opens_at' => ['required', 'date'],
-            'registration_closes_at' => ['required', 'date', 'after:registration_opens_at', 'before:starts_at'],
-            'starts_at' => ['required', 'date'],
-            'ends_at' => ['required', 'date', 'after:starts_at'],
+            'registration_opens_at' => ['required', 'date_format:Y-m-d\TH:i'],
+            'registration_closes_at' => ['required', 'date_format:Y-m-d\TH:i'],
+            'starts_at' => ['required', 'date_format:Y-m-d\TH:i'],
+            'ends_at' => ['required', 'date_format:Y-m-d\TH:i'],
             're_entry_allowed' => ['sometimes', 'boolean'],
             'identity_verification_level' => ['sometimes', 'in:standard,id_check'],
             'ticket_transfers_allowed' => ['sometimes', 'boolean'],
         ]);
+        $validated = array_replace($validated, EventSchedule::utcDatabaseValues($validated));
 
         $slug = Str::slug($validated['title']).'-'.Str::random(6);
 
@@ -320,14 +322,15 @@ class OrganizerEventController extends Controller
             'title' => ['required', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
             'capacity' => ['required', 'integer', 'min:1'],
-            'registration_opens_at' => ['required', 'date'],
-            'registration_closes_at' => ['required', 'date', 'after:registration_opens_at', 'before:starts_at'],
-            'starts_at' => ['required', 'date'],
-            'ends_at' => ['required', 'date', 'after:starts_at'],
+            'registration_opens_at' => ['required', 'date_format:Y-m-d\TH:i'],
+            'registration_closes_at' => ['required', 'date_format:Y-m-d\TH:i'],
+            'starts_at' => ['required', 'date_format:Y-m-d\TH:i'],
+            'ends_at' => ['required', 'date_format:Y-m-d\TH:i'],
             're_entry_allowed' => ['sometimes', 'boolean'],
             'identity_verification_level' => ['sometimes', 'in:standard,id_check'],
             'ticket_transfers_allowed' => ['sometimes', 'boolean'],
         ]);
+        $validated = array_replace($validated, EventSchedule::utcDatabaseValues($validated));
 
         // Use the registration lock boundary so capacity cannot drop below a concurrent signup.
         DB::transaction(function () use ($event, $validated, $capacity, $expiration) {

@@ -70,8 +70,8 @@
                             </td>
                             <td>{{ $event->venue->name }}</td>
                             <td>
-                                <div style="font-size: 0.8rem; font-weight: 500;">{{ $event->starts_at->format('M d, Y h:i A') }}</div>
-                                <div style="font-size: 0.75rem; color: var(--neutral-muted);">to {{ $event->ends_at->format('h:i A') }}</div>
+                                <div style="font-size: 0.8rem; font-weight: 500;">{{ \App\Support\EventSchedule::local($event->starts_at)->format('M d, Y h:i A') }} PHT</div>
+                                <div style="font-size: 0.75rem; color: var(--neutral-muted);">to {{ \App\Support\EventSchedule::local($event->ends_at)->format('h:i A') }} PHT</div>
                             </td>
                             <td class="mono">{{ $event->capacity }}</td>
                             <td class="mono">{{ $event->accessPoints->count() }}</td>
