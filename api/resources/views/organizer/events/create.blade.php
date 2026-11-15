@@ -76,7 +76,7 @@
                         <select id="venue_id" name="venue_id" required class="form-select" aria-describedby="venue-help venue-error" @if ($errors->has('venue_id')) aria-invalid="true" @endif>
                             <option value="">Choose a venue</option>
                             @foreach ($venues as $venue)
-                                <option value="{{ $venue->id }}" {{ old('venue_id') == $venue->id ? 'selected' : '' }}>{{ $venue->name }}</option>
+                                <option value="{{ $venue->id }}" {{ old('venue_id') == $venue->id ? 'selected' : '' }}>{{ $venue->name }} — venue capacity: {{ $venue->default_capacity }}</option>
                             @endforeach
                         </select>
                         <p id="venue-help" class="event-field-help">The venue is shown to attendees and helps staff identify the event.</p>
