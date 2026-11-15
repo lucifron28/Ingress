@@ -22,7 +22,7 @@ class RuntimeBoundaryTest extends TestCase
             'organizer_id' => $organizer->id, 'venue_id' => $venue->id,
             'title' => 'Event', 'slug' => 'event', 'capacity' => 20,
             'registration_opens_at' => now()->subDay(), 'registration_closes_at' => now()->addDay(),
-            'starts_at' => now(), 'ends_at' => now()->addDay(), 'status' => Event::STATUS_PUBLISHED,
+            'starts_at' => now()->addDay(), 'ends_at' => now()->addDays(2), 'status' => Event::STATUS_PUBLISHED,
         ]);
     }
 
@@ -30,7 +30,11 @@ class RuntimeBoundaryTest extends TestCase
     {
         config(['ingress.mode' => 'cloud']);
         $event = $this->event();
-        $student = User::factory()->create(['role' => User::ROLE_STUDENT]);
+        $student = User::factory()->create([
+            'role' => User::ROLE_STUDENT,
+            'firebase_uid' => 'firebase-runtime-boundary-student',
+            'email_verified_at' => now(),
+        ]);
         $staff = User::factory()->create(['role' => User::ROLE_STAFF]);
 
         $this->actingAs($student)->postJson("/api/v1/events/{$event->id}/registration")->assertCreated();
@@ -43,7 +47,11 @@ class RuntimeBoundaryTest extends TestCase
     {
         config(['ingress.mode' => 'node', 'ingress.node_id' => 'node-1']);
         $event = $this->event();
-        $student = User::factory()->create(['role' => User::ROLE_STUDENT]);
+        $student = User::factory()->create([
+            'role' => User::ROLE_STUDENT,
+            'firebase_uid' => 'firebase-runtime-boundary-node-student',
+            'email_verified_at' => now(),
+        ]);
         $organizer = User::findOrFail($event->organizer_id);
 
         $this->actingAs($student)->postJson("/api/v1/events/{$event->id}/registration")->assertStatus(503);
@@ -58,7 +66,7 @@ class RuntimeBoundaryTest extends TestCase
     public function test_database_rejects_a_different_runtime_or_node_identity(): void
     {
         config(['ingress.mode' => 'node', 'ingress.node_id' => 'node-1']);
-        $this->get('/login')->assertOk();
+        $this->get('/login')->assertStatus(503);
         config(['ingress.node_id' => 'node-2']);
         $this->get('/login')->assertStatus(503);
         config(['ingress.mode' => 'cloud']);

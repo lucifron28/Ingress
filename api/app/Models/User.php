@@ -7,13 +7,15 @@ use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
-use Illuminate\Database\Eloquent\Relations\HasOne;
 
 #[Fillable(['name', 'email', 'password', 'role', 'student_id'])]
-#[Hidden(['password', 'remember_token'])]
+#[Hidden(['password', 'remember_token', 'firebase_uid'])]
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
@@ -29,13 +31,19 @@ class User extends Authenticatable
      * for every other. Authorization decisions for scanning are therefore
      * assignment-based (see `AdmitTicket`), never `role`-based.
      *
-     * Identity (student / employee / alumni / guest) is intentionally not modelled
-     * here yet; see `docs/architecture.md` §7.
+     * `firebase_uid` links an institutional student to a server-verified Firebase
+     * identity. A verified email proves mailbox ownership, not current enrollment;
+     * `student_id` remains optional until an enrollment authority is integrated.
      */
     public const ROLE_ADMIN = 'admin';
+
     public const ROLE_ORGANIZER = 'organizer';
+
     public const ROLE_STAFF = 'staff';
+
     public const ROLE_STUDENT = 'student';
+
+    public const ROLE_EVENT_MANAGER = 'event_manager';
 
     public function isAdmin(): bool
     {
@@ -57,6 +65,38 @@ class User extends Authenticatable
         return $this->role === self::ROLE_STUDENT;
     }
 
+    public function managerAssignments(): HasMany
+    {
+        return $this->hasMany(EventManagerAssignment::class);
+    }
+
+    public function managedEvents(): BelongsToMany
+    {
+        return $this->belongsToMany(Event::class, 'event_manager_assignments')
+            ->withPivot('assigned_by_user_id')
+            ->withTimestamps();
+    }
+
+    public function managesEvent(Event $event): bool
+    {
+        return $this->isAdmin()
+            || (int) $event->organizer_id === (int) $this->id
+            || $this->managerAssignments()->where('event_id', $event->getKey())->exists();
+    }
+
+    public function hasEventManagementAccess(): bool
+    {
+        return $this->isAdmin()
+            || $this->isOrganizer()
+            || $this->managerAssignments()->exists()
+            || $this->events()->exists();
+    }
+
+    public function events(): HasMany
+    {
+        return $this->hasMany(Event::class, 'organizer_id');
+    }
+
     /**
      * Institutional identity linked to this user account, if student.
      */
@@ -64,6 +104,7 @@ class User extends Authenticatable
     {
         return $this->hasOne(StudentIdentity::class, 'activated_user_id');
     }
+
     /**
      * Get the attributes that should be cast.
      *

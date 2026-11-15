@@ -27,6 +27,10 @@ class Event extends Model
 
     public const IDENTITY_CHECK = 'id_check';
 
+    public const ELIGIBILITY_PUBLIC = 'public';
+
+    public const ELIGIBILITY_STUDENT = 'student';
+
     protected $fillable = [
         'organizer_id',
         'venue_id',
@@ -34,6 +38,8 @@ class Event extends Model
         'slug',
         'description',
         'capacity',
+        'registration_eligibility',
+        'simulated_payments_enabled',
         'registration_opens_at',
         'registration_closes_at',
         'registration_closed_at',
@@ -50,6 +56,7 @@ class Event extends Model
     {
         return [
             'capacity' => 'integer',
+            'simulated_payments_enabled' => 'boolean',
             'registration_opens_at' => 'datetime',
             'registration_closes_at' => 'datetime',
             'registration_closed_at' => 'datetime',
@@ -60,6 +67,26 @@ class Event extends Model
             're_entry_allowed' => 'boolean',
             'ticket_transfers_allowed' => 'boolean',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        static::created(function (Event $event): void {
+            if ($event->ticketCategories()->exists()) {
+                return;
+            }
+
+            $event->ticketCategories()->create([
+                'name' => 'General Admission',
+                'price_minor' => 0,
+                'currency' => 'PHP',
+                'eligibility' => $event->registration_eligibility === self::ELIGIBILITY_STUDENT
+                    ? TicketCategory::ELIGIBILITY_STUDENT
+                    : TicketCategory::ELIGIBILITY_PUBLIC,
+                'is_active' => true,
+                'is_default' => true,
+            ]);
+        });
     }
 
     public function organizer(): BelongsTo
@@ -82,6 +109,21 @@ class Event extends Model
         return $this->hasMany(EventStaff::class);
     }
 
+    public function managerAssignments(): HasMany
+    {
+        return $this->hasMany(EventManagerAssignment::class);
+    }
+
+    public function responsibilityAudits(): HasMany
+    {
+        return $this->hasMany(EventResponsibilityAudit::class);
+    }
+
+    public function simulatedPaymentAudits(): HasMany
+    {
+        return $this->hasMany(EventSimulatedPaymentAudit::class);
+    }
+
     public function staffUsers(): BelongsToMany
     {
         return $this->belongsToMany(User::class, 'event_staff')
@@ -92,6 +134,16 @@ class Event extends Model
     public function registrations(): HasMany
     {
         return $this->hasMany(Registration::class);
+    }
+
+    public function checkoutOrders(): HasMany
+    {
+        return $this->hasMany(CheckoutOrder::class);
+    }
+
+    public function ticketCategories(): HasMany
+    {
+        return $this->hasMany(TicketCategory::class);
     }
 
     public function ticketTransfers(): HasMany
@@ -123,7 +175,21 @@ class Event extends Model
         $now = Carbon::now();
 
         return $now->betweenIncluded($this->registration_opens_at, $this->registration_closes_at)
+            && $this->starts_at !== null && $now->lt($this->starts_at)
             && $now->lte($this->ends_at);
+    }
+
+    public function canTransferTickets(): bool
+    {
+        return $this->isPublished() && $this->ticket_transfers_allowed && $this->snapshot_prepared_at === null
+            && $this->ends_at !== null && Carbon::now()->lt($this->ends_at);
+    }
+
+    public function canOfferSimulatedPayments(): bool
+    {
+        return config('ingress.mode') === 'cloud'
+            && (bool) config('ingress.simulated_payments.enabled')
+            && $this->simulated_payments_enabled;
     }
 
     public function assertSnapshotNotPrepared(): void

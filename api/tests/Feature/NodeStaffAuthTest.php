@@ -199,7 +199,7 @@ class NodeStaffAuthTest extends TestCase
         $this->signIn(str_repeat('a', 32))->assertStatus(429);
     }
 
-    public function test_node_login_requires_https_outside_local_or_testing(): void
+    public function test_node_login_requires_https_except_in_explicit_lan_demo_mode(): void
     {
         $this->stage();
         app(ImportReceivedSnapshot::class)->execute(10);
@@ -212,5 +212,24 @@ class NodeStaffAuthTest extends TestCase
         $this->postJson('http://example.test/api/v1/auth/node-staff/pair', ['node_id' => 'node-1', 'token' => $pair['token']])->assertForbidden();
         $this->postJson('https://example.test/api/v1/auth/node-staff/pair', ['node_id' => 'node-1', 'token' => $pair['token']])
             ->assertStatus(DB::connection()->getDriverName() === 'pgsql' ? 200 : 503);
+
+        config([
+            'ingress.lan_demo' => true,
+            'ingress.node_bind_address' => '192.168.55.158',
+            'app.url' => 'http://192.168.55.158:8000',
+        ]);
+        $demoToken = $this->postJson('http://192.168.55.158:8000/api/v1/auth/node-staff/login', [
+            'email' => 'staff@example.test', 'password' => $password,
+        ])->assertOk()->json('token');
+        $this->withToken($demoToken)->getJson('http://192.168.55.158:8000/api/v1/me')->assertOk();
+
+        $this->postJson('http://192.168.55.158:8000/api/v1/auth/node-staff/pair', [
+            'node_id' => 'node-1', 'token' => 'invalid',
+        ])->assertStatus(422);
+
+        config(['ingress.mode' => 'cloud']);
+        $this->postJson('http://192.168.55.158:8000/api/v1/auth/node-staff/login', [
+            'email' => 'staff@example.test', 'password' => $password,
+        ])->assertStatus(503);
     }
 }

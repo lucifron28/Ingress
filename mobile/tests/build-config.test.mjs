@@ -6,118 +6,93 @@ const require = createRequire(import.meta.url);
 const appJson = require('../app.json');
 const easJson = require('../eas.json');
 const resolveAppConfig = require('../app.config.js');
-const environmentKeys = [
-  'EXPO_PUBLIC_API_URL',
-  'EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE',
-  'EXPO_PUBLIC_INGRESS_DEMO_MODE',
-  'INGRESS_RELEASE_BUILD',
-];
-const secureReleaseEnvironment = {
-  INGRESS_RELEASE_BUILD: 'true',
-  EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE: 'false',
-  EXPO_PUBLIC_INGRESS_DEMO_MODE: 'false',
-};
+
+const keys = ['INGRESS_RELEASE_BUILD', 'INGRESS_LAN_DEMO'];
 
 function withEnvironment(environment, callback) {
-  const previousValues = new Map(environmentKeys.map((key) => [key, process.env[key]]));
-
-  for (const key of environmentKeys) {
-    if (environment[key] === undefined) {
-      delete process.env[key];
-    } else {
-      process.env[key] = environment[key];
-    }
+  const previous = new Map(keys.map((key) => [key, process.env[key]]));
+  for (const key of keys) {
+    if (environment[key] === undefined) delete process.env[key];
+    else process.env[key] = environment[key];
   }
-
   try {
     return callback();
   } finally {
-    for (const [key, value] of previousValues) {
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
+    for (const [key, value] of previous) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
     }
   }
 }
 
-test('Android config requests camera without microphone access', () => {
-  const permissions = appJson.expo.android.permissions ?? [];
-  const blockedPermissions = appJson.expo.android.blockedPermissions ?? [];
-  const cameraPlugin = appJson.expo.plugins.find((plugin) => Array.isArray(plugin) && plugin[0] === 'expo-camera');
+function buildProperties(config) {
+  return config.plugins.find((plugin) => Array.isArray(plugin) && plugin[0] === 'expo-build-properties')?.[1];
+}
 
-  assert.ok(!permissions.some((permission) => permission.endsWith('RECORD_AUDIO')));
-  assert.equal(cameraPlugin?.[1]?.microphonePermission, false);
-  assert.equal(cameraPlugin?.[1]?.recordAudioAndroid, false);
-  assert.ok(blockedPermissions.includes('android.permission.RECORD_AUDIO'));
-  assert.ok(blockedPermissions.includes('android.permission.READ_EXTERNAL_STORAGE'));
-  assert.ok(blockedPermissions.includes('android.permission.WRITE_EXTERNAL_STORAGE'));
+test('Android camera permission does not request microphone or storage access', () => {
+  const permissions = appJson.expo.android.permissions ?? [];
+  const blocked = appJson.expo.android.blockedPermissions ?? [];
+  const camera = appJson.expo.plugins.find((plugin) => Array.isArray(plugin) && plugin[0] === 'expo-camera');
+
+  assert.ok(!permissions.some((permission) => /RECORD_AUDIO|READ_EXTERNAL_STORAGE|WRITE_EXTERNAL_STORAGE$/.test(permission)));
+  assert.equal(camera?.[1]?.microphonePermission, false);
+  assert.equal(camera?.[1]?.recordAudioAndroid, false);
+  assert.ok(blocked.includes('android.permission.RECORD_AUDIO'));
+  assert.ok(blocked.includes('android.permission.READ_EXTERNAL_STORAGE'));
+  assert.ok(blocked.includes('android.permission.WRITE_EXTERNAL_STORAGE'));
 });
 
-test('EAS profiles explicitly select safe environments and Android artifact types', () => {
-  const preview = easJson.build.preview;
-  const production = easJson.build.production;
+test('EAS demo APK is separate from secure preview and production builds', () => {
+  const { preview, production, lanDemo } = easJson.build;
 
   assert.equal(preview.environment, 'preview');
   assert.equal(preview.distribution, 'internal');
   assert.equal(preview.android.buildType, 'apk');
   assert.equal(production.environment, 'production');
-  assert.equal(production.distribution, 'store');
   assert.equal(production.android.buildType, 'app-bundle');
+  assert.equal(lanDemo.extends, 'preview');
+  assert.equal(lanDemo.distribution, 'internal');
+  assert.equal(lanDemo.android.buildType, 'apk');
 
   for (const profile of [preview, production]) {
     assert.equal(profile.env.INGRESS_RELEASE_BUILD, 'true');
-    assert.equal(profile.env.EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE, 'false');
-    assert.equal(profile.env.EXPO_PUBLIC_INGRESS_DEMO_MODE, 'false');
+    assert.equal(profile.env.INGRESS_LAN_DEMO, 'false');
   }
+  assert.equal(lanDemo.env.INGRESS_LAN_DEMO, 'true');
+  assert.equal(lanDemo.env.INGRESS_LAN_DEMO_CA_CERT, undefined);
+  assert.equal(lanDemo.env.INGRESS_LAN_DEMO_NODE_HOST, undefined);
 });
 
-test('release config rejects missing, insecure, placeholder, and incomplete cloud API URLs', () => {
-  const invalidUrls = [
-    undefined,
-    'http://cloud.example.edu/api/v1',
-    'https://cloud.example.edu/api/v1',
-    'https://cloud.example.test/api',
-  ];
-
-  for (const apiUrl of invalidUrls) {
-    assert.throws(() => withEnvironment({ ...secureReleaseEnvironment, EXPO_PUBLIC_API_URL: apiUrl }, () => {
-      resolveAppConfig({ config: appJson.expo });
-    }), /EXPO_PUBLIC_API_URL/);
-  }
-});
-
-test('release config accepts the HTTPS cloud API and keeps local HTTP disabled', () => {
+test('preview and production keep cleartext traffic disabled', () => {
   const config = withEnvironment({
-    ...secureReleaseEnvironment,
-    EXPO_PUBLIC_API_URL: 'https://ingress.staging.example.org/api/v1',
+    INGRESS_RELEASE_BUILD: 'true',
+    INGRESS_LAN_DEMO: 'false',
   }, () => resolveAppConfig({ config: appJson.expo }));
-  const buildProperties = config.plugins.find((plugin) => Array.isArray(plugin) && plugin[0] === 'expo-build-properties');
 
-  assert.equal(buildProperties[1].android.usesCleartextTraffic, false);
+  assert.equal(buildProperties(config)?.android.usesCleartextTraffic, false);
+  assert.equal(config.extra.ingressLanDemo, false);
+});
+
+test('LAN demo build allows HTTP without a pinned host or CA certificate', () => {
+  const config = withEnvironment({
+    INGRESS_RELEASE_BUILD: 'true',
+    INGRESS_LAN_DEMO: 'true',
+  }, () => resolveAppConfig({ config: appJson.expo }));
+
+  assert.equal(buildProperties(config)?.android.usesCleartextTraffic, true);
+  assert.equal(config.extra.ingressLanDemo, true);
+  assert.equal(JSON.stringify(config).includes('INGRESS_LAN_DEMO_CA_CERT'), false);
+  assert.equal(JSON.stringify(config).includes('INGRESS_LAN_DEMO_NODE_HOST'), false);
   assert.deepEqual(config.ios.infoPlist.NSAppTransportSecurity, {});
-  assert.ok(config.android.blockedPermissions.includes('android.permission.SYSTEM_ALERT_WINDOW'));
 });
 
-test('release config rejects local HTTP or demo credential overrides', () => {
-  for (const override of [
-    { EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE: 'true' },
-    { EXPO_PUBLIC_INGRESS_DEMO_MODE: 'true' },
-    { EXPO_PUBLIC_INGRESS_DEMO_MODE: undefined },
-  ]) {
-    assert.throws(() => withEnvironment({
-      ...secureReleaseEnvironment,
-      EXPO_PUBLIC_API_URL: 'https://ingress.staging.example.org/api/v1',
-      ...override,
-    }, () => resolveAppConfig({ config: appJson.expo })), /disable local HTTP and demo credentials/);
-  }
-});
-
-test('local development retains the explicit private-LAN HTTP opt-in', () => {
-  const config = withEnvironment({ EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE: 'true' }, () => resolveAppConfig({ config: appJson.expo }));
-  const buildProperties = config.plugins.find((plugin) => Array.isArray(plugin) && plugin[0] === 'expo-build-properties');
-
-  assert.equal(buildProperties[1].android.usesCleartextTraffic, true);
-  assert.deepEqual(config.ios.infoPlist.NSAppTransportSecurity, { NSAllowsLocalNetworking: true });
+test('release builds require an explicit transport mode and keep demo opt-in', () => {
+  assert.throws(
+    () => withEnvironment({ INGRESS_RELEASE_BUILD: 'true' }, () => resolveAppConfig({ config: appJson.expo })),
+    /INGRESS_LAN_DEMO/,
+  );
+  assert.throws(
+    () => withEnvironment({ INGRESS_LAN_DEMO: 'true' }, () => resolveAppConfig({ config: appJson.expo })),
+    /INGRESS_RELEASE_BUILD/,
+  );
 });

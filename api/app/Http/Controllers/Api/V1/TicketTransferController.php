@@ -10,17 +10,23 @@ use App\Models\Registration;
 use App\Models\Ticket;
 use App\Models\TicketTransfer;
 use App\Models\User;
+use App\Services\Auth\StudentEmailEligibility;
+use App\Services\Tickets\TicketCredentialRotation;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
-use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class TicketTransferController extends Controller
 {
+    public function __construct(
+        private TicketCredentialRotation $credentialRotation,
+        private StudentEmailEligibility $studentEmailEligibility,
+    ) {}
+
     public function index(Request $request): AnonymousResourceCollection
     {
         $userId = $request->user()->id;
@@ -46,14 +52,14 @@ class TicketTransferController extends Controller
         }
 
         $transfer = DB::transaction(function () use ($eventId, $ticket, $sender, $validated) {
+            $this->studentEmailEligibility->lockPolicyForUpdate();
             $event = Event::whereKey($eventId)->lockForUpdate()->firstOrFail();
             $lockedTicket = Ticket::whereKey($ticket->id)->lockForUpdate()->firstOrFail();
             $registration = Registration::whereKey($lockedTicket->registration_id)->lockForUpdate()->firstOrFail();
 
             $this->assertTransferAllowed($event);
             if ((int) $registration->user_id !== (int) $sender->id
-                || ! $sender->isStudent()
-                || ! $sender->email_verified_at
+                || ! $this->studentEmailEligibility->hasVerifiedFirebaseIdentity($sender)
                 || $registration->attendee_type !== 'student'
                 || $registration->status !== Registration::STATUS_CONFIRMED
                 || ! $lockedTicket->isActive()
@@ -66,15 +72,16 @@ class TicketTransferController extends Controller
                 $query->whereRaw('LOWER(email) = ?', [$recipientIdentifier])
                     ->orWhereRaw('LOWER(student_id) = ?', [$recipientIdentifier]);
             })->first();
-            if (! $recipient || ! $recipient->isStudent() || ! $recipient->email_verified_at
-                || (int) $recipient->id === (int) $sender->id) {
+            $recipientError = $this->studentEmailEligibility->registrationError($recipient);
+            if ($recipientError !== null) {
+                throw ValidationException::withMessages(['recipient' => [$recipientError]]);
+            }
+            if ((int) $recipient->id === (int) $sender->id) {
                 throw ValidationException::withMessages(['recipient' => 'Choose a different verified student account.']);
             }
 
-            $recipientEmail = Str::lower($recipient->email);
             $alreadyRegistered = Registration::where('event_id', $event->id)
-                ->where(fn (Builder $query) => $query->where('user_id', $recipient->id)
-                    ->orWhereRaw('LOWER(guest_email) = ?', [$recipientEmail]))
+                ->where('user_id', $recipient->id)
                 ->exists();
             if ($alreadyRegistered) {
                 throw ValidationException::withMessages(['recipient' => 'The recipient already has a registration for this event.']);
@@ -130,6 +137,9 @@ class TicketTransferController extends Controller
     private function resolve(User $actor, TicketTransfer $transfer, string $decision): void
     {
         DB::transaction(function () use ($actor, $transfer, $decision) {
+            if ($decision === 'accept') {
+                $this->studentEmailEligibility->lockPolicyForUpdate();
+            }
             $event = Event::whereKey($transfer->event_id)->lockForUpdate()->firstOrFail();
             $lockedTransfer = TicketTransfer::whereKey($transfer->id)->lockForUpdate()->firstOrFail();
 
@@ -153,27 +163,22 @@ class TicketTransferController extends Controller
                     || Admission::where('ticket_id', $ticket->id)->exists()) {
                     throw ValidationException::withMessages(['transfer' => 'This ticket is no longer eligible for transfer.']);
                 }
-                if (! $actor->isStudent() || ! $actor->email_verified_at) {
-                    throw ValidationException::withMessages(['transfer' => 'Only verified student accounts can accept a ticket transfer.']);
+                $eligibilityError = $this->studentEmailEligibility->registrationError($actor);
+                if ($eligibilityError !== null) {
+                    throw ValidationException::withMessages(['transfer' => [$eligibilityError]]);
                 }
 
                 $alreadyRegistered = Registration::where('event_id', $event->id)
                     ->where('id', '!=', $registration->id)
-                    ->where(fn (Builder $query) => $query->where('user_id', $actor->id)
-                        ->orWhereRaw('LOWER(guest_email) = ?', [Str::lower($actor->email)]))
+                    ->where('user_id', $actor->id)
                     ->exists();
                 if ($alreadyRegistered) {
                     throw ValidationException::withMessages(['transfer' => 'You already have a registration for this event.']);
                 }
 
-                $secret = bin2hex(random_bytes(32));
                 $registration->user_id = $actor->id;
                 $registration->save();
-                $ticket->qr_hash = hash('sha256', $secret);
-                $ticket->encrypted_secret = Crypt::encryptString($secret);
-                $ticket->credential_version = ((int) $ticket->credential_version) + 1;
-                $ticket->issued_at = now();
-                $ticket->save();
+                $this->credentialRotation->rotateAdmissionCredential($ticket);
 
                 $lockedTransfer->status = TicketTransfer::STATUS_ACCEPTED;
                 $lockedTransfer->accepted_at = now();
@@ -200,7 +205,7 @@ class TicketTransferController extends Controller
         if (config('ingress.mode') === 'node') {
             throw ValidationException::withMessages(['transfer' => 'Ticket transfers are available only on the cloud.']);
         }
-        if (! $event->isPublished() || ! $event->ticket_transfers_allowed || $event->snapshot_prepared_at !== null) {
+        if (! $event->canTransferTickets()) {
             throw ValidationException::withMessages(['transfer' => 'Ticket transfers are not available for this event.']);
         }
     }

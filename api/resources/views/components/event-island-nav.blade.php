@@ -6,9 +6,14 @@
         ['key' => 'overview', 'label' => 'Overview', 'icon' => 'layout-dashboard', 'target' => 'event-overview'],
         ['key' => 'gates', 'label' => 'Gates', 'icon' => 'door-open', 'target' => 'event-gates'],
         ['key' => 'staff', 'label' => 'Staff', 'icon' => 'users', 'target' => 'event-staff'],
-        ['key' => 'tickets', 'label' => 'Tickets', 'icon' => 'ticket', 'target' => 'event-transfers'],
-        ['key' => 'attendance', 'label' => 'Attendance', 'icon' => 'chart-no-axes-column', 'route' => route('organizer.attendance', $event)],
+        ['key' => 'tickets', 'label' => 'Tickets', 'icon' => 'ticket', 'target' => 'tickets-registration'],
     ];
+
+    if (config('ingress.mode') === 'cloud' && auth()->user()->can('update', $event)) {
+        $navigationItems[] = ['key' => 'handoff', 'label' => 'Node Handoff', 'icon' => 'download', 'target' => 'node-handoff'];
+    }
+
+    $navigationItems[] = ['key' => 'attendance', 'label' => 'Attendance', 'icon' => 'chart-no-axes-column', 'route' => route('organizer.attendance', $event)];
 @endphp
 
 <div class="event-island-wrap">

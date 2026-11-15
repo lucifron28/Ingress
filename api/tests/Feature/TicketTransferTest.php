@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Models\Venue;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class TicketTransferTest extends TestCase
@@ -40,12 +41,16 @@ class TicketTransferTest extends TestCase
             'email' => 'sender@student.mseuf.edu.ph',
             'student_id' => 'S-1001',
             'role' => User::ROLE_STUDENT,
+            'firebase_uid' => 'firebase-sender-student',
+            'email_verified_at' => now(),
         ]);
         $this->recipient = User::factory()->create([
             'name' => 'Recipient Student',
             'email' => 'recipient@student.mseuf.edu.ph',
             'student_id' => 'S-1002',
             'role' => User::ROLE_STUDENT,
+            'firebase_uid' => 'firebase-recipient-student',
+            'email_verified_at' => now(),
         ]);
 
         $venue = Venue::create([
@@ -171,10 +176,10 @@ class TicketTransferTest extends TestCase
             'title' => $this->event->title,
             'description' => $this->event->description,
             'capacity' => $this->event->capacity,
-            'registration_opens_at' => $this->event->registration_opens_at->format('Y-m-d H:i:s'),
-            'registration_closes_at' => $this->event->registration_closes_at->format('Y-m-d H:i:s'),
-            'starts_at' => $this->event->starts_at->format('Y-m-d H:i:s'),
-            'ends_at' => $this->event->ends_at->format('Y-m-d H:i:s'),
+            'registration_opens_at' => $this->event->registration_opens_at->copy()->setTimezone('Asia/Manila')->format('Y-m-d\\TH:i'),
+            'registration_closes_at' => $this->event->registration_closes_at->copy()->setTimezone('Asia/Manila')->format('Y-m-d\\TH:i'),
+            'starts_at' => $this->event->starts_at->copy()->setTimezone('Asia/Manila')->format('Y-m-d\\TH:i'),
+            'ends_at' => $this->event->ends_at->copy()->setTimezone('Asia/Manila')->format('Y-m-d\\TH:i'),
             're_entry_allowed' => 0,
             'ticket_transfers_allowed' => 0,
         ])->assertRedirect();
@@ -219,6 +224,25 @@ class TicketTransferTest extends TestCase
         $this->assertDatabaseCount('ticket_transfers', 0);
     }
 
+    public function test_personal_email_recipient_can_accept_a_student_ticket_when_policy_is_off(): void
+    {
+        DB::table('student_access_settings')->where('id', 1)->update(['require_institutional_email' => false]);
+        $this->recipient->forceFill([
+            'email' => 'personal.recipient@gmail.com',
+        ])->save();
+
+        $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/tickets/{$this->ticket->id}/transfers", [
+            'recipient' => $this->recipient->email,
+        ])->assertCreated();
+        $transferId = TicketTransfer::query()->sole()->id;
+
+        $this->actingAs($this->recipient, 'sanctum')
+            ->postJson("/api/v1/ticket-transfers/{$transferId}/accept")
+            ->assertOk();
+
+        $this->assertSame($this->recipient->id, $this->ticket->fresh()->registration->user_id);
+    }
+
     public function test_transfer_requires_a_verified_student_sender_and_rejects_admitted_tickets(): void
     {
         $this->sender->forceFill(['email_verified_at' => null])->save();
@@ -258,9 +282,9 @@ class TicketTransferTest extends TestCase
         ]);
     }
 
-    public function test_guest_registration_with_recipient_email_blocks_transfer(): void
+    public function test_guest_contact_email_does_not_block_verified_student_transfer(): void
     {
-        Registration::create([
+        $guestRegistration = Registration::create([
             'event_id' => $this->event->id,
             'user_id' => null,
             'attendee_type' => 'guest',
@@ -271,13 +295,24 @@ class TicketTransferTest extends TestCase
 
         $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/tickets/{$this->ticket->id}/transfers", [
             'recipient' => $this->recipient->email,
-        ])->assertUnprocessable();
-        $this->assertDatabaseCount('ticket_transfers', 0);
+        ])->assertCreated();
+        $transferId = TicketTransfer::firstOrFail()->id;
+
+        $this->actingAs($this->recipient, 'sanctum')
+            ->postJson("/api/v1/ticket-transfers/{$transferId}/accept")
+            ->assertOk();
+
+        $this->assertSame($this->recipient->id, $this->ticket->registration()->firstOrFail()->fresh()->user_id);
+        $this->assertDatabaseHas('registrations', [
+            'id' => $guestRegistration->id,
+            'user_id' => null,
+            'guest_email' => $this->recipient->email,
+        ]);
     }
 
     public function test_registration_cutoff_does_not_close_transfers_but_snapshot_preparation_does(): void
     {
-        $this->event->update(['registration_closed_at' => now()]);
+        $this->event->update(['registration_closed_at' => now(), 'registration_closes_at' => now()->subSecond()]);
         $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/tickets/{$this->ticket->id}/transfers", [
             'recipient' => $this->recipient->email,
         ])->assertCreated();
@@ -295,6 +330,35 @@ class TicketTransferTest extends TestCase
         $this->actingAs($this->recipient, 'sanctum')
             ->postJson("/api/v1/ticket-transfers/{$transferId}/accept")->assertUnprocessable();
         $this->assertDatabaseHas('registrations', ['id' => $this->ticket->registration_id, 'user_id' => $this->sender->id]);
+    }
+
+    public function test_transfer_request_and_accept_are_rejected_at_or_after_event_end(): void
+    {
+        $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/tickets/{$this->ticket->id}/transfers", [
+            'recipient' => $this->recipient->email,
+        ])->assertCreated();
+        $transferId = TicketTransfer::firstOrFail()->id;
+        $eventEnd = $this->event->ends_at->copy();
+
+        Carbon::setTestNow($eventEnd);
+        try {
+            $this->actingAs($this->sender, 'sanctum')->getJson("/api/v1/tickets/{$this->ticket->id}")
+                ->assertOk()->assertJsonPath('ticket.event.ticket_transfers_allowed', false);
+            $this->actingAs($this->recipient, 'sanctum')
+                ->postJson("/api/v1/ticket-transfers/{$transferId}/accept")->assertUnprocessable();
+            $this->assertDatabaseHas('ticket_transfers', ['id' => $transferId, 'status' => TicketTransfer::STATUS_PENDING]);
+            $this->assertDatabaseHas('registrations', ['id' => $this->ticket->registration_id, 'user_id' => $this->sender->id]);
+
+            $this->actingAs($this->sender, 'sanctum')->deleteJson("/api/v1/ticket-transfers/{$transferId}")->assertOk();
+            Carbon::setTestNow($eventEnd->copy()->addSecond());
+            $this->actingAs($this->sender, 'sanctum')->postJson("/api/v1/tickets/{$this->ticket->id}/transfers", [
+                'recipient' => $this->recipient->email,
+            ])->assertUnprocessable();
+            $this->assertDatabaseHas('ticket_transfers', ['id' => $transferId, 'status' => TicketTransfer::STATUS_CANCELLED]);
+            $this->assertDatabaseCount('ticket_transfers', 1);
+        } finally {
+            Carbon::setTestNow();
+        }
     }
 
     public function test_organizer_event_page_shows_transfer_audit_history(): void

@@ -18,7 +18,7 @@ class NodeStaffAuthController extends Controller
 {
     public function pair(Request $request, NodeStaffPairing $pairing): JsonResponse
     {
-        if (! app()->environment(['local', 'testing']) && ! $request->secure()) {
+        if (! $request->secure() && ! $this->allowsLanDemoHttp()) {
             abort(403, 'HTTPS is required.');
         }
         $data = $request->validate([
@@ -35,7 +35,7 @@ class NodeStaffAuthController extends Controller
 
     public function login(Request $request, NodeStaffAccess $access): JsonResponse
     {
-        if (! app()->environment(['local', 'testing']) && ! $request->secure()) {
+        if (! $request->secure() && ! $this->allowsLanDemoHttp()) {
             abort(403, 'HTTPS is required.');
         }
         $data = $request->validate([
@@ -66,5 +66,11 @@ class NodeStaffAuthController extends Controller
 
         return response()->json(['token' => $token, 'token_type' => 'Bearer', 'user' => new UserResource($user), 'node_staff' => true])
             ->header('Cache-Control', 'no-store, private');
+    }
+
+    private function allowsLanDemoHttp(): bool
+    {
+        return app()->environment(['local', 'testing'])
+            || (config('ingress.mode') === 'node' && config('ingress.lan_demo') === true);
     }
 }

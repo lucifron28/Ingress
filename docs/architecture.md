@@ -10,20 +10,20 @@
 Ingress runs as a cloud application and one or more separate Event Node applications. Each runtime has a separate PostgreSQL database and application key. The cloud handles accounts, event discovery, registration, ticket transfers, and organizer reporting. An Event Node receives one encrypted event snapshot and becomes the admission authority after the organizer confirms its staging and import receipts and activates the signed authority grant.
 
 ```text
-Student app --HTTPS--> Cloud runtime --PostgreSQL
+Student website --HTTPS--> Cloud runtime --PostgreSQL
                            |
                            | encrypted snapshot and signed authority grant
                            v
-Staff scanners --venue LAN--> Event Node --PostgreSQL
+Staff-only scanner app --venue LAN--> Event Node --PostgreSQL
                                    |
                                    | authenticated admission and walk-in sync
                                    v
                                Cloud runtime
 ```
 
-The snapshot transfer is a manual operator workflow. After authority activation, the Event Node records admissions and walk ins locally. Staff scanners need the venue LAN and the Event Node, but admission does not require public internet. Student tickets cached after online synchronization remain display only. They do not allow offline registration or admission.
+The snapshot transfer is a manual operator workflow. After authority activation, the Event Node records admissions and walk ins locally. Staff scanners need the venue LAN and the Event Node, but admission does not require public internet. Students can display previously downloaded ticket PDFs offline; the Event Node still validates each credential.
 
-Staff authenticate to the Event Node with local credentials or a one use pairing QR. Student accounts and Event Node staff sessions use separate mobile sessions. Production connections use HTTPS. A local development build may opt into HTTP for local or private LAN node addresses.
+Staff authenticate to the Event Node with local credentials or a one use pairing QR. The mobile app stores only the Event Node staff session. Standard preview and production scanner requests require HTTPS and use Android system CAs. The dedicated course-demo `lanDemo` profile permits HTTP only to a private IPv4 Node address on the isolated venue LAN; this exposes credentials and ticket data to other devices on that network. See [Staff scanner build instructions](../mobile/README.md).
 
 The organizer attendance page reports current presence and movement counts and provides a private CSV export. Events can require staff to confirm an approved ID check. The system does not collect photos. See [deployment and operating limits](second-half-architecture.md) and the [deployment guide](deployment.md) for recovery, retention, and production configuration details.
 
@@ -139,9 +139,19 @@ DB::transaction(function () use ($user, $eventId) {
 
 Under high concurrent load (e.g. 50 students competing for the final seat), database transactions queue cleanly behind the row lock. Exactly one transaction succeeds; all subsequent transactions see `confirmed == capacity` and fail safely without overbooking.
 
+### Simulated paid checkout and reservations
+
+Paid checkout is an internal demo path. It accepts no payment credentials and calls no financial provider. The deployment must explicitly set `INGRESS_SIMULATED_PAYMENTS_ENABLED=true`, and an authorized event manager must enable the event-level switch. The event switch and its actor are recorded in `event_simulated_payment_audits`. The deployment switch defaults to false and is independent of `APP_ENV` and `INGRESS_DEMO_MODE`.
+
+`checkout_orders` snapshots the selected category price and currency and holds one seat for ten minutes. Capacity checks count confirmed registrations plus unexpired pending and failed orders at both event and category level. Checkout creation, payment confirmation, cancellation, expiry, and event capacity edits acquire the event row lock first. A failed attempt can be retried while the reservation is active. Cancellation, expiry, or event authorization revocation releases the seat and cancels any pending attempt.
+
+`payment_attempts` records the selected generic test method and simulator outcome only. It has no fields for card, wallet, banking, or identity credentials. The server chooses the simulator result; the confirmation endpoint ignores client status fields. On success, one database transaction creates the registration and ticket and marks the order and attempt successful. Replaying confirmation returns the existing registration. Pending, failed, cancelled, and expired orders do not issue tickets. This workflow must remain isolated from any real financial integration.
+
+For an accountless purchase whose successful confirmation response is interrupted, the order can restore the ticket and a one-time code handoff for fifteen minutes. The handoff is encrypted with the Laravel application key, hidden from model serialization, and never stored as plaintext. Viewing the ticket clears it; after expiry the application refuses recovery and clears it on the next checkout view. The code is never included in the PDF or QR.
+
 ### Keeping capacity valid when an organizer edits an event
 
-Registration is not the only writer of capacity. `OrganizerEventController::update()` takes the **same `events` row lock** inside a transaction, counts the confirmed registrations, and rejects any new capacity below that count:
+Registration is not the only writer of capacity. `OrganizerEventController::update()` takes the **same `events` row lock** inside a transaction, counts confirmed registrations and active paid reservations, and rejects any new capacity below that count:
 
 ```
 capacity = 500, confirmed = 420, requested = 300  ->  rejected (422, capacity unchanged)
@@ -322,25 +332,21 @@ In physical campus events with multiple entrance turnstiles (e.g. Gate A and Gat
 
 ## 7. Identity vs Authorization
 
-The system has two distinct concepts that are easy to conflate, and the schema keeps them separate on purpose.
+The system keeps identity separate from event responsibility. The same person can be an attendee, manage one assigned event, and scan another event when explicitly assigned.
 
 **Identity — who a person is at the university.** A student, an employee, an alumnus, or a guest. This is a long-lived fact about a person and is what an institution would eventually source from an authoritative directory (for example `myMSEUF` SSO).
 
 **Authorization / responsibility — what a person may do in Ingress, and for which event.** An attendee, event staff, organizer, or admin. These are *event-scoped responsibilities*: the same person can be a student (identity) and event staff (responsibility) for one event while being an ordinary attendee for every other.
 
-The current implementation reflects this deliberately:
+The Cloud authorization model uses three separate relationships:
 
-- `users.role` is a **coarse portal flag** used for routing and portal-level access (which app area you land in, whether the organizer console is reachable). Its constants (`admin`, `organizer`, `staff`, `student`) are a short-term convenience, not the responsibility model.
-- The **responsibility model lives in `event_staff`**: a per-event assignment row with an optional specific gate. `AdmitTicket` authorizes a scan from `isAdmin() || event.organizer_id === user.id || an event_staff row exists` and never from `users.role` alone. A student who is assigned as staff for one event can therefore scan that event without gaining any other staff capability.
+- `events.organizer_id` remains the event owner. Existing owner IDs are preserved, and owner rights are limited to that event.
+- `event_manager_assignments` grants management of one specific event. A platform administrator creates or revokes these rows. An `event_manager` role value without an active assignment grants no event access and does not grant event creation or global administration.
+- `event_staff` grants scanner access for one specific event and optionally one gate. Event managers and students can be assigned as scanners without changing their account role. A manager is not implicitly allowed to scan; a separate scanner assignment is required.
 
-### Remaining role-routing limitation
+`event_responsibility_audits` records manager assignment, invitation, acceptance, revocation, scanner assignment, gate change, and scanner revocation. Audit rows keep event, actor, subject, and gate text snapshots so the history remains readable after an account or event is removed. Removing a manager assignment immediately removes its event-management access. Scanner admission remains based on the existing assignment checks and is unchanged on the Event Node.
 
-Two places still read `users.role` where they should read a responsibility:
-
-1. `mobile/app/index.tsx` routes a signed-in user to the staff scanner when `role === 'staff'`. A student who is also event staff lands in attendee mode and must switch manually.
-2. `OrganizerEventController` offers only users whose `role` is `staff` in the staff picker, so a student cannot be assigned as event staff through the UI.
-
-Neither is a security gap — the *authorization* decision is already assignment-based — but both are functional limitations. Resolving them means splitting identity from responsibility properly (separate tables or a many-to-many), which is a second-half change: this milestone intentionally does not redesign authentication or build a general RBAC system.
+An administrator can assign an existing account directly or invite a new email address. New-account invitations use a random single-use token stored only as a SHA-256 hash, expire after 48 hours, and place the raw token in the email URL fragment. The invitation page removes the fragment before sending the token in a private POST body. Invitations require a configured safe mail transport; logging and plaintext SMTP are rejected before an invitation is created. Invitation responses are non-cacheable with a no-referrer policy. Firebase handles student verification and password-reset messages.
 
 ---
 
@@ -355,7 +361,13 @@ Session restoration distinguishes two failure modes:
 | `401` | The token is invalid for this server — stored token and cached identity are cleared. |
 | Transport failure (`status: 0`) | The server is unreachable — the cached identity is kept so the app can show who is signed in, while every server action still fails closed. |
 
-**Organizer web** uses ordinary Laravel session authentication. Only users who pass `isOrganizer()` may enter the organizer console; a student who authenticates successfully is logged straight back out with an explanatory error.
+**Organizer web** uses ordinary Laravel session authentication. Platform administrators and legacy event organizers retain their existing access. A user with an active manager assignment or owned event can also sign in, but event policies check each event independently; the `event_manager` role alone is insufficient, and managers cannot create events. Students use Firebase for sign-in and can reach management pages only when their event-specific assignment permits it.
+
+**Student web identity** is separate from organizer credentials and Event Node identities. The Cloud student page uses Firebase email/password authentication, Firebase-managed verification and password-reset emails, and browser-session persistence. Firebase passwords are sent directly to Firebase and are never stored by Laravel. Firebase's action links return to `/student/auth`; the Firebase authorized-domain list must include the deployed Cloud host.
+
+After verification, the browser sends its Firebase ID token in a CSRF-protected POST to `/student/session`. Laravel checks that token with Firebase Identity Toolkit `accounts:lookup` using the configured Firebase project key, then independently enforces `emailVerified`, a valid email, an enabled password provider, and a student-only local account. Cloud Admin can require the exact `@student.mseuf.edu.ph` domain for new accounts and registrations. When the policy is enabled, personal-email accounts created before it was enabled can still sign in and view their existing tickets, but cannot make new student registrations. Student-only events and ticket categories always require an institutional address, regardless of the setting. Laravel does not accept a client-supplied UID, verification flag, or role. The local `firebase_uid` is unique and hidden from serialized user data. An unlinked local student can be linked only when the verified address matches; admin, organizer, staff, conflicting UID, and duplicate-email records are rejected. New Firebase students receive no self-reported student number, and their required local password field is set to an unknown random value rather than their Firebase password.
+
+Student sessions rotate the Laravel session ID and require a verified Firebase-linked student for the student dashboard. The browser page, ID-token exchange, and dashboard are non-cacheable; the exchange is rate-limited and remains HTTPS-only outside local/testing. These Firebase routes are Cloud-only, so the Event Node has no Firebase runtime dependency. The emailed activation and Sanctum password login paths remain available on the web and legacy API. The native scanner does not use Cloud student authentication. A verified university mailbox proves mailbox ownership, not current enrollment; event-specific enrollment evidence still requires an authoritative source.
 
 ### Login rate limiting
 
@@ -370,4 +382,4 @@ Throttle state uses the configured cache store (`database` in production, `array
 
 ### Demo mode
 
-`INGRESS_DEMO_MODE` → `config('app.demo_mode')` (default **false**) gates every predictable credential in the system. See ADR 010 for the decision; the operational effect is that the seeder, the organizer login hint, and the mobile quick-select are all inert unless an environment opts in, and `APP_ENV=production` with demo mode on is a hard boot error.
+`INGRESS_DEMO_MODE` → `config('app.demo_mode')` (default **false**) gates predictable server demo credentials. See ADR 010 for the decision; the seeder and organizer login hint are inert unless an environment opts in, and `APP_ENV=production` with demo mode on is a hard boot error. The current mobile scanner has no demo login or attendee credentials.

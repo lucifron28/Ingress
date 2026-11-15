@@ -25,27 +25,40 @@ class NodeAdmissionAccess
         if (! $runtime || $runtime->mode !== 'node' || $runtime->identity !== config('ingress.node_id')) {
             return false;
         }
-        $import = DB::table('node_event_imports')->where('event_id', $eventId)->first();
-        if (! $import) {
-            return false;
-        }
-        $headQuery = DB::table('received_event_heads')->where('event_id', $import->cloud_event_id);
-        $head = ($lock ? $headQuery->sharedLock() : $headQuery)->first();
-        $authority = DB::table('node_event_authorities')->where('event_id', $eventId)->first();
-        if (! $head || ! $authority || (int) $head->version !== (int) $import->version
-            || (int) $authority->cloud_event_id !== (int) $import->cloud_event_id
-            || $authority->snapshot_id !== $import->snapshot_id || (int) $authority->version !== (int) $import->version
-            || ! hash_equals($authority->sha256, $import->sha256)) {
-            return false;
-        }
-        try {
-            $metadata = $this->grants->verify($authority->grant);
-        } catch (ValidationException) {
-            return false;
-        }
-        if ($metadata !== ['protocol' => 1, 'node_id' => config('ingress.node_id'), 'snapshot_id' => $import->snapshot_id,
-            'event_id' => (int) $import->cloud_event_id, 'version' => (int) $import->version, 'sha256' => $import->sha256]) {
-            return false;
+        $localQuery = DB::table('local_demo_events')->where('event_id', $eventId);
+        $localDemo = config('ingress.lan_demo') === true && (bool) ($lock ? $localQuery->sharedLock() : $localQuery)->first()
+            && ! DB::table('node_event_imports')->where('event_id', $eventId)->exists();
+        if ($localDemo) {
+            $assignment = DB::table('event_staff')
+                ->join('events', 'events.id', '=', 'event_staff.event_id')
+                ->where('events.id', $eventId)->where('events.status', 'published')
+                ->where('event_staff.user_id', $staff->id);
+            if (! ($lock ? $assignment->sharedLock() : $assignment)->exists()) {
+                return false;
+            }
+        } else {
+            $import = DB::table('node_event_imports')->where('event_id', $eventId)->first();
+            if (! $import) {
+                return false;
+            }
+            $headQuery = DB::table('received_event_heads')->where('event_id', $import->cloud_event_id);
+            $head = ($lock ? $headQuery->sharedLock() : $headQuery)->first();
+            $authority = DB::table('node_event_authorities')->where('event_id', $eventId)->first();
+            if (! $head || ! $authority || (int) $head->version !== (int) $import->version
+                || (int) $authority->cloud_event_id !== (int) $import->cloud_event_id
+                || $authority->snapshot_id !== $import->snapshot_id || (int) $authority->version !== (int) $import->version
+                || ! hash_equals($authority->sha256, $import->sha256)) {
+                return false;
+            }
+            try {
+                $metadata = $this->grants->verify($authority->grant);
+            } catch (ValidationException) {
+                return false;
+            }
+            if ($metadata !== ['protocol' => 1, 'node_id' => config('ingress.node_id'), 'snapshot_id' => $import->snapshot_id,
+                'event_id' => (int) $import->cloud_event_id, 'version' => (int) $import->version, 'sha256' => $import->sha256]) {
+                return false;
+            }
         }
         $tokenQuery = PersonalAccessToken::whereKey($token->id);
         $current = ($lock ? $tokenQuery->sharedLock() : $tokenQuery)->first();

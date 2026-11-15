@@ -8,11 +8,13 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('runtime_identity', function (Blueprint $table) {
-            $table->unsignedTinyInteger('id')->primary();
-            $table->string('mode', 16);
-            $table->string('identity', 64);
-        });
+        if (! Schema::hasTable('runtime_identity')) {
+            Schema::create('runtime_identity', function (Blueprint $table) {
+                $table->unsignedTinyInteger('id')->primary();
+                $table->string('mode', 16);
+                $table->string('identity', 64);
+            });
+        }
     }
 
     public function down(): void

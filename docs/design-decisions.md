@@ -8,15 +8,15 @@
 ## ADR 001: Monolithic Laravel 13 Backend with Blade & Sanctum REST API
 
 ### Context
-Ingress requires an organizer web application for event management, reporting, and staff assignment, alongside an API layer serving cross-platform mobile apps for students and gate staff.
+Ingress uses a Laravel website for student accounts, event registration, ticket access, and organizer tools, alongside an API used by the staff-only Event Node scanner.
 
 ### Alternatives Considered
 1. **Full SPA (Next.js / Vue) + Separate Laravel API**: Adds unnecessary build complexity, state synchronization overhead, and deployment friction for a student project.
 2. **Microservices (Go scanner service, Node auth service, Python analytics)**: Violates project requirements; introduces distributed network failures and impossible defense justification.
-3. **Monolithic Laravel with Blade Web UI + Sanctum REST API**: Single codebase, shared database transactions, native session management for organizers, and lightweight bearer token issuance for mobile clients.
+3. **Monolithic Laravel with Blade Web UI + Sanctum REST API**: Single codebase, shared database transactions, native session management for the website, and lightweight bearer tokens for the Event Node staff scanner.
 
 ### Decision
-Use **Laravel 13** as a cohesive monolith. Blade templates provide fast, robust server-rendered administration for campus organizers, while Laravel Sanctum provides token authentication for mobile clients under `/api/v1/*`.
+Use **Laravel 13** as a cohesive monolith. Blade templates provide server-rendered student and organizer flows, while Laravel Sanctum provides API authentication for Event Node staff clients under `/api/v1/*`.
 
 ---
 
@@ -127,7 +127,7 @@ A concurrent insert that loses the race on the unique index is caught and mapped
 ## ADR 006: Expo SDK 58 with Expo Router and SecureStore
 
 ### Context
-The mobile app must support cross-platform deployment (Android and iOS) on campus with camera barcode scanning and secure credential persistence.
+The staff scanner needs camera barcode scanning, local Event Node authentication, and secure credential persistence on mobile devices.
 
 ### Alternatives Considered
 1. **Bare React Native**:
@@ -138,7 +138,7 @@ The mobile app must support cross-platform deployment (Android and iOS) on campu
    File-based route navigation, native hardware keystore encryption (Android Keystore / iOS Keychain), and managed `expo-camera` barcode scanning.
 
 ### Decision
-Use Expo SDK `58.0.23`, React Native `0.88.1`, Expo Router `58.0.30`, and `expo-secure-store` for the cross-platform mobile client. The production cloud API URL is supplied at build time. Native cleartext HTTP is disabled by default; a public development flag enables it only for local builds.
+Use Expo SDK `58.0.23`, React Native `0.88.1`, Expo Router `58.0.30`, and `expo-secure-store` for the staff-only Event Node scanner. The app has no Cloud API URL. Android preview and production builds use system certificate authorities and HTTPS. The dedicated course-demo `lanDemo` APK permits private IPv4 HTTP only for the isolated Docker Event Node workflow described in [LAN course demo](lan-course-demo.md).
 
 ---
 
@@ -210,16 +210,16 @@ The prototype runs the Event Node on a laptop and phones connect over a local Wi
 
 ### Decision
 
-**Local development.** Native builds disable cleartext HTTP by default. Set `EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE=true` to enable local HTTP during development. The mobile node client accepts HTTP only for localhost or private LAN hosts. Android's native `usesCleartextTraffic` setting applies to the whole app build, so the flag must remain unset in release builds. iOS enables local networking only while the flag is set.
+**Current course-demo exception.** The standard Android `preview` and `production` profiles require HTTPS. The separate `lanDemo` profile allows HTTP to private IPv4 addresses solely for the controlled course-project Docker workflow. HTTP exposes credentials and ticket data to other devices on the network, so this is not a production or shared-network setting. See [LAN course demo](lan-course-demo.md).
 
 **Production.** Event Node traffic must use HTTPS/TLS. Passwords, Sanctum bearer tokens, QR credentials, and attendee identity data all cross this link, and over plaintext HTTP on an untrusted network they are readable and modifiable in transit. A production deployment must:
 
 - terminate TLS in front of Laravel (reverse proxy or the platform's load balancer) and never expose the cleartext listener;
-- leave `EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE` unset and connect the Event Node only through an `https://` origin;
+- connect the Event Node only through an `https://` origin;
 - set `SESSION_SECURE_COOKIE=true` and `APP_URL=https://…`.
 
 ### Consequences
-The cleartext switch and HTTP LAN procedure in `docs/lan-demo.md` are for local development. The application does not implement certificate pinning or client certificates. A production rollout must provision a certificate the staff devices trust, including when the Event Node has no outbound internet.
+The former cleartext switch is no longer available in the mobile app. The legacy web-only demo can use HTTP on an isolated local network. The application does not implement certificate pinning or client certificates. A production rollout must provision a certificate the staff devices trust, including when the Event Node has no outbound internet.
 
 ---
 
@@ -238,13 +238,13 @@ Introduce `INGRESS_DEMO_MODE`, read once into `config('app.demo_mode')` with a *
 
 - `DatabaseSeeder` seeds the demonstration users and events only when demo mode is on. Venues (pure reference data with nothing predictable) are always seeded.
 - The organizer login page advertises the demo credentials only when demo mode is on.
-- The mobile app gates its quick-select chips and pre-filled password behind its own build-time flag, `EXPO_PUBLIC_INGRESS_DEMO_MODE`, which also defaults to off.
+- The former mobile app gated quick-select chips and pre-filled passwords behind a build-time flag. Phase 8 removed that attendee login flow; the current scanner contains no demo account credentials.
 - Booting with demo mode enabled while `APP_ENV=production` is a **hard error**: the application refuses to start rather than serve predictable credentials.
 
 `.env.example` ships `INGRESS_DEMO_MODE=true` so copying the example file keeps the documented quickstart working, while an environment that does not opt in gets nothing predictable.
 
 ### Consequences
-Outside demo mode there are no accounts at all, so an operator must provision the first organizer deliberately; the README documents that one-liner. The mobile flag is client-side UX only and cannot make the server safer or less safe — whether the demo accounts exist is decided solely by the server flag.
+Outside demo mode there are no seeded accounts, so an operator must provision the first organizer deliberately; the README documents that one-liner. The native scanner has no account-creation or demo-login screen.
 
 
 ---
@@ -335,7 +335,7 @@ The QR payload itself remains free of PII.
 ## ADR 015: Cloud Student Auth with Offline Session Restoration
 
 ### Status
-Implemented in the native mobile app. A student must authenticate online before the app can cache the wallet. Cached tickets are display only; they do not enable registration or admission.
+Historical mobile design. Phase 8 removed the attendee wallet and student session from the native app. Student account and ticket flows remain on the website; attendees can download ticket PDFs for local display. See ADR 020.
 
 ### Context
 Students may arrive without usable internet but still need to open the app and show a ticket. Verifying passwords locally would create a second authentication system and would not reflect current server account state.
@@ -356,7 +356,7 @@ Students never configure an Event Node URL.
 ## ADR 016: Scanner QR Pairing and Event-Local Staff Authentication
 
 ### Status
-Implemented with one use scanner pairing, Event Node staff credentials, and HTTPS required outside local development.
+Implemented with one-use scanner pairing and Event Node staff credentials. Standard scanner profiles require HTTPS; the isolated course-demo `lanDemo` profile supports the private-LAN HTTP exception in ADR 009.
 
 ### Context
 Manual IP entry is acceptable for the prototype but is poor event-day UX. Scanner authentication also cannot depend only on public internet if the system is intended to operate during an upstream outage.
@@ -391,13 +391,13 @@ A transfer:
 
 Until the recipient accepts, the original owner keeps the ticket. Scanner staff see the current owner, not the full transfer history.
 
-Events default to transfers disabled and may enable them in event settings. Transfers require student accounts with verified institutional email addresses; this check does not prove enrollment. This version has no transfer-count limit or organizer approval step. Self-service transfer closes at snapshot preparation. Pending requests expire when the event disables transfers or prepares its snapshot. Guest, alumni, and walk-in passes do not support self-service transfer.
+Events default to transfers disabled and may enable them in event settings. Student-account transfers require verified institutional email addresses; this check does not prove enrollment. These transfers use recipient acceptance and retain their existing history and eligibility rules. A student's duplicate registration check uses the account ID, so an accountless contact email with identical text does not block the student. Accountless guest and alumni tickets use a separate redemption-code flow. The recipient supplies a name and contact email; redemption updates those details and rotates both ticket credentials atomically. It does not create an account or collect a student number. Possession of the code proves ticket control, not identity. Student-restricted tickets and node walk-ins cannot use this flow. Another accountless guest or alumni registration or active guest checkout that already uses the submitted contact email blocks redemption; student account email alone does not. There is no transfer-count limit or organizer approval step. All transfers remain closed at event end or snapshot preparation; closing registration alone does not close transfers. A pending student transfer after event end remains cancellable by its sender or declinable by its recipient. Pending student requests expire when the event disables transfers or prepares its snapshot.
 ---
 
 ## ADR 018: Student accounts with accountless guest and alumni passes
 
 ### Status
-Implemented for single use student email activation, organizer issued guest and alumni passes, and node walk ins. Paid guest tickets and email delivery are not implemented.
+Implemented for Firebase-verified student accounts, organizer-issued guest and alumni passes, accountless guest and alumni redemption-code transfers, and node walk-ins. Paid guest tickets and email delivery are not implemented.
 
 ### Context
 Ingress is primarily for MSEUF events. Students who control an institutional email address can use a persistent account, ticket wallet, registration history, and transfers. Alumni and external guests are occasional attendees and should not be forced through the same account-activation flow.
@@ -405,17 +405,19 @@ Ingress is primarily for MSEUF events. Students who control an institutional ema
 A single email-only model for everyone would make students repeatedly verify identity for every event and would weaken the link between a ticket and the university student record. A universal account requirement for outsiders would create unnecessary friction for invited guests, alumni, parents, partner-school visitors, and paid external attendees.
 
 ### Decision
-Keep normal self-service accounts focused on MSEUF students. Signup verifies control of an `@student.mseuf.edu.ph` address through a single-use email link before account completion. Directory ingestion is not required. Email verification alone does not establish ownership of a student number or current enrollment.
+Keep self-service accounts student-only and require Firebase email verification. Cloud Admin controls whether new student accounts and registrations must use the exact `@student.mseuf.edu.ph` domain. The setting is off by default so verified personal-email accounts remain usable. Student-only events and categories always require a verified institutional address, regardless of the setting. Email verification alone does not establish ownership of a student number or current enrollment. Directory ingestion is not required for account creation.
 
-External attendees may receive organizer issued tickets or node walk in passes without creating a MSEUF account. Paid guest tickets and automatic email delivery are not implemented.
+External attendees may receive organizer-issued tickets or node walk-in passes without creating an MSEUF account. Eligible public guest and alumni tickets can change hands through a one-use redemption code. The recipient enters a current name and contact email, and the system replaces the previous guest details while rotating admission and redemption credentials. The contact email is not verified, and code possession does not verify identity. Student-restricted tickets and node walk-ins cannot use this transfer path. Paid guest tickets and automatic email delivery are not implemented.
 
-Guest and alumni tickets do not require a MSEUF account. The organizer can issue a printable pass, and event staff can register a walk in. Both use the same opaque credential and validation path as student tickets. Email delivery is not implemented.
+Guest and alumni tickets do not require an MSEUF account. An organizer can issue a printable pass, a public registration can issue an eligible ticket, and event staff can register a walk-in. These tickets use the same opaque credential and validation path as student tickets. Email delivery is not implemented.
+
+Guest and alumni contact email is unverified and is not treated as ownership of a student account. One accountless attendee per normalized email is allowed per event, and active guest checkout reservations follow the same rule. A verified student can register or accept a ticket transfer even when a guest has supplied that student's email; account-backed duplicate checks use the student account ID. This keeps public accountless registration available without letting an unverified contact claim a student identity.
 
 The roster distinguishes student, guest, alumni, and walk in attendee records. Reporting can distinguish student accounts from guest and alumni attendees. Email verification proves control of the institutional address, not student number ownership or current enrollment.
 
-The ticket source changes how the ticket is issued, not how it is validated. Student wallet tickets, organizer-issued guest passes, and printed walk in passes all use the Event Node's server-authoritative validation pipeline.
+The ticket source changes how the ticket is issued, not how it is validated. Student tickets displayed from the website or a downloaded PDF, organizer-issued guest passes, and printed walk-in passes all use the Event Node's server-authoritative validation pipeline.
 
-This decision also reinforces the choice not to use TOTP. A static opaque credential can be shown from a student app or printed pass without requiring the attendee to run a synchronized dynamic-code client.
+This decision also reinforces the choice not to use TOTP. A static opaque credential can be shown from the website, a downloaded PDF, or a printed pass without requiring the attendee to run a synchronized dynamic-code client.
 
 ---
 
@@ -448,5 +450,23 @@ OUTSIDE --ENTRY--> INSIDE   # permitted re-entry
 The existing two-stage scanner invariant remains in force: scanning performs read-only validation and identity preview; only explicit authorized staff confirmation records the entry or exit.
 
 Node-to-cloud batches carry movement direction and ID-check acknowledgment, and cloud applies them idempotently. The attendance feed reports attendees who ever entered, current inside and outside counts, re-entry count, and current student-account versus guest/alumni occupancy. The organizer can export the current confirmed roster as a private CSV. Standard events keep their prior snapshot and batch schemas for compatibility. Snapshot schema version 4 carries ID-check policy, and batch schema version 3 carries each staff acknowledgment. Versions 1 through 3 remain readable with standard identity checks.
+
+---
+
+## ADR 020: Staff-only mobile scanner
+
+### Status
+Implemented in the scanner-only mobile cutover. Physical-device and venue testing remains pending.
+
+### Context
+The Expo app previously combined student accounts, ticket discovery and wallets, and Event Node scanning. The student account and ticket flows now live on the website. Keeping both client implementations increased maintenance and left cloud credentials on phones that only need local admission access.
+
+### Decision
+Keep the native app focused on Event Node staff workflows: local sign-in or one-use pairing, assigned events and gates, scan preview followed by explicit confirmation, walk-ins, and secure session storage. Remove attendee routes, Cloud API authentication, event discovery, wallet and transfer services, and mobile demo credentials. Student registration, account tickets, and transfers remain web flows. A previously downloaded PDF may be displayed offline; the Event Node remains the only admission authority.
+
+Android `preview` and `production` use system CA trust and HTTPS. The dedicated `lanDemo` APK permits HTTP to private IPv4 Node addresses for an isolated course-project demo. The Node Manager binds only the selected LAN address, scopes the firewall rule to that network, and keeps the operator port on laptop loopback. This exception does not change the other build profiles.
+
+### Consequences
+Automated tests cover the staff-only route tree, Node session security, and isolated transport profiles. Only physical-device testing can confirm phone reachability, camera pairing, and the venue workflow.
 
 ---

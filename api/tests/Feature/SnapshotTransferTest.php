@@ -24,6 +24,8 @@ use App\Models\Registration;
 use App\Models\Ticket;
 use App\Models\User;
 use App\Models\Venue;
+use App\Support\CloudOperatorDatabase;
+use Illuminate\Database\Connection;
 use Illuminate\Encryption\Encrypter;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
@@ -33,6 +35,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Mockery;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Symfony\Component\Process\Process;
 use Tests\TestCase;
@@ -57,16 +60,28 @@ class SnapshotTransferTest extends TestCase
         ];
     }
 
-    private function cloudEvent(bool $withStaff = false, bool $reEntryAllowed = false, bool $identityCheck = false): array
-    {
+    private function cloudEvent(
+        bool $withStaff = false,
+        bool $reEntryAllowed = false,
+        bool $identityCheck = false,
+        bool $shareGuestEmailWithStudent = false,
+    ): array {
         config(['ingress.mode' => 'cloud']);
+        $this->useCloudOperatorDatabase();
         $owner = User::factory()->create(['role' => User::ROLE_ORGANIZER]);
-        $student = User::factory()->create(['name' => 'Private Attendee', 'role' => User::ROLE_STUDENT]);
+        $studentIdentity = (string) Str::uuid();
+        $student = User::factory()->create([
+            'name' => 'Private Attendee',
+            'role' => User::ROLE_STUDENT,
+            'email' => "snapshot-{$studentIdentity}@student.mseuf.edu.ph",
+            'firebase_uid' => "firebase:{$studentIdentity}",
+            'email_verified_at' => now(),
+        ]);
         $venue = Venue::create(['name' => 'Hall', 'code' => 'HALL', 'location' => 'Campus', 'default_capacity' => 20]);
         $event = Event::create([
             'organizer_id' => $owner->id, 'venue_id' => $venue->id, 'title' => 'Event', 'slug' => 'event',
             'capacity' => 20, 'registration_opens_at' => now()->subDay(), 'registration_closes_at' => now()->addDay(),
-            'starts_at' => now(), 'ends_at' => now()->addDay(), 'status' => Event::STATUS_PUBLISHED,
+            'starts_at' => now()->addDay(), 'ends_at' => now()->addDays(2), 'status' => Event::STATUS_PUBLISHED,
             're_entry_allowed' => $reEntryAllowed,
             'identity_verification_level' => $identityCheck ? Event::IDENTITY_CHECK : Event::IDENTITY_STANDARD,
         ]);
@@ -87,12 +102,20 @@ class SnapshotTransferTest extends TestCase
         $secondQr = null;
         $guestQr = null;
         if ($withStaff) {
-            $second = User::factory()->create(['name' => 'Second Attendee', 'role' => User::ROLE_STUDENT]);
+            $guestEmail = $shareGuestEmailWithStudent ? $student->email : 'guest@example.test';
+            $secondIdentity = (string) Str::uuid();
+            $second = User::factory()->create([
+                'name' => 'Second Attendee',
+                'role' => User::ROLE_STUDENT,
+                'email' => "snapshot-second-{$secondIdentity}@student.mseuf.edu.ph",
+                'firebase_uid' => "firebase:{$secondIdentity}",
+                'email_verified_at' => now(),
+            ]);
             $secondQr = $this->actingAs($second)->postJson("/api/v1/events/{$event->id}/registration")->assertCreated()->json('qr_payload');
             $this->actingAs($owner)->post("/organizer/events/{$event->id}/guests", [
-                'guest_name' => 'Guest Attendee', 'guest_email' => 'guest@example.test', 'attendee_type' => 'guest',
+                'guest_name' => 'Guest Attendee', 'guest_email' => $guestEmail, 'attendee_type' => 'guest',
             ])->assertRedirect();
-            $guest = Registration::where('event_id', $event->id)->where('guest_email', 'guest@example.test')->firstOrFail();
+            $guest = Registration::where('event_id', $event->id)->where('guest_email', $guestEmail)->firstOrFail();
             $guestQr = $guest->ticket->getQrPayload();
             $this->assertNull($guest->user_id);
         }
@@ -102,6 +125,21 @@ class SnapshotTransferTest extends TestCase
         $this->assertSame(1, preg_match('/INGRESS_NODE_SYNC_KEY=([A-Za-z0-9+\/=]+)/', Artisan::output(), $match));
 
         return [$event, $owner, $qr, $match[1], $cloudStaffId, $secondQr, $guestQr];
+    }
+
+    private function useCloudOperatorDatabase(): void
+    {
+        $database = Mockery::mock(CloudOperatorDatabase::class);
+        $database->shouldReceive('configurationErrors')->zeroOrMoreTimes()->andReturn([]);
+        $database->shouldReceive('connection')->zeroOrMoreTimes()->andReturn(DB::connection());
+        $database->shouldReceive('runLocked')->zeroOrMoreTimes()->andReturnUsing(
+            function (Connection $connection, callable $operation): bool {
+                $operation();
+
+                return true;
+            },
+        );
+        $this->app->instance(CloudOperatorDatabase::class, $database);
     }
 
     public function test_encrypted_transfer_and_signed_receipt_across_separate_databases(): void
@@ -270,7 +308,10 @@ class SnapshotTransferTest extends TestCase
 
     public function test_authority_grant_freezes_cloud_and_activates_only_the_imported_node(): void
     {
-        [$event, $owner, $qr, $secret, $cloudStaffId, $secondQr, $guestQr] = $this->cloudEvent(true, true, true);
+        [$event, $owner, $qr, $secret, $cloudStaffId, $secondQr, $guestQr] = $this->cloudEvent(true, true, true, true);
+        $guestRegistration = Registration::where('event_id', $event->id)->whereNull('user_id')->firstOrFail();
+        $studentRegistration = Registration::with('user')->where('event_id', $event->id)->whereNotNull('user_id')->firstOrFail();
+        $this->assertSame($studentRegistration->user->email, $guestRegistration->guest_email);
         $this->assertSame(4, (int) DB::table('event_snapshots')->where('event_id', $event->id)->value('schema_version'));
         $keypair = sodium_crypto_sign_keypair();
         config([
@@ -304,8 +345,12 @@ class SnapshotTransferTest extends TestCase
             $this->assertDatabaseHas('events', [
                 'id' => $localId, 're_entry_allowed' => true, 'identity_verification_level' => Event::IDENTITY_CHECK,
             ]);
-            $this->assertDatabaseHas('registrations', ['event_id' => $localId, 'guest_email' => 'guest@example.test', 'user_id' => null]);
-            $this->assertDatabaseMissing('users', ['email' => 'guest@example.test']);
+            $this->assertDatabaseHas('registrations', [
+                'event_id' => $localId,
+                'guest_email' => $guestRegistration->guest_email,
+                'user_id' => null,
+            ]);
+            $this->assertDatabaseHas('users', ['email' => $guestRegistration->guest_email]);
             $importReceipt = app(IssueImportReceipt::class)->execute($event->id);
             DB::setDefaultConnection($cloudConnection);
             Crypt::swap($cloudEncrypter);
@@ -483,7 +528,7 @@ class SnapshotTransferTest extends TestCase
                 ->assertJsonPath('stats.envergan_inside_count', 2)
                 ->assertJsonPath('stats.external_inside_count', 1);
             app('auth')->forgetGuards();
-            $this->assertTrue(Admission::whereHas('ticket.registration', fn ($query) => $query->where('guest_email', 'guest@example.test'))->exists());
+            $this->assertTrue(Admission::whereHas('ticket.registration', fn ($query) => $query->where('guest_email', $guestRegistration->guest_email))->exists());
             DB::setDefaultConnection('authority_node');
             Crypt::swap($nodeEncrypter);
             config(['ingress.mode' => 'node', 'ingress.node_id' => 'node-1', 'ingress.node_sync_key' => $secret]);
@@ -494,7 +539,7 @@ class SnapshotTransferTest extends TestCase
                 'client_request_id' => (string) Str::uuid(), 'name' => 'Walk In', 'email' => 'walkin@example.test', 'kind' => 'guest',
             ])->assertOk()->json();
             $this->withToken($staffToken)->postJson("/api/v1/staff/events/{$localId}/walk-ins/recover", [
-                'email' => 'walkin@example.test',
+                'email' => 'walkin@example.test', 'identity_verified' => true, 'reason' => 'lost',
             ])->assertOk()->assertJsonPath('qr_payload', $walkIn['qr_payload']);
             $this->assertNull(app(SyncWalkInRecovery::class)->prepare($event->id));
             $this->withToken($staffToken)->postJson("/api/v1/staff/events/{$localId}/admissions", [
@@ -533,6 +578,10 @@ class SnapshotTransferTest extends TestCase
             config(['ingress.mode' => 'cloud', 'ingress.node_id' => null, 'ingress.node_sync_key' => null]);
             $recoveryReceipt = $this->call('POST', '/api/v1/node-sync/walk-in-recoveries', [], [], [], $headers, $recovery['package'])->assertOk()->json();
             $this->call('POST', '/api/v1/node-sync/walk-in-recoveries', [], [], [], $headers, $recovery['package'])->assertOk()->assertExactJson($recoveryReceipt);
+            $this->assertDatabaseHas('cloud_walk_in_recoveries', [
+                'node_id' => 'node-1', 'node_recovery_id' => $recovery['recovery_id'], 'recovered_by_user_id' => $cloudStaffId,
+                'identity_verified' => true, 'reason' => 'lost',
+            ]);
             $badRecovery = json_decode(app(AdmissionSyncEnvelope::class)->open($recovery['package'], $secret), true, 8, JSON_THROW_ON_ERROR);
             $badRecovery['staff_id'] = $owner->id;
             $badRecoveryPackage = app(AdmissionSyncEnvelope::class)->seal(json_encode($badRecovery, JSON_THROW_ON_ERROR), $secret);
@@ -540,7 +589,8 @@ class SnapshotTransferTest extends TestCase
             $this->assertDatabaseCount('cloud_walk_in_recoveries', 1);
             $this->actingAs($owner)->get("/organizer/events/{$event->id}")->assertOk()
                 ->assertSee('Recent walk-in pass recoveries')->assertSee($walkIn['public_id'])
-                ->assertSee(DB::table('users')->where('id', $cloudStaffId)->value('name'));
+                ->assertSee(DB::table('users')->where('id', $cloudStaffId)->value('name'))
+                ->assertSee('Identity verified in person')->assertSee('Lost');
             $originalHash = DB::table('tickets')->where('id', $walkInReceipt['ticket_id'])->value('qr_hash');
             DB::table('tickets')->where('id', $walkInReceipt['ticket_id'])->update(['qr_hash' => str_repeat('0', 64)]);
             $this->call('POST', '/api/v1/node-sync/admissions', [], [], [], $headers, $walkInAdmission['package'])->assertStatus(422);
@@ -559,6 +609,49 @@ class SnapshotTransferTest extends TestCase
             }
             app(SyncWalkInRecovery::class)->acknowledge($event->id, $recoveryReceipt['recovery_id'], $recoveryReceipt['receipt']);
             $this->assertNull(app(SyncWalkInRecovery::class)->prepare($event->id));
+
+            $nodeStaffId = DB::table('node_import_ids')->where('kind', 'user')->where('cloud_id', $cloudStaffId)->value('local_id');
+            $nodeIssuanceId = DB::table('node_walk_in_issuances')->where('event_id', $localId)->value('id');
+            $legacyRecoveryId = DB::table('node_walk_in_recoveries')->insertGetId([
+                'issuance_id' => $nodeIssuanceId, 'recovered_by_user_id' => $nodeStaffId, 'recovered_at' => now(),
+                'identity_verified' => false, 'reason' => 'legacy',
+            ]);
+            $legacyCurrent = app(SyncWalkInRecovery::class)->prepare($event->id);
+            $legacyData = json_decode(app(AdmissionSyncEnvelope::class)->open($legacyCurrent['package'], $secret), true, 8, JSON_THROW_ON_ERROR);
+            $legacyData['schema_version'] = 1;
+            unset($legacyData['identity_verified'], $legacyData['reason']);
+            $legacyJson = json_encode($legacyData, JSON_THROW_ON_ERROR);
+            $legacyOldPackage = app(AdmissionSyncEnvelope::class)->seal($legacyJson, $secret);
+            DB::table('node_walk_in_recoveries')->where('id', $legacyRecoveryId)->update([
+                'sync_package_ciphertext' => Crypt::encryptString($legacyOldPackage), 'sync_payload_hash' => hash('sha256', $legacyJson),
+            ]);
+            $upgradedRecovery = app(SyncWalkInRecovery::class)->prepare($event->id);
+            $upgradedJson = app(AdmissionSyncEnvelope::class)->open($upgradedRecovery['package'], $secret);
+            $upgradedData = json_decode($upgradedJson, true, 8, JSON_THROW_ON_ERROR);
+            $this->assertSame(2, $upgradedData['schema_version']);
+            $this->assertFalse($upgradedData['identity_verified']);
+            $this->assertSame('legacy', $upgradedData['reason']);
+
+            DB::setDefaultConnection($cloudConnection);
+            Crypt::swap($cloudEncrypter);
+            config(['ingress.mode' => 'cloud', 'ingress.node_id' => null, 'ingress.node_sync_key' => null]);
+            DB::table('cloud_walk_in_recoveries')->insert([
+                'node_id' => 'node-1', 'node_recovery_id' => $legacyRecoveryId, 'issuance_id' => $upgradedData['issuance_id'],
+                'event_id' => $event->id, 'recovered_by_user_id' => $cloudStaffId, 'recovered_at' => $legacyData['recovered_at'],
+                'identity_verified' => false, 'reason' => 'legacy', 'payload_hash' => hash('sha256', $legacyJson), 'received_at' => now(),
+            ]);
+            $legacyReceipt = $this->call('POST', '/api/v1/node-sync/walk-in-recoveries', [], [], [], $headers, $upgradedRecovery['package'])
+                ->assertOk()->json();
+            $this->assertDatabaseHas('cloud_walk_in_recoveries', [
+                'node_id' => 'node-1', 'node_recovery_id' => $legacyRecoveryId, 'payload_hash' => hash('sha256', $upgradedJson),
+            ]);
+
+            DB::setDefaultConnection('authority_node');
+            Crypt::swap($nodeEncrypter);
+            config(['ingress.mode' => 'node', 'ingress.node_id' => 'node-1', 'ingress.node_sync_key' => $secret]);
+            app(SyncWalkInRecovery::class)->acknowledge($event->id, $legacyRecoveryId, $legacyReceipt['receipt']);
+            $this->assertNull(app(SyncWalkInRecovery::class)->prepare($event->id));
+
             app(AcknowledgeAdmissionBatch::class)->execute($event->id, $walkInAdmission['batch_id'], $walkInAdmissionReceipt);
             $this->assertDatabaseCount('node_synced_admissions', 6);
             DB::setDefaultConnection($cloudConnection);
@@ -747,6 +840,24 @@ class SnapshotTransferTest extends TestCase
         } catch (HttpException $exception) {
             $this->assertSame(403, $exception->getStatusCode());
         }
+    }
+
+    public function test_snapshot_export_reports_when_the_cloud_key_cannot_decrypt_a_node_credential(): void
+    {
+        [$event, $owner] = $this->cloudEvent();
+        DB::table('event_nodes')->where('id', 'node-1')->update(['key_ciphertext' => 'invalid-node-key-ciphertext']);
+
+        $this->actingAs($owner)
+            ->from(route('organizer.events.show', $event))
+            ->post("/organizer/events/{$event->id}/snapshot/export", ['node_id' => 'node-1'])
+            ->assertSessionHasErrors([
+                'transfer' => 'The saved Event Node transfer credential could not be decrypted. Verify that the current Cloud APP_KEY matches the key used when this node was registered; if it changed, restore that original key before retrying.',
+            ]);
+
+        $this->assertDatabaseHas('event_snapshots', [
+            'event_id' => $event->id,
+            'target_node_id' => null,
+        ]);
     }
 
     public function test_export_is_bound_to_one_node_and_rejects_revoked_nodes(): void

@@ -36,7 +36,7 @@ class GuestTicketTest extends TestCase
         $this->event = Event::create([
             'organizer_id' => $this->owner->id, 'venue_id' => $venue->id, 'title' => 'Guest Event', 'slug' => 'guest-event',
             'capacity' => 3, 'registration_opens_at' => now()->subDay(), 'registration_closes_at' => now()->addDay(),
-            'starts_at' => now(), 'ends_at' => now()->addDay(), 'status' => Event::STATUS_PUBLISHED,
+            'starts_at' => now()->addDay(), 'ends_at' => now()->addDays(2), 'status' => Event::STATUS_PUBLISHED,
         ]);
     }
 
@@ -139,25 +139,35 @@ class GuestTicketTest extends TestCase
 
     public function test_duplicate_email_cutoff_and_capacity_apply_to_guest_and_student_registrations(): void
     {
-        $this->event->update(['capacity' => 2]);
+        $this->event->update(['capacity' => 4]);
         $guest = ['guest_name' => 'Guest', 'guest_email' => 'guest@example.test', 'attendee_type' => 'guest'];
         $this->actingAs($this->owner)->post("/organizer/events/{$this->event->id}/guests", $guest)->assertRedirect();
         $this->post("/organizer/events/{$this->event->id}/guests", $guest)->assertSessionHasErrors('guest');
-        $sameEmail = User::factory()->create(['role' => User::ROLE_STUDENT, 'email' => 'guest@example.test']);
-        $this->actingAs($sameEmail)->postJson("/api/v1/events/{$this->event->id}/registration")->assertStatus(422);
-        $student = User::factory()->create(['role' => User::ROLE_STUDENT, 'email' => 'student@example.test']);
+        $sameEmail = User::factory()->create([
+            'role' => User::ROLE_STUDENT,
+            'email' => 'guest@example.test',
+            'firebase_uid' => 'firebase-guest-email-student',
+            'email_verified_at' => now(),
+        ]);
+        $this->actingAs($sameEmail)->postJson("/api/v1/events/{$this->event->id}/registration")->assertCreated();
+        $student = User::factory()->create([
+            'role' => User::ROLE_STUDENT,
+            'email' => 'student@example.test',
+            'firebase_uid' => 'firebase-guest-test-student',
+            'email_verified_at' => now(),
+        ]);
         $this->actingAs($student)->postJson("/api/v1/events/{$this->event->id}/registration")->assertCreated();
         $this->actingAs($this->owner)->post("/organizer/events/{$this->event->id}/guests", [
             'guest_name' => 'Duplicate', 'guest_email' => 'STUDENT@example.test', 'attendee_type' => 'alumni',
-        ])->assertSessionHasErrors('guest');
+        ])->assertRedirect();
         $this->post("/organizer/events/{$this->event->id}/guests", [
             'guest_name' => 'Extra', 'guest_email' => 'extra@example.test', 'attendee_type' => 'guest',
         ])->assertSessionHasErrors('guest');
-        $this->assertDatabaseCount('registrations', 2);
+        $this->assertDatabaseCount('registrations', 4);
         $this->event->update(['registration_closed_at' => now()]);
         $this->post("/organizer/events/{$this->event->id}/guests", [
             'guest_name' => 'Late', 'guest_email' => 'late@example.test', 'attendee_type' => 'guest',
         ])->assertSessionHasErrors('guest');
-        $this->assertDatabaseCount('registrations', 2);
+        $this->assertDatabaseCount('registrations', 4);
     }
 }

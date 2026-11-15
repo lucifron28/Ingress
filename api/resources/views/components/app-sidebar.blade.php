@@ -48,6 +48,20 @@
             label="Events"
             :active="$eventsAreActive"
         />
+        @if ($user->isAdmin() && config('ingress.mode') === 'cloud')
+            <x-sidebar-nav-item
+                :href="route('organizer.venues.index')"
+                icon="map-pin"
+                label="Venues"
+                :active="request()->routeIs('organizer.venues.*')"
+            />
+            <x-sidebar-nav-item
+                :href="route('admin.settings.student-access')"
+                icon="shield-check"
+                label="Student Access"
+                :active="request()->routeIs('admin.settings.*')"
+            />
+        @endif
     </nav>
 
     <div class="app-sidebar__footer">

@@ -31,9 +31,14 @@ class StaffAdmissionController extends Controller
 
     public function recoverWalkIn(Request $request, Event $event, RecoverNodeWalkIn $recover): JsonResponse
     {
-        $input = $request->validate(['email' => ['required', 'email', 'max:255']]);
+        $input = $request->validate([
+            'email' => ['required', 'email', 'max:255'],
+            'identity_verified' => ['required', 'accepted', 'boolean'],
+            'reason' => ['required', 'in:lost,damaged,not_received'],
+        ]);
 
-        return $this->walkInPass($recover->execute($request->user(), $event->id, $input['email']));
+        return $this->walkInPass($recover->execute($request->user(), $event->id, $input['email'],
+            $input['reason'], (bool) $input['identity_verified']));
     }
 
     private function walkInPass(Ticket $ticket): JsonResponse

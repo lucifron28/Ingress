@@ -14,9 +14,13 @@ class EventApiTest extends TestCase
     use RefreshDatabase;
 
     private Venue $venue;
+
     private User $organizer;
+
     private User $student;
+
     private Event $publishedEvent;
+
     private Event $draftEvent;
 
     protected function setUp(): void
@@ -32,6 +36,8 @@ class EventApiTest extends TestCase
             'email' => 'a23-35524@student.mseuf.edu.ph',
             'student_id' => 'A23-35524',
             'role' => User::ROLE_STUDENT,
+            'firebase_uid' => 'firebase-event-api-student',
+            'email_verified_at' => now(),
         ]);
 
         $this->venue = Venue::create([
@@ -125,6 +131,19 @@ class EventApiTest extends TestCase
             ->getJson("/api/v1/events/{$this->draftEvent->id}");
 
         $response->assertStatus(404);
+    }
+
+    public function test_assigned_event_manager_can_read_their_draft_event_through_the_api(): void
+    {
+        config(['ingress.mode' => 'cloud']);
+
+        $manager = User::factory()->create(['role' => User::ROLE_EVENT_MANAGER]);
+        $this->draftEvent->managerAssignments()->create(['user_id' => $manager->id]);
+
+        $this->actingAs($manager, 'sanctum')
+            ->getJson("/api/v1/events/{$this->draftEvent->id}")
+            ->assertOk()
+            ->assertJsonPath('event.title', 'Draft Secret Meeting');
     }
 
     public function test_authenticated_student_events_index_returns_is_user_registered_true_after_registration(): void

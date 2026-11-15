@@ -9,6 +9,7 @@ use App\Models\EventStaff;
 use App\Models\Registration;
 use App\Models\Ticket;
 use App\Models\User;
+use App\Support\EventSchedule;
 use Carbon\Carbon;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
@@ -497,7 +498,7 @@ class AdmitTicket
                     'http_code' => 422,
                     'status' => 'event_completed',
                     'message' => 'Event Ended',
-                    'detail' => 'Admission closed at '.$event->ends_at->format('g:i A').'.',
+                    'detail' => 'Admission closed at '.EventSchedule::local($event->ends_at)->format('g:i A').' PHT.',
                 ],
             ];
         }

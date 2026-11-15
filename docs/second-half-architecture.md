@@ -1,7 +1,9 @@
 # Ingress architecture and operating limits
 
-**Status:** The cloud and Event Node architecture is implemented. Safe authority recovery, automatic snapshot delivery, data-retention automation, and payments remain unimplemented. Device and venue verification is deferred to the project owner.
-**Current implementation:** Cloud accounts, event registration, ticket transfers, organizer reporting, snapshot transfer, Event Node admission, guest and alumni passes, node walk ins, entry and exit tracking, and retryable admission synchronization are implemented. Students with a verified institutional email can transfer eligible tickets before snapshot preparation. Email activation verifies control of the institutional address, not current enrollment. Admission requires the venue LAN and Event Node, but not public internet.
+**Status:** The cloud and Event Node architecture is implemented. The mobile app is now a staff-only Event Node scanner; student accounts, registration, ticket access, and transfers use the website. Safe authority recovery, automatic snapshot delivery, data-retention automation, and real payment-provider integration remain unimplemented. Paid checkout is simulated. Device and venue verification is deferred to the project owner.
+**Current implementation:** Cloud accounts, web registration and ticket transfers, organizer reporting, snapshot transfer, Event Node admission, guest and alumni passes, node walk-ins, entry and exit tracking, and retryable admission synchronization are implemented. Students with a verified institutional email can transfer eligible tickets before the event ends and before snapshot preparation. Accountless guest and alumni ticket holders can use a one-use redemption code to transfer an eligible public ticket while those same event limits allow it. Email activation verifies control of the institutional address, not current enrollment. Attendees can download ticket PDFs from the website; a saved PDF can display its static QR without internet. Admission requires the venue LAN and Event Node, but not public internet.
+
+The native app contains no student sign-in, event discovery, ticket wallet, or Cloud API client. Its EAS `preview` and `production` profiles use Android system certificate trust and require HTTPS. The dedicated course-demo `lanDemo` profile accepts HTTP at private IPv4 Node addresses so the same APK can connect after the laptop changes networks. Use it only on an isolated private LAN. See [Staff scanner build instructions](../mobile/README.md).
 
 ## Runtime boundaries
 
@@ -36,7 +38,7 @@ A package is bound to the first target node selected for its snapshot. The limit
 
 ### Synchronize admissions
 
-Set `INGRESS_CLOUD_SYNC_URL` on the node to the cloud HTTPS API base, for example `https://cloud.example/api/v1`. Install a certificate chain trusted by the node. Configure Laravel's scheduler to run `php artisan schedule:run` every minute. On a node with this URL configured, it runs `ingress:sync-admissions` once per minute with an overlap lock. An operator can also run `php artisan ingress:sync-admissions CLOUD_EVENT_ID`, or omit the ID to process all activated events.
+Set `INGRESS_CLOUD_SYNC_URL` on the node to the cloud HTTPS API base; for current staging, use `https://ingress-pp2u.onrender.com/api/v1`. Install a certificate chain trusted by the node. Configure Laravel's scheduler to run `php artisan schedule:run` every minute. On Windows, use the Task Scheduler setup in [Deployment and Operations](deployment.md#run-the-node-synchronization-scheduler). On a node with this URL configured, it runs `ingress:sync-admissions` once per minute with an overlap lock. An operator can also run `php artisan ingress:sync-admissions CLOUD_EVENT_ID`, or omit the ID to process all activated events.
 
 The node keeps each encrypted batch until it receives an authenticated cloud receipt. It retries the same batch after a lost connection or response and marks only the acknowledged admissions as synchronized. New admissions can continue during an upload and are sent in later batches. Each run sends at most 40 walk-ins, ten recovery records, and ten batches of 100 admissions per event. The command stops starting new uploads after eight minutes and resumes pending work on the next scheduled run. The scheduler lock lasts ten minutes. A database operation that blocks beyond that window can still extend the run. The cloud checks the active authority, frozen snapshot, ticket, gate, staff assignment, and idempotency identifiers before recording a batch in one transaction. A duplicate or rebatch of the same admission is safe; conflicting records stop the batch. Sync failures are recorded in the node application log. Cloud reports may lag while the node is offline.
 
@@ -57,7 +59,7 @@ Ingress will separate online ticketing from event-day admission.
 ```text
 Before the event
 
-Student app
+Student website
     |
     | Internet
     v
@@ -76,11 +78,10 @@ Ingress Event Node
 
 During the event
 
-Student app                    Staff scanner
-offline ticket                     |
-    |                               | venue LAN
-    | static opaque QR              v
-    +--------------------------> Event Node
+Previously downloaded PDF     Staff scanner
+    |                               |
+    | static opaque QR              | venue LAN
+    +------------------------------> Event Node
                                   |
                                   | PostgreSQL
                                   v
@@ -131,55 +132,23 @@ This rule prevents split-brain cases where the cloud says a ticket is valid but 
 
 Student authentication is internet/cloud based.
 
-### Institutional student account activation
+### Firebase student authentication
 
-Normal self-service accounts are intended for MSEUF students. The cloud sends a single-use verification link to an `@student.mseuf.edu.ph` address and completes the account only after the recipient proves control of that address. The server assigns the student role; public users never choose a privileged role. Directory ingestion is not required for this flow. Email control does not by itself prove that a student number belongs to the account holder or that enrollment is current; those claims require a separate institutional source.
+Students use Firebase Email/Password at `/student/auth`; Firebase sends verification and password-reset messages. The browser exchanges a Firebase ID token through `/student/session`. Laravel verifies the token with Firebase Identity Toolkit, requires verified email and binds the account to one Firebase UID. Cloud Admin can require the exact `@student.mseuf.edu.ph` domain for new accounts and registrations; it is off by default so current personal-email accounts remain usable. Student-only events and categories always require a verified institutional student account, independent of this toggle. Email control does not by itself prove that enrollment is current.
 
-The mobile sign-in screen can request a link. Opening the email link shows a web form; submitting it consumes the token and creates the account. Links expire after 30 minutes, and a new request invalidates the previous link. The link token is in the URL fragment rather than the server request path. Only its hash is stored in the database. The form uses a CSRF-protected POST; opening the link alone does not create an account.
+Firebase owns the verification and reset links. The Laravel application does not issue student email-verification links or create accounts through the retired `/api/v1/auth/student-verification` and `/student/complete` routes. Firebase's authorized-domain list must include the deployed Cloud host. The operator-only staging command creates synthetic organizers or staff; student accounts must be created and verified through Firebase.
 
-For cloud deployment, set `APP_URL` to the public HTTPS origin, configure a real mail transport and sender (for SMTP set `MAIL_SCHEME=smtps`) with `MAIL_MAILER` and `MAIL_FROM_ADDRESS`, apply migrations, and configure trusted TLS proxies if applicable. Outside local and testing environments, account verification refuses HTTP, a non-HTTPS `APP_URL`, log or array mail transports, and SMTP without `smtps`. Delivery failures are logged without the email address or link; the request response remains generic. Configure mail monitoring and retention for expired verification records. Existing directory imports are not required for signup.
+Render startup does not require a mail provider. Resend is optional for event-manager invitations. When configured, the invitation route requires a safe, configured transport and an HTTPS application origin; missing credentials, logging transports, and plaintext SMTP fail closed. See the [deployment guide](deployment.md#optional-resend-mail-for-event-manager-invitations) for the Render settings.
 
 This keeps the recurring student experience account-based while preserving the MSEUF-first scope of the system. Faculty, staff, and organizers who need privileged access are provisioned through authorized administrative workflows rather than public signup.
 
 External guests and alumni do not need a normal MSEUF account merely to attend an event. They may receive an organizer-issued or paid guest ticket by email, or be registered as a walk-in when the event permits it.
 
-A student must successfully authenticate online on a device before that device can restore the student's session offline. Ingress will not attempt to verify a password locally.
-
-On Android and iOS, the app caches the owned wallet in device secure storage after registration or an online wallet refresh. Web has no persistent offline wallet. The cache is bound to the signed-in account, session token, and server, and it is cleared on logout, server change, or a confirmed 401. A storage failure leaves the wallet available online only. The cache contains:
-
-- student identity needed by the UI;
-- owned ticket metadata;
-- the static opaque ticket credential needed to render the QR;
-- event title, venue, and schedule;
-- last successful synchronization time.
-
-When the cloud is unreachable, a previously authenticated student can open an **offline read-only session** and view cached tickets. The app shows the last full wallet refresh time. A cached ticket may have been revoked or its event cancelled since that refresh; the Event Node makes the admission decision. Offline wallet behavior has not yet been verified on physical devices.
-
-Allowed offline:
-
-- view cached profile information;
-- view cached tickets;
-- display the ticket QR;
-- view cached event details.
-
-Not allowed offline:
-
-- register for a new event;
-- transfer a ticket;
-- change account credentials;
-- fetch a ticket that was never synchronized to the device.
-
-A server response of `401 Unauthorized` is different from a transport failure. A confirmed 401 invalidates the local session and sensitive cached ticket material. A network failure does not automatically log out a previously authenticated student.
-
-Logging out manually also clears sensitive cached ticket credentials.
+Attendees use the website for account access and ticket actions. After registration, they can download a PDF that contains the static opaque admission QR. A copy saved on the attendee's device can be displayed without internet, but it may be stale if the ticket was later transferred or revoked; the Event Node makes the admission decision. The native app no longer stores attendee sessions or tickets.
 
 ## 4. Student cloud access
 
-Students do not configure LAN addresses, Event Node IPs, or server URLs.
-
-The student app uses the configured cloud API for normal online operations and cached tickets when offline.
-
-Production student builds use the cloud API URL supplied at build time and do not expose an Event Node setting. The server URL screen is limited to legacy demo builds. Staff node sessions use separate secure storage and a separate Event Node URL.
+Students use the Cloud website for account access, event discovery, registration, ticket PDFs, and transfers. They do not configure LAN addresses, Event Node IPs, or scanner settings. The mobile app is reserved for Event Node staff and has no Cloud API URL or attendee session storage.
 
 ## 5. Scanner connection and pairing
 
@@ -190,20 +159,20 @@ Normal scanner setup uses a **Pair Scanner** QR containing a short-lived setup p
 ```text
 schema version
 node identifier
-HTTPS Event Node API URL
+HTTPS Event Node API URL (or private HTTP address in course-project LAN demo mode)
 one-time pairing token
 expiration
 ```
 
 The pairing credential must not contain a permanent administrator password or reusable privileged secret.
 
-Manual HTTPS Event Node address entry remains available to staff as a fallback. A development build can accept local HTTP only when its explicit flag is enabled and the host is localhost or a private LAN address.
+Manual Event Node address entry remains available to staff as a fallback. Standard preview and production builds require HTTPS; only the dedicated LAN demo build accepts private IPv4 HTTP endpoints.
 
-Automatic network discovery such as mDNS may be considered later, but it is not required for the first implementation because venue Wi-Fi multicast behavior can be inconsistent.
+Android preview and production builds use system CA trust and HTTPS. The `lanDemo` profile permits cleartext HTTP only to private IPv4 Node addresses for the isolated course-project LAN demo. See [Staff scanner build instructions](../mobile/README.md).
 
 ## 6. Staff authentication during event operation
 
-Student authentication is cloud based, but scanner authentication cannot depend exclusively on public internet.
+Student authentication and ticket actions use the Cloud website. Scanner authentication cannot depend exclusively on public internet.
 
 Before finalization, the Event Node receives the staff accounts, roles, assignments, and access-point permissions needed for that event.
 
@@ -284,7 +253,7 @@ This is a business rule, not merely a response to an internet outage. A student 
 
 ### Organizer-issued guest and alumni passes
 
-Before registration closes, an authorized organizer can enter a guest or alumni name and email on the event page and issue a pass. The attendee does not need a user account. The email identifies the registration for duplicate checks; the system does not verify the address or send the pass automatically. The organizer opens the protected pass page and prints or securely delivers it. Rendering the pass requires PHP XMLWriter. The page uses no-store headers and does not put the QR credential in its URL. Reprinting is available while the ticket is active and the event is not cancelled.
+Before registration closes, an authorized organizer can enter a guest or alumni name and email on the event page and issue a pass. The attendee does not need a user account. The system does not verify the address or send the pass automatically. Guest and alumni duplicates are checked against other accountless registrations and active guest checkout reservations by normalized contact email. A guest contact address does not block a separate student account registration with the same email. The organizer opens the protected pass page and prints or securely delivers it. Rendering the pass requires PHP XMLWriter. The page uses no-store headers and does not put the QR credential in its URL. Reprinting is available while the ticket is active and the event is not cancelled.
 
 Guest and alumni registrations share the event capacity lock with student registrations. Their opaque QR uses the same validation and admission path. Standard events keep the prior snapshot schema for compatibility. Schema version 4 carries ID-check policy; both cloud and node must be upgraded before transferring an event that requires ID checks. Guest and alumni admissions synchronize back to the cloud using the same batch protocol.
 
@@ -340,7 +309,7 @@ Walk-in ticket creation and admission are separate operations by default so regi
 
 ## 11. Ticket transfer
 
-The cloud supports ticket transfer before snapshot preparation. Events opt in; new events default to disabled. Only student accounts with a verified institutional email can send or receive a transfer. The email check does not prove current enrollment. Guest, alumni, and node walk-in tickets are excluded.
+The cloud supports ticket transfer only before the event end and before snapshot preparation. Events opt in; new events default to disabled. Student-account transfers require verified institutional email and recipient acceptance. The email check does not prove current enrollment. Closing registration alone does not close transfers.
 
 A transfer changes ownership. It is not QR forwarding.
 
@@ -370,13 +339,19 @@ Rules:
 - transfer history is retained for organizer audit;
 - scanner staff see the current owner, not the full transfer history;
 - an event may disable transfers; this version does not impose a transfer count limit or organizer approval step;
-- self-service transfers stop when the event is finalized for admission.
+- self-service requests and acceptance stop at the event end or when the event is finalized for admission.
 
-A request appears in the recipient's online ticket wallet. The sender can cancel a pending request, and the recipient can accept or decline it. Disabling transfers expires pending requests. Snapshot preparation also expires pending requests while holding the event lock, so acceptance and finalization serialize. A transferred ticket uses the recipient account's name, email, and student number. The current account model has no attendee photo field.
+A request appears in the recipient's web account ticket list. The sender can cancel a pending request, and the recipient can accept or decline it. After the event ends, a pending request cannot be accepted, but it remains cancellable by the sender or declinable by the recipient. Disabling transfers expires pending requests. Snapshot preparation also expires pending requests while holding the event lock, so acceptance and finalization serialize. A transferred ticket uses the recipient account's name, email, and student number. The current account model has no attendee photo field.
 
 The organizer event page paginates transfer history at 100 requests per page and shows sender, recipient, ticket reference, status, and transition timestamps. Scanner staff see only the current ticket owner.
 
 Walk-in passes do not need self-service transfer support.
+
+### Accountless guest and alumni redemption
+
+An eligible guest or alumni ticket can be transferred without creating an account. The recipient submits the private redemption code, their name, and a contact email at `/tickets/redeem`. The flow is limited to confirmed accountless registrations in public events and public ticket categories, with transfers enabled, before event end and snapshot preparation, and before admission. Student-restricted tickets and node walk-ins are rejected.
+
+The cloud locks the event, ticket, registration, and category, validates the current code and transfer eligibility, replaces the attendee name and contact email, then rotates the admission and redemption credentials in one transaction. A failed rotation rolls back the identity change. The old credentials stop working after commit. The rotation audit records the redemption and credential-version transition without retaining the submitted contact details. Pass and PDF views use the current registration identity. Snapshot serialization uses the same current attendee details, and scanner preview shows the current attendee. Under an event's identity-check policy, staff compare that name with an approved photo ID before admission; the system does not verify the redeemer's identity or store ID documents. Code possession establishes ticket control only. The recipient email is contact information, not verified identity. It is checked against other accountless registrations and active guest checkouts, not against student account emails. No student number or account is collected.
 
 ## 12. Synchronization model
 
@@ -428,13 +403,13 @@ Two walk-in desks must not be able to oversubscribe the same remaining capacity.
 ## 14. Explicit failure behavior
 
 ### Student has no internet
-Previously synchronized ticket remains viewable offline.
+The attendee can display a previously downloaded ticket PDF, but the website cannot perform online account or registration actions.
 
 ### Student never synchronized the ticket
-The app cannot invent a ticket. The attendee needs connectivity or event staff assistance.
+The attendee needs connectivity to open the website and download the ticket or event staff assistance.
 
 ### Student reinstalls the app at the venue
-Ticket recovery requires connectivity to the cloud unless a separate recovery process is introduced later.
+There is no attendee app to reinstall. Assigned staff can recover an active walk-in pass on the authoritative Event Node without public internet, but they must verify the attendee in person under the event's approved identity procedure. Email alone is not proof of identity.
 
 ### Cloud is unavailable during admission
 Scanning and walk-in registration continue as long as the Event Node and venue LAN are operating.
@@ -459,7 +434,7 @@ Scanners cannot safely share admission state, so normal scanning stops.
 
 Use these claims:
 
-> Ingress removes public internet from the critical admission path. Student tickets can be displayed offline, while scanners validate them against one local Event Node over the venue LAN.
+> Ingress removes public internet from the critical admission path. Attendees can display a previously downloaded ticket PDF offline, while the staff scanner validates it against one local Event Node over the venue LAN.
 
 > Ingress uses opaque, cryptographically random ticket credentials. Attendance state is server-authoritative, so a ticket cannot be used for two simultaneous entries across connected entrances. Re-entry is allowed only after a recorded exit and only when the event policy permits it.
 
@@ -485,13 +460,15 @@ See [the roadmap](roadmap.md) for the dependency order and current status.
 
 ## 18. Accountless guest and alumni passes
 
-Organizers can issue guest and alumni passes before registration closes. The attendee needs no MSEUF account. The organizer prints or securely delivers the pass from its protected page. The app does not verify the email address or send the pass automatically.
+Organizers can issue guest and alumni passes before registration closes. The attendee needs no MSEUF account. The organizer prints or securely delivers the pass from its protected page. The app does not verify the email address or send the pass automatically. Eligible public guest and alumni tickets can later be transferred through the accountless redemption flow described in section 11. Each recipient replaces the current name and contact email while the service rotates both ticket credentials.
 
 The attendee type is stored with the registration, so the organizer report can distinguish student accounts, guests, and alumni without inferring identity from an email domain. Guest and alumni tickets use the same opaque credential and Event Node validation pipeline as student tickets.
 
 Node staff can issue student, guest, or alumni walk-in passes after authority activation. The node checks capacity and existing event registrations before creating the pass. A student number entered for a walk-in remains self reported.
 
-Paid ticket flows, automatic guest email delivery, and photo collection are not implemented. Email verification for student signup proves control of the institutional address, not student number ownership or current enrollment.
+Assigned staff can recover an active walk-in pass on the Event Node while the venue LAN is available, including when public internet is down. Staff must verify the attendee in person under the event's approved identity procedure, then select `lost`, `damaged or unreadable`, or `pass not received`. The recovery stores the staff member, time, attestation, and reason on the node and syncs them to the organizer history when cloud connectivity returns. The returned QR is a bearer credential, so staff must hand it directly to the attendee. Do not collect identity document numbers or copies. If identity cannot be verified, do not recover the pass. Recovery does not admit the attendee; admission still requires the normal scan and confirmation.
+
+Paid ticket flows, automatic guest email delivery, and photo collection are not implemented. Firebase email verification proves control of the institutional address, not student number ownership or current enrollment.
 
 ## 19. Entry, exit, and re-entry tracking
 
@@ -544,10 +521,10 @@ The design intentionally keeps one local admission authority so duplicate admiss
 
 After provisioning an assigned staff member's local credential, run `php artisan ingress:pair-node-staff CLOUD_USER_ID --url=https://node.example/api/v1` on the node. Show the terminal QR only to that staff member. It contains the node ID, API address, and a random one-use code that expires after three minutes. It does not contain the staff password or node transfer key. Issuing a new code, rotating the credential, or revoking it invalidates older unused codes. A terminal that supports ANSI colors and block characters is needed to display the QR.
 
-In the native app, select **Scan pairing code**, scan the operator's QR, and confirm the displayed node ID and address with the operator before pairing. Production connections use HTTPS with normal certificate validation, and the client rejects redirects. A local development build may use HTTP only when `EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE=true` and the address is localhost or a private LAN host. The node checks the current assignment and local credential when exchanging the code for a 12-hour node staff session. The server enforces expiry. If the exchange response is lost, request a new code because the first may already be consumed. A QR code is a bearer credential: anyone who sees it before use can redeem it, so do not photograph or share it. The node ID shown by the app is a confirmation aid, not hardware attestation or certificate pinning.
+In the native app, select **Scan pairing code**, scan the operator's QR, and confirm the displayed node ID and address with the operator before pairing. Standard profiles require HTTPS and reject redirects. The dedicated `lanDemo` profile accepts private IPv4 HTTP only for the isolated course-project Docker workflow. The node checks the current assignment and local credential when exchanging the code for a 12-hour node staff session. The server enforces expiry. If the exchange response is lost, request a new code because the first may already be consumed. A QR code is a bearer credential: anyone who sees it before use can redeem it, so do not photograph or share it. The node ID shown by the app is a confirmation aid, not hardware attestation or certificate pinning.
 
 ## Node staff mobile session
 
-Staff can enter a trusted node API address and authenticate with a node-local credential. Production addresses must use HTTPS. A local development build may use HTTP only under the opt-in described above. The address and token are stored in native secure storage only after successful authentication; passwords are not persisted. Requests omit cookies and reject redirects. A saved session must be resumed against the node on the venue LAN. Node and cloud sessions are independent, so node sign-out does not remove the cloud ticket wallet. If the node is unreachable at sign-out, the local token is removed but its server token can remain valid until expiry.
+Staff can enter a trusted node API address and authenticate with a node-local credential. All addresses use HTTPS. The address and token are stored in native secure storage only after successful authentication; passwords are not persisted. Requests omit cookies and reject redirects. A saved session must be resumed against the node on the venue LAN. Node and Cloud sessions are independent; the mobile app stores no Cloud session. If the node is unreachable at sign-out, the local token is removed but its server token can remain valid until expiry.
 
-The user profile staff-assignment flag controls navigation only; node authentication checks the current assignment. Older cached profiles without the flag can still reach the sign-in form. The general server settings screen is available only in demo builds. The scanner can pair using a one-use QR or sign in manually. The staff member must confirm the node address and identity with the operator.
+The scanner can pair using a one-use QR or sign in manually. The staff member must confirm the node address and identity with the operator. No Cloud profile flag grants Event Node access; the node checks its own staff assignment and session.

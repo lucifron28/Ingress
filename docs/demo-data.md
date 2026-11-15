@@ -1,5 +1,7 @@
 # Ingress Demonstration Data & Real MSEUF Facts
 
+> **Local-only legacy fixture:** this page describes the opt-in demo seed, which contains realistic names, student identifiers, and public event labels. Do not seed it into Render, Neon staging, an Event Node, or any database that may hold real attendee records. The former mobile attendee login shown below has been removed; student and organizer demo flows use the website, and the current scanner pairs with a separate Event Node over HTTPS. Use the cloud operator workflow in [Deployment and Operations](deployment.md#prepare-synthetic-staging-accounts-and-venues) for synthetic organizer and staff accounts, and create synthetic events in the organizer portal. Student web tests require a Firebase-verified test identity. Production refuses `INGRESS_DEMO_MODE=true`.
+
 **Manuel S. Enverga University Foundation (MSEUF)**  
 *Reference Guide: Real Public Facts vs. Synthetic Ingress Demo Configuration*
 
@@ -7,7 +9,7 @@
 
 ## 1. Overview
 
-To ensure the Ingress demonstration is realistic, authentic, and defensible during capstone and academic presentations, all seeded events and venues are derived directly from official, publicly verifiable Manuel S. Enverga University Foundation resources.
+To keep the Ingress course final project demonstration realistic and defensible during academic presentations, all seeded events and venues are derived directly from official, publicly verifiable Manuel S. Enverga University Foundation resources.
 
 At the same time, operational parameters required to demonstrate the application—such as entrance gate names, seat capacities, registration windows, staff assignments, and ticket issuance—are explicitly identified as **synthetic Ingress demo values**.
 
@@ -67,14 +69,14 @@ All demonstration accounts use the password: `password`.
 - **Status**: Registered in `UserSeeder.php`
 
 #### Primary Student Acceptance Scenario:
-1. **Sign In**: Ron logs into the Ingress mobile app via demo quick-select chip or email/password.
-2. **Discovery**: Navigates to **Discover** tab and views **MSEUF University Intramurals 2026**.
-3. **Registration**: Taps **Register for Event**; capacity check executes transactionally under row lock.
-4. **Ticket Issuance**: Receives digital ticket with opaque credential (`ingress:v1:ING-XXXX:<secret>`).
-5. **Display QR**: Opens **My Tickets** $\rightarrow$ shows high-contrast vector QR code.
-6. **Admission at Entrance 1**: Staff Alex Rivera scans QR at **Entrance 1** $\rightarrow$ **`[✓] Ticket Valid`** (Admitted at Entrance 1).
-7. **Anti-Passback Block**: Staff Bea Ramos at **Entrance 2** or Staff Chris Dizon at **Entrance 3** scans the same QR $\rightarrow$ **`[!] Already Checked In`** (Reports: *"Previously admitted at Entrance 1, X:XX AM"*).
-8. **Organizer Dashboard**: Organizer observes attendance counter increment and Ron Vincent Cada listed in live admissions feed.
+1. **Sign In**: Ron signs in to the local demo website with the seeded account.
+2. **Discovery**: Opens the event catalog and selects **MSEUF University Intramurals 2026**.
+3. **Registration**: Registers for the event; capacity changes inside the server transaction.
+4. **Ticket Issuance**: Receives a ticket with an opaque credential (`ingress:v1:ING-XXXX:<secret>`).
+5. **Display QR**: Opens the web ticket and displays or downloads its QR as a PDF.
+6. **Admission at Entrance 1**: Import and activate the event snapshot on one Event Node, then pair an assigned staff scanner over HTTPS. Staff Alex Rivera previews and explicitly confirms admission at **Entrance 1**.
+7. **Anti-Passback Block**: Staff at another assigned gate scans the same QR; the Event Node rejects a second entry while the attendee is inside.
+8. **Organizer Dashboard**: After synchronization, the organizer sees the admission in the attendance view.
 
 ### 4.2 Event Staff Accounts
 - **Entrance 1 Staff**: Staff Alex Rivera (`staff.gate_a@mseuf.edu.ph`) $\rightarrow$ Assigned to **Entrance 1**

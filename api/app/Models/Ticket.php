@@ -13,6 +13,8 @@ class Ticket extends Model
 {
     use HasFactory;
 
+    public const INITIAL_CREDENTIAL_VERSION = 1;
+
     public const STATUS_ACTIVE = 'active';
 
     public const STATUS_REVOKED = 'revoked';
@@ -22,6 +24,7 @@ class Ticket extends Model
         'public_id',
         'qr_hash',
         'encrypted_secret',
+        'redemption_hash',
         'status',
         'credential_version',
         'issued_at',
@@ -30,6 +33,7 @@ class Ticket extends Model
 
     protected $hidden = [
         'encrypted_secret',
+        'redemption_hash',
     ];
 
     protected function casts(): array

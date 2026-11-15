@@ -11,14 +11,31 @@ class NodeStaffAccess
     {
         return DB::table('event_staff')
             ->join('events', 'events.id', '=', 'event_staff.event_id')
-            ->join('node_event_imports', 'node_event_imports.event_id', '=', 'events.id')
-            ->join('received_event_heads', 'received_event_heads.event_id', '=', 'node_event_imports.cloud_event_id')
+            ->leftJoin('node_event_imports', 'node_event_imports.event_id', '=', 'events.id')
+            ->leftJoin('received_event_heads', 'received_event_heads.event_id', '=', 'node_event_imports.cloud_event_id')
             ->where('events.status', 'published')
-            ->whereColumn('node_event_imports.version', 'received_event_heads.version');
+            ->where(function (Builder $query): void {
+                $query->whereColumn('node_event_imports.version', 'received_event_heads.version');
+                if (config('ingress.mode') === 'node' && config('ingress.lan_demo') === true) {
+                    $query->orWhereExists(function (Builder $local): void {
+                        $local->selectRaw('1')->from('local_demo_events')
+                            ->whereColumn('local_demo_events.event_id', 'events.id')
+                            ->whereNull('node_event_imports.event_id');
+                    });
+                }
+            });
     }
 
     public function assigned(int $userId): bool
     {
         return $this->assignments()->where('event_staff.user_id', $userId)->exists();
+    }
+
+    public function assignedToEvent(int $userId, int $eventId): bool
+    {
+        return $this->assignments()
+            ->where('event_staff.user_id', $userId)
+            ->where('events.id', $eventId)
+            ->exists();
     }
 }

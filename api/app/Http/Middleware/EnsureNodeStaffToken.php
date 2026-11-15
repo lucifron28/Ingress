@@ -18,7 +18,8 @@ class EnsureNodeStaffToken
         if (config('ingress.mode') !== 'node') {
             return $next($request);
         }
-        if (! app()->environment(['local', 'testing']) && ! $request->secure()) {
+        if (! $request->secure() && ! (app()->environment(['local', 'testing'])
+            || (config('ingress.mode') === 'node' && config('ingress.lan_demo') === true))) {
             abort(403, 'HTTPS is required.');
         }
         if (! $request->is('api/v1/me', 'api/v1/auth/logout', 'api/v1/staff/*')) {

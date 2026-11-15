@@ -10,11 +10,24 @@ use App\Models\Venue;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 class PrepareEventSnapshotTest extends TestCase
 {
     use RefreshDatabase;
+
+    private function verifiedStudent(array $attributes = []): User
+    {
+        $id = (string) Str::uuid();
+
+        return User::factory()->create(array_merge([
+            'role' => User::ROLE_STUDENT,
+            'email' => "snapshot-{$id}@student.mseuf.edu.ph",
+            'firebase_uid' => "firebase:{$id}",
+            'email_verified_at' => now(),
+        ], $attributes));
+    }
 
     private function createEvent(): Event
     {
@@ -25,8 +38,8 @@ class PrepareEventSnapshotTest extends TestCase
         return Event::create([
             'organizer_id' => $owner->id, 'venue_id' => $venue->id, 'title' => 'Event', 'slug' => 'event',
             'capacity' => 20, 'registration_opens_at' => now()->subDay(),
-            'registration_closes_at' => now()->addDay(), 'starts_at' => now(),
-            'ends_at' => now()->addDays(2), 'status' => Event::STATUS_PUBLISHED,
+            'registration_closes_at' => now()->addDay(), 'starts_at' => now()->addDays(2),
+            'ends_at' => now()->addDays(3), 'status' => Event::STATUS_PUBLISHED,
         ]);
     }
 
@@ -47,7 +60,7 @@ class PrepareEventSnapshotTest extends TestCase
     {
         $event = $this->createEvent();
         $owner = User::findOrFail($event->organizer_id);
-        $student = User::factory()->create(['role' => User::ROLE_STUDENT]);
+        $student = $this->verifiedStudent();
         $gate = AccessPoint::create(['event_id' => $event->id, 'name' => 'Gate', 'code' => 'G1', 'is_active' => true]);
         $ticketId = $this->actingAs($student)->postJson("/api/v1/events/{$event->id}/registration")->assertCreated()->json('ticket.id');
         DB::table('admissions')->insert([
@@ -75,12 +88,15 @@ class PrepareEventSnapshotTest extends TestCase
         $event = $this->createEvent();
         $owner = User::findOrFail($event->organizer_id);
         $staff = User::factory()->create(['role' => User::ROLE_STAFF]);
-        $student = User::factory()->create(['name' => 'Snapshot Attendee', 'role' => User::ROLE_STUDENT]);
+        $student = $this->verifiedStudent(['name' => 'Snapshot Attendee']);
         $gate = AccessPoint::create(['event_id' => $event->id, 'name' => 'Gate', 'code' => 'G1', 'is_active' => true]);
         EventStaff::create(['event_id' => $event->id, 'user_id' => $staff->id, 'access_point_id' => $gate->id]);
         $registration = $this->actingAs($student)->postJson("/api/v1/events/{$event->id}/registration")->assertCreated();
         $rawQr = $registration->json('qr_payload');
         $ticketId = $registration->json('ticket.id');
+        $registrationId = $registration->json('registration_id');
+        $categoryId = DB::table('registrations')->where('id', $registrationId)->value('ticket_category_id');
+        $this->assertNotNull($categoryId);
         $ticketHash = DB::table('tickets')->where('id', $ticketId)->value('qr_hash');
         $this->actingAs($owner)->post("/organizer/events/{$event->id}/close-registration")->assertRedirect();
         $this->post("/organizer/events/{$event->id}/prepare-snapshot")->assertRedirect();
@@ -95,6 +111,8 @@ class PrepareEventSnapshotTest extends TestCase
         $this->assertStringNotContainsString(explode(':', $rawQr)[3], $json);
         $payload = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
         $this->assertSame($snapshot->id, $payload['snapshot_id']);
+        $this->assertArrayNotHasKey('registration_eligibility', $payload['event']);
+        $this->assertArrayNotHasKey('ticket_category_id', $payload['registrations'][0]);
         $this->assertSame($ticketHash, $payload['registrations'][0]['ticket']['qr_hash']);
         $this->assertSame('Snapshot Attendee', $payload['registrations'][0]['attendee']['name']);
         $this->assertSame($staff->name, $payload['staff'][0]['user']['name']);
@@ -121,11 +139,16 @@ class PrepareEventSnapshotTest extends TestCase
         $this->post("/organizer/events/{$event->id}/staff", ['user_id' => $staff->id])
             ->assertSessionHasErrors('event');
         $this->post("/organizer/events/{$event->id}/publish")->assertSessionHasErrors('event');
+        $opensAt = now()->subDay();
+        $closesAt = now()->subMinute();
+        $startsAt = now();
+        $endsAt = now()->addDays(2);
         $this->put("/organizer/events/{$event->id}", [
             'venue_id' => $event->venue_id, 'title' => 'Changed', 'capacity' => 20,
-            'registration_opens_at' => now()->subDay()->toDateTimeString(),
-            'registration_closes_at' => now()->addDay()->toDateTimeString(),
-            'starts_at' => now()->toDateTimeString(), 'ends_at' => now()->addDays(2)->toDateTimeString(),
+            'registration_opens_at' => $opensAt->setTimezone('Asia/Manila')->format('Y-m-d\\TH:i'),
+            'registration_closes_at' => $closesAt->setTimezone('Asia/Manila')->format('Y-m-d\\TH:i'),
+            'starts_at' => $startsAt->setTimezone('Asia/Manila')->format('Y-m-d\\TH:i'),
+            'ends_at' => $endsAt->setTimezone('Asia/Manila')->format('Y-m-d\\TH:i'),
         ])->assertSessionHasErrors('event');
         $this->assertSame('Event', $event->fresh()->title);
         $this->assertDatabaseCount('access_points', 0);
@@ -165,7 +188,7 @@ class PrepareEventSnapshotTest extends TestCase
         $event = $this->createEvent();
         $event->update(['registration_opens_at' => now()->subDays(3), 'registration_closes_at' => now()->subDay()]);
         $owner = User::findOrFail($event->organizer_id);
-        $student = User::factory()->create(['role' => User::ROLE_STUDENT]);
+        $student = $this->verifiedStudent();
         $this->actingAs($owner)->post("/organizer/events/{$event->id}/prepare-snapshot")->assertRedirect();
         $this->travel(-2)->days();
         $this->actingAs($student)->getJson("/api/v1/events/{$event->id}")
@@ -209,11 +232,16 @@ class PrepareEventSnapshotTest extends TestCase
     {
         $event = $this->createEvent();
         $owner = User::findOrFail($event->organizer_id);
+        $opensAt = now()->subDay();
+        $closesAt = now()->subMinute();
+        $startsAt = now();
+        $endsAt = now()->addDays(2);
         $this->actingAs($owner)->put("/organizer/events/{$event->id}", [
             'venue_id' => $event->venue_id, 'title' => 'Changed', 'capacity' => 20,
-            'registration_opens_at' => now()->subDay()->toDateTimeString(),
-            'registration_closes_at' => now()->addDay()->toDateTimeString(),
-            'starts_at' => now()->toDateTimeString(), 'ends_at' => now()->addDays(2)->toDateTimeString(),
+            'registration_opens_at' => $opensAt->setTimezone('Asia/Manila')->format('Y-m-d\\TH:i'),
+            'registration_closes_at' => $closesAt->setTimezone('Asia/Manila')->format('Y-m-d\\TH:i'),
+            'starts_at' => $startsAt->setTimezone('Asia/Manila')->format('Y-m-d\\TH:i'),
+            'ends_at' => $endsAt->setTimezone('Asia/Manila')->format('Y-m-d\\TH:i'),
             'snapshot_version' => 99, 'snapshot_prepared_at' => now()->toDateTimeString(),
         ])->assertRedirect();
         $this->assertSame(0, $event->fresh()->snapshot_version);

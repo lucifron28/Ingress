@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Actions\AdmitTicket;
 use App\Actions\RegisterForEvent;
 use App\Models\AccessPoint;
 use App\Models\Admission;
@@ -9,11 +10,11 @@ use App\Models\Event;
 use App\Models\EventStaff;
 use App\Models\Registration;
 use App\Models\Ticket;
-use Illuminate\Support\Str;
 use App\Models\User;
 use App\Models\Venue;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
@@ -22,9 +23,13 @@ class RegistrationTest extends TestCase
     use RefreshDatabase;
 
     private User $student1;
+
     private User $student2;
+
     private User $organizer;
+
     private Venue $venue;
+
     private Event $event;
 
     protected function setUp(): void
@@ -40,6 +45,8 @@ class RegistrationTest extends TestCase
             'email' => 'a23-35524@student.mseuf.edu.ph',
             'student_id' => 'A23-35524',
             'role' => User::ROLE_STUDENT,
+            'firebase_uid' => 'firebase-student-registration-1',
+            'email_verified_at' => now(),
         ]);
 
         $this->student2 = User::factory()->create([
@@ -47,6 +54,8 @@ class RegistrationTest extends TestCase
             'email' => 'student2@mseuf.edu.ph',
             'student_id' => '2024-01002',
             'role' => User::ROLE_STUDENT,
+            'firebase_uid' => 'firebase-student-registration-2',
+            'email_verified_at' => now(),
         ]);
 
         $this->venue = Venue::create([
@@ -144,7 +153,11 @@ class RegistrationTest extends TestCase
 
     public function test_capacity_cannot_be_exceeded(): void
     {
-        $student3 = User::factory()->create(['role' => User::ROLE_STUDENT]);
+        $student3 = User::factory()->create([
+            'role' => User::ROLE_STUDENT,
+            'firebase_uid' => 'firebase-student-registration-3',
+            'email_verified_at' => now(),
+        ]);
 
         // Capacity is 2
         // Student 1 registers (1/2)
@@ -188,7 +201,7 @@ class RegistrationTest extends TestCase
             'status' => Event::STATUS_PUBLISHED,
         ]);
 
-        $action = new RegisterForEvent();
+        $action = new RegisterForEvent;
 
         // Simulate two competing requests attempting to acquire the final seat
         $successCount = 0;
@@ -246,16 +259,16 @@ class RegistrationTest extends TestCase
             ->getJson('/api/v1/me/tickets');
         $response->assertStatus(200);
         $response->assertJsonStructure([
-                'data' => [
-                    '*' => [
-                        'id',
-                        'public_id',
-                        'status',
-                        'event' => ['id', 'title'],
-                        'attendee' => ['name', 'email'],
-                    ],
+            'data' => [
+                '*' => [
+                    'id',
+                    'public_id',
+                    'status',
+                    'event' => ['id', 'title'],
+                    'attendee' => ['name', 'email'],
                 ],
-            ]);
+            ],
+        ]);
 
         $this->assertCount(1, $response->json('data'));
     }
@@ -315,7 +328,7 @@ class RegistrationTest extends TestCase
             'access_point_id' => $gate->id,
         ]);
 
-        $admitAction = new \App\Actions\AdmitTicket();
+        $admitAction = new AdmitTicket;
 
         // 1. Student registers and receives ticket
         $regResponse = $this->actingAs($this->student1)
@@ -380,7 +393,7 @@ class RegistrationTest extends TestCase
             'revoked_at' => Carbon::now(),
         ]);
 
-        $admitAction = new \App\Actions\AdmitTicket();
+        $admitAction = new AdmitTicket;
         $scanResult = $admitAction->execute(
             staff: $staff,
             eventId: $this->event->id,

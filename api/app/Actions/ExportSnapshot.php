@@ -3,6 +3,7 @@
 namespace App\Actions;
 
 use App\Models\Event;
+use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -31,7 +32,15 @@ class ExportSnapshot
             if ($record->target_node_id !== null && $record->target_node_id !== $nodeId) {
                 throw ValidationException::withMessages(['transfer' => 'This snapshot is already bound to another node.']);
             }
-            $sealed = $this->envelope->seal($nodeId, Crypt::decryptString($node->key_ciphertext), $snapshot['json']);
+            try {
+                $nodeKey = Crypt::decryptString($node->key_ciphertext);
+            } catch (DecryptException) {
+                throw ValidationException::withMessages([
+                    'transfer' => 'The saved Event Node transfer credential could not be decrypted. Verify that the current Cloud APP_KEY matches the key used when this node was registered; if it changed, restore that original key before retrying.',
+                ]);
+            }
+
+            $sealed = $this->envelope->seal($nodeId, $nodeKey, $snapshot['json']);
             DB::table('event_snapshots')->where('id', $record->id)->update(['target_node_id' => $nodeId, 'updated_at' => now()]);
 
             return $sealed;

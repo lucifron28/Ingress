@@ -1,9 +1,9 @@
 @php
     $event = $event ?? null;
-    $opensAt = $event?->registration_opens_at?->format('Y-m-d\TH:i') ?? now()->format('Y-m-d\TH:i');
-    $closesAt = $event?->registration_closes_at?->format('Y-m-d\TH:i') ?? now()->addDays(7)->format('Y-m-d\TH:i');
-    $startsAt = $event?->starts_at?->format('Y-m-d\TH:i') ?? now()->addDays(2)->setHour(8)->setMinute(0)->format('Y-m-d\TH:i');
-    $endsAt = $event?->ends_at?->format('Y-m-d\TH:i') ?? now()->addDays(2)->setHour(17)->setMinute(0)->format('Y-m-d\TH:i');
+    $opensAt = \App\Support\EventSchedule::localInput($event?->registration_opens_at ?? now());
+    $closesAt = \App\Support\EventSchedule::localInput($event?->registration_closes_at ?? now()->addDays(7));
+    $startsAt = \App\Support\EventSchedule::localInput($event?->starts_at ?? now()->addDays(2)->setHour(8)->setMinute(0));
+    $endsAt = \App\Support\EventSchedule::localInput($event?->ends_at ?? now()->addDays(2)->setHour(17)->setMinute(0));
 @endphp
 
 <div class="event-editor">
@@ -51,7 +51,7 @@
             <x-icon name="calendar-days" size="20" class="event-form-section__icon" />
             <div>
                 <h2 id="event-form-schedule-title" class="event-form-section__title">Event Schedule</h2>
-                <p class="event-form-section__description">Set when the event begins and ends.</p>
+                <p class="event-form-section__description">Set when the event begins and ends. All times use Philippine Time (PHT).</p>
             </div>
         </header>
         <div class="event-form-grid">
@@ -72,7 +72,7 @@
             <x-icon name="calendar-clock" size="20" class="event-form-section__icon" />
             <div>
                 <h2 id="event-form-registration-title" class="event-form-section__title">Registration Settings</h2>
-                <p class="event-form-section__description">Choose when attendees can register.</p>
+                <p class="event-form-section__description">Choose when attendees can register. All times use Philippine Time (PHT).</p>
             </div>
         </header>
         <div class="event-form-grid">

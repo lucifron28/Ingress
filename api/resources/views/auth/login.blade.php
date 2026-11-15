@@ -50,6 +50,10 @@
 
             <button type="submit" class="btn-primary login-form__submit">Sign In</button>
         </form>
+
+        <p class="login-form__student-access">
+            <a href="{{ route('student.auth') }}">Student sign in or create an account</a>
+        </p>
     </section>
 </div>
 @endsection

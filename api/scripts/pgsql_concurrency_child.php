@@ -12,6 +12,7 @@
 
 use App\Actions\ActivateEventAuthority;
 use App\Actions\AdmitTicket;
+use App\Actions\CreateSimulatedCheckout;
 use App\Actions\ExportSnapshot;
 use App\Actions\ImportReceivedSnapshot;
 use App\Actions\IssueGuestTicket;
@@ -21,6 +22,7 @@ use App\Actions\NodeStaffAccess;
 use App\Actions\NodeStaffPairing;
 use App\Actions\PrepareAdmissionBatch;
 use App\Actions\PrepareEventSnapshot;
+use App\Actions\ProcessSimulatedPayment;
 use App\Actions\ReceiveAdmissionBatch;
 use App\Actions\ReceiveSnapshot;
 use App\Actions\ReceiveWalkIn;
@@ -30,14 +32,22 @@ use App\Actions\SyncWalkInRecovery;
 use App\Actions\TransferEventAuthority;
 use App\Http\Controllers\Api\V1\NodeStaffAuthController;
 use App\Http\Controllers\Api\V1\TicketTransferController;
-use App\Http\Controllers\StudentEmailVerificationController;
+use App\Http\Controllers\Web\OrganizerEventController;
 use App\Http\Middleware\EnsureRuntimeDatabase;
+use App\Models\AccessPoint;
+use App\Models\CheckoutOrder;
+use App\Models\Event;
 use App\Models\TicketTransfer;
 use App\Models\User;
+use App\Services\Tickets\GuestTicketTransfer;
+use App\Support\CloudOperatorDatabase;
+use App\Support\PostgresAdvisoryMigrationLock;
 use Illuminate\Contracts\Console\Kernel;
+use Illuminate\Database\Connection;
 use Illuminate\Http\Request;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Laravel\Sanctum\PersonalAccessToken;
@@ -95,6 +105,12 @@ if (trim((string) $signal) !== 'GO') {
     exit(1);
 }
 
+if ($mode === 'guest_ticket_redeem') {
+    $payload['redemption_code'] = trim((string) fgets(STDIN));
+    $payload['guest_name'] = trim((string) fgets(STDIN));
+    $payload['guest_email'] = trim((string) fgets(STDIN));
+}
+
 // --- Execute the contested operation -----------------------------------------
 try {
     if ($mode === 'seat') {
@@ -106,6 +122,25 @@ try {
         $emit([
             'ok' => true,
             'registration_id' => $result['registration']->id,
+        ]);
+    } elseif ($mode === 'paid_checkout_start') {
+        config(['ingress.mode' => 'cloud', 'ingress.simulated_payments.enabled' => true]);
+        $order = app(CreateSimulatedCheckout::class)->execute(
+            eventId: $payload['event_id'],
+            categoryId: $payload['category_id'],
+            user: null,
+            guestName: $payload['guest_name'],
+            guestEmail: $payload['email'],
+            idempotencyKey: $payload['idempotency_key'],
+        );
+        $emit(['ok' => true, 'order_id' => $order->id]);
+    } elseif ($mode === 'paid_checkout_process') {
+        config(['ingress.mode' => 'cloud', 'ingress.simulated_payments.enabled' => true]);
+        $result = app(ProcessSimulatedPayment::class)->execute($payload['order_id'], $payload['attempt_key']);
+        $emit([
+            'ok' => $result['status'] === CheckoutOrder::STATUS_SUCCESSFUL,
+            'status' => $result['status'],
+            'registration_id' => $result['registration']?->id,
         ]);
     } elseif ($mode === 'scan') {
         $result = (new AdmitTicket)->execute(
@@ -125,7 +160,7 @@ try {
     } elseif ($mode === 'guest_registration') {
         config(['ingress.mode' => 'cloud']);
         $registration = app(IssueGuestTicket::class)->execute($payload['event_id'], 'Race Guest', $payload['email'], 'guest');
-        $emit(['ok' => true, 'registration_id' => $registration->id]);
+        $emit(['ok' => true, 'registration_id' => $registration['registration']->id]);
     } elseif ($mode === 'node_walk_in') {
         config(['ingress.mode' => 'node', 'ingress.node_id' => $payload['node_id'], 'ingress.authority_public_key' => $payload['public_key']]);
         $staff = User::findOrFail($payload['staff_user_id']);
@@ -166,6 +201,26 @@ try {
         $emit(['ok' => $result['http_code'] === 200, 'http_code' => $result['http_code'], 'status' => $result['status']]);
     } elseif ($mode === 'register_node') {
         config(['ingress.mode' => 'cloud']);
+        $cloudDatabase = new class extends CloudOperatorDatabase
+        {
+            public function __construct() {}
+
+            public function configurationErrors(): array
+            {
+                return [];
+            }
+
+            public function connection(): Connection
+            {
+                return DB::connection();
+            }
+
+            public function runLocked(Connection $connection, callable $operation): bool
+            {
+                return app(PostgresAdvisoryMigrationLock::class)->run($connection, $operation, 30);
+            }
+        };
+        app()->instance(CloudOperatorDatabase::class, $cloudDatabase);
         $exitCode = Artisan::call('ingress:register-node', ['node_id' => $payload['node_id']]);
         $output = Artisan::output();
         $emit(['ok' => $exitCode === 0, 'key_shown' => str_contains($output, 'INGRESS_NODE_SYNC_KEY=')]);
@@ -203,19 +258,24 @@ try {
         $request->setUserResolver(fn () => User::findOrFail($payload['recipient_id']));
         $response = app(TicketTransferController::class)->accept($request, TicketTransfer::findOrFail($payload['transfer_id']));
         $emit(['ok' => $response->getStatusCode() === 200, 'http_code' => $response->getStatusCode()]);
+    } elseif ($mode === 'guest_ticket_redeem') {
+        config(['ingress.mode' => 'cloud']);
+        $result = app(GuestTicketTransfer::class)->redeem(
+            $payload['redemption_code'],
+            $payload['guest_name'],
+            $payload['guest_email'],
+            hash('sha256', random_bytes(32)),
+        );
+        $emit([
+            'ok' => true,
+            'ticket_id' => $result['ticket']->id,
+            'credential_version' => $result['ticket']->credential_version,
+        ]);
     } elseif ($mode === 'node_staff_login') {
         $app->detectEnvironment(fn () => 'testing');
         config(['ingress.mode' => 'node', 'ingress.node_id' => $payload['node_id']]);
         $request = Request::create('/api/v1/auth/node-staff/login', 'POST', ['email' => $payload['email'], 'password' => $payload['password']]);
         $response = app(NodeStaffAuthController::class)->login($request, app(NodeStaffAccess::class));
-        $emit(['ok' => $response->getStatusCode() === 200, 'http_code' => $response->getStatusCode()]);
-    } elseif ($mode === 'student_complete') {
-        config(['ingress.mode' => 'cloud']);
-        $request = Request::create('/student/complete', 'POST', [
-            'token' => $payload['token'], 'name' => 'Race Student', 'student_id' => $payload['student_id'],
-            'password' => 'long-race-password', 'password_confirmation' => 'long-race-password',
-        ]);
-        $response = app(StudentEmailVerificationController::class)->complete($request);
         $emit(['ok' => $response->getStatusCode() === 200, 'http_code' => $response->getStatusCode()]);
     } elseif ($mode === 'runtime') {
         $app->detectEnvironment(fn () => 'production');
@@ -229,6 +289,28 @@ try {
         } catch (HttpException $e) {
             $emit(['http_code' => $e->getStatusCode()]);
         }
+    } elseif ($mode === 'deactivate_gate') {
+        $actor = User::findOrFail($payload['actor_id']);
+        Auth::setUser($actor);
+        $request = Request::create('/organizer/events/'.$payload['event_id'].'/access-points/'.$payload['access_point_id'], 'PUT', [
+            'name' => 'Race Gate', 'code' => 'RACE-GATE', 'is_active' => '0',
+        ]);
+        $request->setUserResolver(fn () => $actor);
+        $response = app(OrganizerEventController::class)->updateAccessPoint(
+            $request,
+            Event::findOrFail($payload['event_id']),
+            AccessPoint::findOrFail($payload['access_point_id']),
+        );
+        $emit(['ok' => $response->getStatusCode() >= 300 && $response->getStatusCode() < 400]);
+    } elseif ($mode === 'assign_gate_staff') {
+        $actor = User::findOrFail($payload['actor_id']);
+        Auth::setUser($actor);
+        $request = Request::create('/organizer/events/'.$payload['event_id'].'/staff', 'POST', [
+            'user_id' => $payload['staff_id'], 'access_point_id' => $payload['access_point_id'],
+        ]);
+        $request->setUserResolver(fn () => $actor);
+        $response = app(OrganizerEventController::class)->assignStaff($request, Event::findOrFail($payload['event_id']));
+        $emit(['ok' => $response->getStatusCode() >= 300 && $response->getStatusCode() < 400]);
     } else {
         $emit(['ok' => false, 'reason' => 'unknown_mode']);
         exit(1);
@@ -243,6 +325,6 @@ try {
     $emit([
         'ok' => false,
         'reason' => 'exception',
-        'detail' => $e::class.': '.$e->getMessage(),
+        'detail' => $mode === 'guest_ticket_redeem' ? $e::class : $e::class.': '.$e->getMessage(),
     ]);
 }

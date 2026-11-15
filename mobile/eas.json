@@ -9,8 +9,7 @@
       "environment": "preview",
       "env": {
         "INGRESS_RELEASE_BUILD": "true",
-        "EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE": "false",
-        "EXPO_PUBLIC_INGRESS_DEMO_MODE": "false"
+        "INGRESS_LAN_DEMO": "false"
       },
       "android": {
         "buildType": "apk"
@@ -21,11 +20,21 @@
       "environment": "production",
       "env": {
         "INGRESS_RELEASE_BUILD": "true",
-        "EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE": "false",
-        "EXPO_PUBLIC_INGRESS_DEMO_MODE": "false"
+        "INGRESS_LAN_DEMO": "false"
       },
       "android": {
         "buildType": "app-bundle"
+      }
+    },
+    "lanDemo": {
+      "extends": "preview",
+      "distribution": "internal",
+      "environment": "preview",
+      "env": {
+        "INGRESS_LAN_DEMO": "true"
+      },
+      "android": {
+        "buildType": "apk"
       }
     }
   }

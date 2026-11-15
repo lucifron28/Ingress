@@ -17,8 +17,8 @@
             <thead>
                 <tr>
                     <th scope="col">Event</th>
-                    <th scope="col">Registration Window</th>
-                    <th scope="col">Event Schedule</th>
+                    <th scope="col">Registration Window (PHT)</th>
+                    <th scope="col">Event Schedule (PHT)</th>
                     <th scope="col">Capacity</th>
                     <th scope="col">Status</th>
                     <th scope="col" class="events-table__actions-heading">Actions</th>
@@ -27,10 +27,10 @@
             <tbody>
                 @forelse ($events as $event)
                     @php
-                        $startsAt = $event->starts_at;
-                        $endsAt = $event->ends_at;
-                        $registrationOpensAt = $event->registration_opens_at;
-                        $registrationClosesAt = $event->registration_closes_at;
+                        $startsAt = \App\Support\EventSchedule::local($event->starts_at);
+                        $endsAt = \App\Support\EventSchedule::local($event->ends_at);
+                        $registrationOpensAt = \App\Support\EventSchedule::local($event->registration_opens_at);
+                        $registrationClosesAt = \App\Support\EventSchedule::local($event->registration_closes_at);
 
                         if ($startsAt->isSameDay($endsAt)) {
                             $eventDateRange = $startsAt->format('F j, Y');
@@ -57,12 +57,12 @@
                         </th>
                         <td>
                             <div class="events-table__date">{{ $registrationDateRange }}</div>
-                            <div class="events-table__supporting">{{ $registrationOpensAt->format('g:i A') }} – {{ $registrationClosesAt->format('g:i A') }}</div>
+                            <div class="events-table__supporting">{{ $registrationOpensAt->format('g:i A') }} – {{ $registrationClosesAt->format('g:i A') }} PHT</div>
                             <div class="events-table__supporting">Registration period</div>
                         </td>
                         <td>
                             <div class="events-table__date">{{ $eventDateRange }}</div>
-                            <div class="events-table__supporting">{{ $startsAt->format('g:i A') }} – {{ $endsAt->format('g:i A') }}</div>
+                            <div class="events-table__supporting">{{ $startsAt->format('g:i A') }} – {{ $endsAt->format('g:i A') }} PHT</div>
                         </td>
                         <td class="events-table__capacity mono">{{ number_format($event->capacity) }}</td>
                         <td><x-event-status-badge :event="$event" /></td>
@@ -91,10 +91,10 @@
     <div class="events-mobile-list">
         @forelse ($events as $event)
             @php
-                $startsAt = $event->starts_at;
-                $endsAt = $event->ends_at;
-                $registrationOpensAt = $event->registration_opens_at;
-                $registrationClosesAt = $event->registration_closes_at;
+                $startsAt = \App\Support\EventSchedule::local($event->starts_at);
+                $endsAt = \App\Support\EventSchedule::local($event->ends_at);
+                $registrationOpensAt = \App\Support\EventSchedule::local($event->registration_opens_at);
+                $registrationClosesAt = \App\Support\EventSchedule::local($event->registration_closes_at);
 
                 if ($startsAt->isSameDay($endsAt)) {
                     $eventDateRange = $startsAt->format('F j, Y');
@@ -124,14 +124,14 @@
                 </header>
                 <dl class="events-mobile-card__details">
                     <div>
-                        <dt>Event schedule</dt>
+                        <dt>Event schedule (PHT)</dt>
                         <dd>{{ $eventDateRange }}</dd>
-                        <dd class="events-table__supporting">{{ $startsAt->format('g:i A') }} – {{ $endsAt->format('g:i A') }}</dd>
+                        <dd class="events-table__supporting">{{ $startsAt->format('g:i A') }} – {{ $endsAt->format('g:i A') }} PHT</dd>
                     </div>
                     <div>
                         <dt>Registration</dt>
                         <dd>{{ $registrationDateRange }}</dd>
-                        <dd class="events-table__supporting">{{ $registrationOpensAt->format('g:i A') }} – {{ $registrationClosesAt->format('g:i A') }}</dd>
+                        <dd class="events-table__supporting">{{ $registrationOpensAt->format('g:i A') }} – {{ $registrationClosesAt->format('g:i A') }} PHT</dd>
                     </div>
                     <div>
                         <dt>Capacity</dt>

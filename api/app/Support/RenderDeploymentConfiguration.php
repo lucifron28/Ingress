@@ -17,7 +17,6 @@ final class RenderDeploymentConfiguration
             'database' => config('database'),
             'session' => config('session'),
             'cache' => config('cache'),
-            'mail' => config('mail'),
             'queue' => config('queue'),
             'services' => config('services'),
             'logging' => config('logging'),
@@ -54,17 +53,6 @@ final class RenderDeploymentConfiguration
         if (($config['app']['maintenance']['driver'] ?? null) !== 'cache'
             || ($config['app']['maintenance']['store'] ?? null) !== 'database') {
             $errors[] = 'Maintenance mode must use the database cache store.';
-        }
-
-        if (($config['mail']['default'] ?? null) !== 'resend'
-            || ! is_string($config['services']['resend']['key'] ?? null)
-            || trim($config['services']['resend']['key']) === '') {
-            $errors[] = 'MAIL_MAILER must be resend and RESEND_API_KEY must be set.';
-        }
-
-        if (! is_string($config['mail']['from']['address'] ?? null)
-            || filter_var($config['mail']['from']['address'], FILTER_VALIDATE_EMAIL) === false) {
-            $errors[] = 'MAIL_FROM_ADDRESS must be a valid sender address.';
         }
 
         if (($config['logging']['default'] ?? null) !== 'stderr') {

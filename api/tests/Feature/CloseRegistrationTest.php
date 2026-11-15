@@ -21,7 +21,7 @@ class CloseRegistrationTest extends TestCase
             'organizer_id' => $organizer->id, 'venue_id' => $venue->id,
             'title' => 'Event', 'slug' => 'event', 'capacity' => 20,
             'registration_opens_at' => now()->subDay(), 'registration_closes_at' => now()->addDay(),
-            'starts_at' => now(), 'ends_at' => now()->addDay(), 'status' => $status,
+            'starts_at' => now()->addDays(2), 'ends_at' => now()->addDays(3), 'status' => $status,
         ]);
     }
 
@@ -30,8 +30,16 @@ class CloseRegistrationTest extends TestCase
         $this->freezeTime();
         $event = $this->createEvent();
         $owner = User::findOrFail($event->organizer_id);
-        $student = User::factory()->create(['role' => User::ROLE_STUDENT]);
-        $registered = User::factory()->create(['role' => User::ROLE_STUDENT]);
+        $student = User::factory()->create([
+            'role' => User::ROLE_STUDENT,
+            'firebase_uid' => 'firebase-close-registration-student',
+            'email_verified_at' => now(),
+        ]);
+        $registered = User::factory()->create([
+            'role' => User::ROLE_STUDENT,
+            'firebase_uid' => 'firebase-close-registration-registered',
+            'email_verified_at' => now(),
+        ]);
         $ticketId = $this->actingAs($registered)->postJson("/api/v1/events/{$event->id}/registration")
             ->assertCreated()->json('ticket.id');
         $this->actingAs($owner)->post("/organizer/events/{$event->id}/close-registration")
@@ -73,7 +81,7 @@ class CloseRegistrationTest extends TestCase
         $this->put("/organizer/events/{$event->id}", [
             'venue_id' => $event->venue_id, 'title' => $event->title, 'capacity' => $event->capacity,
             'registration_opens_at' => now()->subDay()->toDateTimeString(),
-            'registration_closes_at' => now()->addDays(5)->toDateTimeString(),
+            'registration_closes_at' => now()->addHours(12)->toDateTimeString(),
             'starts_at' => now()->addDay()->toDateTimeString(),
             'ends_at' => now()->addDays(6)->toDateTimeString(),
         ])->assertRedirect();
@@ -87,9 +95,27 @@ class CloseRegistrationTest extends TestCase
         $this->freezeTime();
         $event = $this->createEvent();
         $event->update(['ends_at' => now()->subSecond()]);
-        $student = User::factory()->create(['role' => User::ROLE_STUDENT]);
+        $student = User::factory()->create([
+            'role' => User::ROLE_STUDENT,
+            'firebase_uid' => 'firebase-ended-event-student',
+            'email_verified_at' => now(),
+        ]);
         $this->actingAs($student)->getJson("/api/v1/events/{$event->id}")
             ->assertOk()->assertJsonPath('event.is_registration_open', false);
         $this->postJson("/api/v1/events/{$event->id}/registration")->assertUnprocessable();
+    }
+
+    public function test_registration_closes_at_event_start_even_if_legacy_cutoff_is_later(): void
+    {
+        $this->freezeTime();
+        $event = $this->createEvent();
+        $event->update([
+            'registration_closes_at' => now()->addHours(3),
+            'starts_at' => now()->addHours(2),
+        ]);
+
+        $this->assertTrue($event->fresh()->isRegistrationOpen());
+        $this->travel(2)->hours();
+        $this->assertFalse($event->fresh()->isRegistrationOpen());
     }
 }

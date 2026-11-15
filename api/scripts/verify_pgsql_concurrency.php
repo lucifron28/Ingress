@@ -8,11 +8,17 @@
  *
  *   Case A — Final seat race: two users register simultaneously for an event
  *            with capacity 1. Exactly one confirmed registration must exist.
+ *   Case A3 — Simulated payment race: two requests process one selected
+ *             successful attempt simultaneously. One registration and ticket
+ *             must be issued and both requests must resolve to that registration.
  *
  *   Case B — Same-ticket race: two gate scanners submit the same ticket at the
  *            same moment. Exactly one admission must exist.
  *
- * Both cases release two child PHP processes through a two-way barrier so the
+ *   Case C — Guest-ticket race: two requests redeem the same private code at
+ *            the same moment. Exactly one credential rotation must commit.
+ *
+ * Race cases release two child PHP processes through a two-way barrier so the
  * database transactions genuinely overlap.
  *
  * Usage (from the api/ directory):
@@ -25,20 +31,25 @@
 use App\Actions\ActivateEventAuthority;
 use App\Actions\AdmissionSyncEnvelope;
 use App\Actions\AuthorityGrant;
+use App\Actions\BeginSimulatedPaymentAttempt;
+use App\Actions\CreateSimulatedCheckout;
 use App\Actions\ImportReceivedSnapshot;
 use App\Actions\ManageNodeStaffCredential;
 use App\Actions\NodeStaffPairing;
 use App\Actions\PrepareEventSnapshot;
 use App\Actions\ReceiveSnapshot;
 use App\Actions\RecoverNodeWalkIn;
+use App\Actions\RegisterAttendeeForEvent;
 use App\Actions\RegisterForEvent;
 use App\Actions\SnapshotEnvelope;
 use App\Actions\SyncWalkInRecovery;
 use App\Http\Controllers\Api\V1\TicketTransferController;
 use App\Models\AccessPoint;
 use App\Models\Admission;
+use App\Models\CheckoutOrder;
 use App\Models\Event;
 use App\Models\EventStaff;
+use App\Models\PaymentAttempt;
 use App\Models\Registration;
 use App\Models\Ticket;
 use App\Models\TicketTransfer;
@@ -51,6 +62,7 @@ use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 require __DIR__.'/../vendor/autoload.php';
 
@@ -63,7 +75,24 @@ try {
 }
 
 set_exception_handler(static function (Throwable $error): void {
-    fwrite(STDERR, 'POSTGRESQL CONCURRENCY VERIFICATION FAILED: '.get_class($error).PHP_EOL);
+    $previous = $error;
+    while ($previous->getPrevious() !== null) {
+        $previous = $previous->getPrevious();
+    }
+
+    $constraint = '';
+    if ($previous instanceof PDOException) {
+        $message = (string) ($previous->errorInfo[2] ?? '');
+        if (preg_match('/unique constraint "([^"]+)"/i', $message, $matches) === 1) {
+            $constraint = ' (constraint '.$matches[1].')';
+        }
+    }
+
+    $validationErrors = $error instanceof ValidationException
+        ? ' (validation: '.json_encode($error->errors(), JSON_UNESCAPED_SLASHES).')'
+        : '';
+
+    fwrite(STDERR, 'POSTGRESQL CONCURRENCY VERIFICATION FAILED: '.get_class($error).$constraint.$validationErrors.PHP_EOL);
     exit(1);
 });
 
@@ -269,6 +298,117 @@ $seatSuccesses = count(array_filter($seatResults, fn ($r) => ($r['ok'] ?? false)
 echo "  confirmed registrations in database: {$seatConfirmed}\n";
 $assert($seatSuccesses === 1, 'exactly one child reported a successful registration');
 $assert($seatConfirmed === 1, 'exactly one confirmed registration exists (capacity invariant holds)');
+echo "\n";
+
+// CASE A2 — A paid reservation and free registration compete for the same final seat.
+echo "CASE A2: paid reservation and free registration compete for the final seat\n";
+
+$mixedSeatEvent = Event::create([
+    'organizer_id' => $organizer->id,
+    'venue_id' => $venue->id,
+    'title' => 'Paid and Free Seat Race',
+    'slug' => "paid-free-seat-race-{$suffix}",
+    'capacity' => 1,
+    'registration_opens_at' => now()->subHour(),
+    'registration_closes_at' => now()->addDay(),
+    'starts_at' => now()->addDays(2),
+    'ends_at' => now()->addDays(2)->addHours(3),
+    'status' => Event::STATUS_PUBLISHED,
+    'simulated_payments_enabled' => true,
+]);
+$paidCategory = $mixedSeatEvent->ticketCategories()->create([
+    'name' => 'Paid Admission',
+    'price_minor' => 12500,
+    'currency' => 'PHP',
+    'capacity' => 1,
+    'eligibility' => 'public',
+    'is_active' => true,
+    'is_default' => false,
+]);
+$mixedSeatStudent = User::create([
+    'name' => "Mixed Race Student {$suffix}",
+    'email' => "mixed.race.{$suffix}@mseuf.edu.ph",
+    'student_id' => "MIX-{$suffix}",
+    'role' => User::ROLE_STUDENT,
+    'password' => Hash::make('password'),
+]);
+
+$mixedSeatResults = $runConcurrently([
+    ['seat', ['user_id' => $mixedSeatStudent->id, 'event_id' => $mixedSeatEvent->id]],
+    ['paid_checkout_start', [
+        'event_id' => $mixedSeatEvent->id,
+        'category_id' => $paidCategory->id,
+        'guest_name' => 'Paid Race Guest',
+        'email' => "paid.race.{$suffix}@example.test",
+        'idempotency_key' => (string) Str::uuid(),
+    ]],
+], $childScript, $testDatabase);
+
+foreach ($mixedSeatResults as $index => $result) {
+    echo '  worker '.($index + 1).': '.json_encode($result).PHP_EOL;
+}
+
+$mixedSeatConfirmed = Registration::query()->where('event_id', $mixedSeatEvent->id)
+    ->where('status', Registration::STATUS_CONFIRMED)->count();
+$mixedSeatReserved = CheckoutOrder::query()->where('event_id', $mixedSeatEvent->id)->activeReservation()->count();
+$mixedSeatSuccesses = count(array_filter($mixedSeatResults, fn ($result) => ($result['ok'] ?? false) === true));
+$mixedSeatTickets = Ticket::query()->whereHas('registration', fn ($query) => $query->where('event_id', $mixedSeatEvent->id))->count();
+
+echo "  confirmed registrations: {$mixedSeatConfirmed}; active paid reservations: {$mixedSeatReserved}\n";
+$assert($mixedSeatSuccesses === 1, 'only one payment reservation or free registration won');
+$assert($mixedSeatConfirmed + $mixedSeatReserved === 1, 'confirmed registrations plus active reservations stay within capacity');
+$assert($mixedSeatTickets === $mixedSeatConfirmed, 'pending paid reservations issue no ticket');
+echo "\n";
+
+// CASE A3 — Concurrent processing of one selected simulator outcome is idempotent.
+echo "CASE A3: concurrent processing of one simulated payment attempt\n";
+config(['ingress.mode' => 'cloud', 'ingress.simulated_payments.enabled' => true]);
+$paymentRaceEvent = Event::create([
+    'organizer_id' => $organizer->id,
+    'venue_id' => $venue->id,
+    'title' => 'Payment Attempt Race',
+    'slug' => "payment-attempt-race-{$suffix}",
+    'capacity' => 2,
+    'registration_opens_at' => now()->subHour(),
+    'registration_closes_at' => now()->addDay(),
+    'starts_at' => now()->addDays(2),
+    'ends_at' => now()->addDays(2)->addHours(3),
+    'status' => Event::STATUS_PUBLISHED,
+    'simulated_payments_enabled' => true,
+]);
+$paymentRaceCategory = $paymentRaceEvent->ticketCategories()->create([
+    'name' => 'Paid Admission',
+    'price_minor' => 12500,
+    'currency' => 'PHP',
+    'capacity' => 2,
+    'eligibility' => 'public',
+    'is_active' => true,
+    'is_default' => false,
+]);
+$paymentRaceOrder = app(CreateSimulatedCheckout::class)->execute(
+    eventId: $paymentRaceEvent->id,
+    categoryId: $paymentRaceCategory->id,
+    user: null,
+    guestName: 'Payment Race Guest',
+    guestEmail: "payment.race.{$suffix}@example.test",
+    idempotencyKey: (string) Str::uuid(),
+);
+$paymentRaceAttemptKey = (string) Str::uuid();
+app(BeginSimulatedPaymentAttempt::class)->execute(
+    $paymentRaceOrder->id,
+    PaymentAttempt::METHOD_WALLET,
+    $paymentRaceAttemptKey,
+    PaymentAttempt::SIMULATED_OUTCOME_SUCCESS,
+);
+$paymentRaceResults = $runConcurrently([
+    ['paid_checkout_process', ['order_id' => $paymentRaceOrder->id, 'attempt_key' => $paymentRaceAttemptKey]],
+    ['paid_checkout_process', ['order_id' => $paymentRaceOrder->id, 'attempt_key' => $paymentRaceAttemptKey]],
+], $childScript, $testDatabase);
+$paymentRaceRegistrationIds = array_values(array_unique(array_filter(array_column($paymentRaceResults, 'registration_id'))));
+$assert(count(array_filter($paymentRaceResults, fn ($result) => ($result['ok'] ?? false) === true)) === 2, 'both payment confirmations resolved successfully');
+$assert(count($paymentRaceRegistrationIds) === 1, 'both confirmations resolved to the same registration');
+$assert(Registration::where('event_id', $paymentRaceEvent->id)->count() === 1, 'one registration was issued');
+$assert(Ticket::whereHas('registration', fn ($query) => $query->where('event_id', $paymentRaceEvent->id))->count() === 1, 'one ticket was issued');
 echo "\n";
 
 // =============================================================================
@@ -566,7 +706,7 @@ $raceEvent = Event::create([
     'capacity' => 50,
     'registration_opens_at' => now()->subHour(),
     'registration_closes_at' => now()->addDay(),
-    'starts_at' => now()->subMinutes(10),
+    'starts_at' => now()->addHours(2),
     'ends_at' => now()->addHours(6),
     'status' => Event::STATUS_PUBLISHED,
 ]);
@@ -708,7 +848,7 @@ $parallelEvent = Event::create([
     'capacity' => 50,
     'registration_opens_at' => now()->subHour(),
     'registration_closes_at' => now()->addDay(),
-    'starts_at' => now()->subMinutes(10),
+    'starts_at' => now()->addHours(2),
     'ends_at' => now()->addHours(6),
     'status' => Event::STATUS_PUBLISHED,
 ]);
@@ -793,7 +933,7 @@ $authRaceEvent = Event::create([
     'capacity' => 50,
     'registration_opens_at' => now()->subHour(),
     'registration_closes_at' => now()->addDay(),
-    'starts_at' => now()->subMinutes(10),
+    'starts_at' => now()->addHours(2),
     'ends_at' => now()->addHours(6),
     'status' => Event::STATUS_PUBLISHED,
 ]);
@@ -902,8 +1042,8 @@ $cutoffEvent = Event::create([
     'organizer_id' => $organizer->id, 'venue_id' => $venue->id,
     'title' => 'Registration cutoff race', 'slug' => "cutoff-race-{$suffix}",
     'capacity' => 10, 'registration_opens_at' => now()->subHour(),
-    'registration_closes_at' => now()->addDay(), 'starts_at' => now(),
-    'ends_at' => now()->addDay(), 'status' => Event::STATUS_PUBLISHED,
+    'registration_closes_at' => now()->addDay(), 'starts_at' => now()->addDays(2),
+    'ends_at' => now()->addDays(3), 'status' => Event::STATUS_PUBLISHED,
 ]);
 $cutoffStudent = User::create([
     'name' => 'Cutoff Race Student', 'email' => "cutoff.{$suffix}@mseuf.edu.ph",
@@ -947,19 +1087,25 @@ $transferRaceEvent = Event::create([
     'title' => 'Transfer finalization race', 'slug' => "transfer-finalization-race-{$suffix}",
     'capacity' => 10, 'registration_opens_at' => now()->subDay(),
     'registration_closes_at' => now()->addDay(),
-    'starts_at' => now(), 'ends_at' => now()->addDay(), 'status' => Event::STATUS_PUBLISHED,
+    'starts_at' => now()->addDays(2), 'ends_at' => now()->addDays(3), 'status' => Event::STATUS_PUBLISHED,
     'ticket_transfers_allowed' => true,
 ]);
 $transferSender = User::create([
-    'name' => 'Transfer Race Sender', 'email' => "transfer.sender.{$suffix}@mseuf.edu.ph",
-    'student_id' => "TRS-{$suffix}", 'role' => User::ROLE_STUDENT, 'email_verified_at' => now(),
+    'name' => 'Transfer Race Sender', 'email' => "transfer.sender.{$suffix}@student.mseuf.edu.ph",
+    'student_id' => "TRS-{$suffix}", 'role' => User::ROLE_STUDENT,
     'password' => Hash::make('password'),
 ]);
+$transferSender->forceFill([
+    'firebase_uid' => "firebase-transfer-sender-{$suffix}", 'email_verified_at' => now(),
+])->save();
 $transferRecipient = User::create([
-    'name' => 'Transfer Race Recipient', 'email' => "transfer.recipient.{$suffix}@mseuf.edu.ph",
-    'student_id' => "TRR-{$suffix}", 'role' => User::ROLE_STUDENT, 'email_verified_at' => now(),
+    'name' => 'Transfer Race Recipient', 'email' => "transfer.recipient.{$suffix}@student.mseuf.edu.ph",
+    'student_id' => "TRR-{$suffix}", 'role' => User::ROLE_STUDENT,
     'password' => Hash::make('password'),
 ]);
+$transferRecipient->forceFill([
+    'firebase_uid' => "firebase-transfer-recipient-{$suffix}", 'email_verified_at' => now(),
+])->save();
 $transferTicket = (new RegisterForEvent)->execute($transferSender, $transferRaceEvent->id)['ticket'];
 $transferRaceEvent->update(['registration_closed_at' => now()]);
 $pendingTransfer = TicketTransfer::create([
@@ -1010,21 +1156,25 @@ $acceptedBeforeSnapshotEvent = Event::create([
     'title' => 'Transfer acceptance race', 'slug' => "transfer-acceptance-race-{$suffix}",
     'capacity' => 10, 'registration_opens_at' => now()->subDay(),
     'registration_closes_at' => now()->addDay(),
-    'starts_at' => now(), 'ends_at' => now()->addDay(), 'status' => Event::STATUS_PUBLISHED,
+    'starts_at' => now()->addDays(2), 'ends_at' => now()->addDays(3), 'status' => Event::STATUS_PUBLISHED,
     'ticket_transfers_allowed' => true,
 ]);
 $acceptRaceSender = User::create([
-    'name' => 'Acceptance Race Sender', 'email' => "accept.sender.{$suffix}@mseuf.edu.ph",
+    'name' => 'Acceptance Race Sender', 'email' => "accept.sender.{$suffix}@student.mseuf.edu.ph",
     'student_id' => "ARS-{$suffix}", 'role' => User::ROLE_STUDENT,
     'password' => Hash::make('password'),
 ]);
+$acceptRaceSender->forceFill([
+    'firebase_uid' => "firebase-accept-sender-{$suffix}", 'email_verified_at' => now(),
+])->save();
 $acceptRaceRecipient = User::create([
-    'name' => 'Acceptance Race Recipient', 'email' => "accept.recipient.{$suffix}@mseuf.edu.ph",
+    'name' => 'Acceptance Race Recipient', 'email' => "accept.recipient.{$suffix}@student.mseuf.edu.ph",
     'student_id' => "ARR-{$suffix}", 'role' => User::ROLE_STUDENT,
     'password' => Hash::make('password'),
 ]);
-$acceptRaceSender->forceFill(['email_verified_at' => now()])->save();
-$acceptRaceRecipient->forceFill(['email_verified_at' => now()])->save();
+$acceptRaceRecipient->forceFill([
+    'firebase_uid' => "firebase-accept-recipient-{$suffix}", 'email_verified_at' => now(),
+])->save();
 $acceptRaceTicket = (new RegisterForEvent)->execute($acceptRaceSender, $acceptedBeforeSnapshotEvent->id)['ticket'];
 $acceptedBeforeSnapshotEvent->update(['registration_closed_at' => now()]);
 $acceptRaceTransfer = TicketTransfer::create([
@@ -1076,6 +1226,89 @@ $assert(($snapshotRegistration['ticket']['qr_hash'] ?? null) === $acceptRaceTick
 echo "\n";
 
 // =============================================================================
+// CASE Guest Ticket Redemption — one use wins under PostgreSQL row locking
+// =============================================================================
+echo "CASE guest ticket redemption: concurrent reuse of one code rotates once\n";
+config(['ingress.mode' => 'cloud']);
+$guestRedemptionEvent = Event::create([
+    'organizer_id' => $organizer->id, 'venue_id' => $venue->id,
+    'title' => 'Guest redemption race', 'slug' => "guest-redemption-race-{$suffix}",
+    'capacity' => 10, 'registration_opens_at' => now()->subDay(),
+    'registration_closes_at' => now()->addDay(),
+    'starts_at' => now()->addDays(2), 'ends_at' => now()->addDays(3), 'status' => Event::STATUS_PUBLISHED,
+    'ticket_transfers_allowed' => true,
+]);
+$guestRedemptionCategory = $guestRedemptionEvent->ticketCategories()
+    ->where('is_default', true)
+    ->firstOrFail();
+$guestRedemptionResult = app(RegisterAttendeeForEvent::class)->execute(
+    eventId: $guestRedemptionEvent->id,
+    categoryId: $guestRedemptionCategory->id,
+    guestName: 'Race Guest',
+    guestEmail: "guest.redemption.{$suffix}@example.test",
+);
+$guestRedemptionTicket = $guestRedemptionResult['ticket'];
+$guestRedemptionCode = $guestRedemptionResult['redemption_code'];
+$guestOldQrHash = $guestRedemptionTicket->qr_hash;
+$guestOldQr = $guestRedemptionTicket->getQrPayload();
+$guestOldSecret = explode(':', $guestOldQr)[3];
+
+DB::beginTransaction();
+DB::table('events')->where('id', $guestRedemptionEvent->id)->lockForUpdate()->first();
+[$guestRedemptionProcessA, $guestRedemptionPipesA] = $spawnWorker('guest_ticket_redeem', [
+], $testDatabase, $childScript);
+[$guestRedemptionProcessB, $guestRedemptionPipesB] = $spawnWorker('guest_ticket_redeem', [
+], $testDatabase, $childScript);
+$guestRedemptionReadyA = trim((string) fgets($guestRedemptionPipesA[1])) === 'READY';
+$guestRedemptionReadyB = trim((string) fgets($guestRedemptionPipesB[1])) === 'READY';
+foreach ([[$guestRedemptionPipesA, 'A'], [$guestRedemptionPipesB, 'B']] as [$guestRedemptionPipes, $holder]) {
+    fwrite($guestRedemptionPipes[0], 'GO'.PHP_EOL.$guestRedemptionCode.PHP_EOL
+        .'Redemption Holder '.$holder.PHP_EOL
+        .'redemption-holder-'.$holder.'-'.$suffix.'@example.test'.PHP_EOL);
+    fflush($guestRedemptionPipes[0]);
+}
+$guestRedemptionDeadline = microtime(true) + 20.0;
+$guestRedemptionBlocked = 0;
+while (microtime(true) < $guestRedemptionDeadline) {
+    $guestRedemptionBlocked = $blockedBackends(DB::connection()->getPdo(), $testDatabase);
+    if ($guestRedemptionBlocked >= 2) {
+        break;
+    }
+    usleep(50_000);
+}
+DB::commit();
+$guestRedemptionResults = [
+    $collectWorker($guestRedemptionProcessA, $guestRedemptionPipesA),
+    $collectWorker($guestRedemptionProcessB, $guestRedemptionPipesB),
+];
+echo '  workers: '.json_encode($guestRedemptionResults).PHP_EOL;
+$guestRedemptionOutput = json_encode($guestRedemptionResults, JSON_THROW_ON_ERROR);
+$guestRedemptionTicketAfterRace = $guestRedemptionTicket->fresh();
+$guestRedemptionIdentity = [
+    $guestRedemptionTicketAfterRace->registration->guest_name,
+    $guestRedemptionTicketAfterRace->registration->guest_email,
+];
+$guestRotationCount = DB::table('guest_ticket_credential_rotations')
+    ->where('ticket_id', $guestRedemptionTicket->id)->where('kind', 'redeemed')->count();
+$successfulGuestRedemptions = count(array_filter($guestRedemptionResults, fn (array $result): bool => ($result['ok'] ?? false) === true));
+$rejectedGuestRedemptions = count(array_filter($guestRedemptionResults, fn (array $result): bool => ($result['reason'] ?? null) === 'validation_error'));
+$assert($guestRedemptionReadyA && $guestRedemptionReadyB, 'both redemption workers reached the PostgreSQL barrier');
+$assert($guestRedemptionBlocked >= 2, 'both redemption attempts waited on the same event lock');
+$assert(! str_contains($guestRedemptionOutput, $guestRedemptionCode), 'worker output never includes the redemption code');
+$assert($successfulGuestRedemptions === 1 && $rejectedGuestRedemptions === 1, 'one redemption succeeds and one replay is rejected');
+$assert(in_array($guestRedemptionIdentity, [
+    ['Redemption Holder A', 'redemption-holder-a-'.$suffix.'@example.test'],
+    ['Redemption Holder B', 'redemption-holder-b-'.$suffix.'@example.test'],
+], true), 'the registration identity matches the only successful redemption');
+$assert((int) $guestRedemptionTicketAfterRace->credential_version === 2, 'the ticket credential version increments only once');
+$assert($guestRedemptionTicketAfterRace->qr_hash !== $guestOldQrHash
+    && ! $guestRedemptionTicketAfterRace->verifySecret($guestOldSecret), 'the old QR is invalid after the winning redemption');
+$assert($guestRotationCount === 1
+    && DB::table('guest_ticket_credential_rotations')->where('ticket_id', $guestRedemptionTicket->id)->count() === 2,
+    'one redemption audit row follows the initial issuance row');
+echo "\n";
+
+// =============================================================================
 // CASE J - Concurrent preparation produces one version
 // =============================================================================
 echo "CASE J: concurrent snapshot preparation returns one version\n";
@@ -1084,7 +1317,7 @@ $snapshotEvent = Event::create([
     'title' => 'Snapshot race', 'slug' => "snapshot-race-{$suffix}",
     'capacity' => 10, 'registration_opens_at' => now()->subDay(),
     'registration_closes_at' => now()->addDay(), 'registration_closed_at' => now(),
-    'starts_at' => now(), 'ends_at' => now()->addDay(), 'status' => Event::STATUS_PUBLISHED,
+    'starts_at' => now()->addDays(2), 'ends_at' => now()->addDays(3), 'status' => Event::STATUS_PUBLISHED,
 ]);
 $snapshotResults = $runConcurrently([
     ['snapshot', ['event_id' => $snapshotEvent->id]],
@@ -1180,6 +1413,7 @@ echo "\n";
 // =============================================================================
 echo "CASE N: concurrent registration of one node\n";
 DB::table('runtime_identity')->delete();
+DB::table('runtime_identity')->insert(['id' => 1, 'mode' => 'cloud', 'identity' => 'cloud']);
 $nodeJobs = [
     ['register_node', ['node_id' => 'registered-race-node']],
     ['register_node', ['node_id' => 'registered-race-node']],
@@ -1299,48 +1533,6 @@ echo '  workers: '.json_encode($importResults).PHP_EOL;
 $assert(($importResults[0]['ok'] ?? false) && ($importResults[1]['ok'] ?? false), 'both imports completed');
 $assert(! empty($importResults[0]['event_id']) && ($importResults[0]['event_id'] ?? null) === ($importResults[1]['event_id'] ?? null), 'both imports returned the same node event');
 $assert(DB::table('node_event_imports')->where('cloud_event_id', $importPayload['event']['id'])->count() === 1, 'only one event import exists');
-echo "\n";
-
-// =============================================================================
-// CASE R - A verification link can create at most one account
-// =============================================================================
-echo "CASE R: concurrent use of one student verification link\n";
-$verificationToken = bin2hex(random_bytes(32));
-$verificationEmail = "verify-{$suffix}@student.mseuf.edu.ph";
-DB::table('student_email_verifications')->insert([
-    'email' => $verificationEmail, 'token_hash' => hash('sha256', $verificationToken),
-    'expires_at' => now()->addMinutes(30), 'created_at' => now(), 'updated_at' => now(),
-]);
-$verificationJobs = [
-    ['student_complete', ['token' => $verificationToken, 'student_id' => "R{$suffix}A"]],
-    ['student_complete', ['token' => $verificationToken, 'student_id' => "R{$suffix}B"]],
-];
-$verificationResults = $runConcurrently($verificationJobs, $childScript, $testDatabase);
-echo '  workers: '.json_encode($verificationResults).PHP_EOL;
-$assert(count(array_filter($verificationResults, fn ($result) => ($result['http_code'] ?? null) === 200)) === 1, 'one completion succeeds');
-$assert(count(array_filter($verificationResults, fn ($result) => ($result['http_code'] ?? null) === 422)) === 1, 'the replay is rejected');
-$assert(User::where('email', $verificationEmail)->count() === 1, 'exactly one account exists');
-echo "\n";
-
-// =============================================================================
-// CASE S - Distinct links cannot claim the same student number
-// =============================================================================
-echo "CASE S: concurrent claims for one student number\n";
-$studentNumber = strtoupper("S{$suffix}");
-$claimJobs = [];
-foreach (['one', 'two'] as $claimant) {
-    $token = bin2hex(random_bytes(32));
-    DB::table('student_email_verifications')->insert([
-        'email' => "{$claimant}-{$suffix}@student.mseuf.edu.ph", 'token_hash' => hash('sha256', $token),
-        'expires_at' => now()->addMinutes(30), 'created_at' => now(), 'updated_at' => now(),
-    ]);
-    $claimJobs[] = ['student_complete', ['token' => $token, 'student_id' => $studentNumber]];
-}
-$claimResults = $runConcurrently($claimJobs, $childScript, $testDatabase);
-echo '  workers: '.json_encode($claimResults).PHP_EOL;
-$assert(count(array_filter($claimResults, fn ($result) => ($result['http_code'] ?? null) === 200)) === 1, 'one claim succeeds');
-$assert(count(array_filter($claimResults, fn ($result) => ($result['http_code'] ?? null) === 422)) === 1, 'the conflicting claim is rejected');
-$assert(User::where('student_id', $studentNumber)->count() === 1, 'exactly one student number exists');
 echo "\n";
 
 // =============================================================================
@@ -1653,7 +1845,7 @@ echo "CASE AA: concurrent admission batch delivery\n";
 $syncEvent = Event::create([
     'organizer_id' => $organizer->id, 'venue_id' => $venue->id, 'title' => 'Sync race', 'slug' => "sync-race-{$suffix}",
     'capacity' => 2, 'registration_opens_at' => now()->subDay(), 'registration_closes_at' => now()->addDay(),
-    'starts_at' => now(), 'ends_at' => now()->addDay(), 'status' => Event::STATUS_PUBLISHED,
+    'starts_at' => now()->addDays(2), 'ends_at' => now()->addDays(3), 'status' => Event::STATUS_PUBLISHED,
 ]);
 $syncGate = AccessPoint::create(['event_id' => $syncEvent->id, 'name' => 'Sync Gate', 'code' => 'SYNC', 'is_active' => true]);
 $syncStaff = User::create(['name' => 'Sync Staff', 'email' => "sync-staff-{$suffix}@example.test", 'role' => User::ROLE_STAFF, 'password' => Hash::make('password')]);
@@ -1772,7 +1964,7 @@ echo "CASE AF: guest and student compete for one remaining seat\n";
 $guestRaceEvent = Event::create([
     'organizer_id' => $organizer->id, 'venue_id' => $venue->id, 'title' => 'Guest capacity race',
     'slug' => "guest-capacity-{$suffix}", 'capacity' => 1, 'registration_opens_at' => now()->subHour(),
-    'registration_closes_at' => now()->addDay(), 'starts_at' => now(), 'ends_at' => now()->addDay(),
+    'registration_closes_at' => now()->addDay(), 'starts_at' => now()->addDays(2), 'ends_at' => now()->addDays(3),
     'status' => Event::STATUS_PUBLISHED,
 ]);
 $guestRaceStudent = User::create(['name' => 'Guest Race Student', 'email' => "guest-race-student-{$suffix}@example.test",
@@ -1784,6 +1976,30 @@ $guestRaceResults = $runConcurrently([
 $assert(count(array_filter($guestRaceResults, fn ($result) => ($result['ok'] ?? false) === true)) === 1, 'exactly one registration succeeded');
 $assert(Registration::where('event_id', $guestRaceEvent->id)->where('status', 'confirmed')->count() === 1, 'the event has exactly one confirmed attendee');
 $assert(Ticket::whereHas('registration', fn ($query) => $query->where('event_id', $guestRaceEvent->id))->count() === 1, 'exactly one ticket was issued');
+echo "\n";
+
+// =============================================================================
+// CASE AF2 - A guest contact does not reserve a student account identity
+// =============================================================================
+echo "CASE AF2: concurrent guest and student registrations share a contact email\n";
+$sharedIdentityEmail = "shared-identity-{$suffix}@example.test";
+$sharedIdentityEvent = Event::create([
+    'organizer_id' => $organizer->id, 'venue_id' => $venue->id, 'title' => 'Shared identity race',
+    'slug' => "shared-identity-{$suffix}", 'capacity' => 2, 'registration_opens_at' => now()->subHour(),
+    'registration_closes_at' => now()->addDay(), 'starts_at' => now()->addDays(2), 'ends_at' => now()->addDays(3),
+    'status' => Event::STATUS_PUBLISHED,
+]);
+$sharedIdentityStudent = User::create(['name' => 'Shared Identity Student', 'email' => $sharedIdentityEmail,
+    'student_id' => "SI-{$suffix}", 'role' => User::ROLE_STUDENT, 'password' => Hash::make('password')]);
+$sharedIdentityResults = $runConcurrently([
+    ['guest_registration', ['event_id' => $sharedIdentityEvent->id, 'email' => $sharedIdentityEmail]],
+    ['seat', ['event_id' => $sharedIdentityEvent->id, 'user_id' => $sharedIdentityStudent->id]],
+], $childScript, $testDatabase);
+$assert(($sharedIdentityResults[0]['ok'] ?? false) && ($sharedIdentityResults[1]['ok'] ?? false), 'both distinct identities registered successfully');
+$assert(Registration::where('event_id', $sharedIdentityEvent->id)->where('user_id', $sharedIdentityStudent->id)->exists(), 'student account registration exists');
+$assert(Registration::where('event_id', $sharedIdentityEvent->id)->where('guest_email', $sharedIdentityEmail)->exists(), 'guest contact registration exists');
+$assert(Registration::where('event_id', $sharedIdentityEvent->id)->where('status', 'confirmed')->count() === 2, 'both registrations fit within capacity');
+$assert(Ticket::whereHas('registration', fn ($query) => $query->where('event_id', $sharedIdentityEvent->id))->count() === 2, 'both identities received tickets');
 echo "\n";
 
 // =============================================================================
@@ -1850,10 +2066,10 @@ echo "\n";
 // =============================================================================
 echo "CASE AJ: concurrent cloud recovery audit delivery\n";
 $recoveryData = [
-    'schema_version' => 1, 'node_id' => 'sync-race-node', 'event_id' => $syncEvent->id,
+    'schema_version' => 2, 'node_id' => 'sync-race-node', 'event_id' => $syncEvent->id,
     'snapshot_id' => $syncSnapshotId, 'version' => (int) $syncSnapshot->version, 'snapshot_sha256' => $syncSnapshot->sha256,
     'recovery_id' => 1, 'issuance_id' => $walkInSync['issuance_id'], 'staff_id' => $syncStaff->id,
-    'recovered_at' => now()->utc()->toISOString(),
+    'recovered_at' => now()->utc()->toISOString(), 'identity_verified' => true, 'reason' => 'lost',
 ];
 $recoveryPackage = $syncEnvelope->seal(json_encode($recoveryData, JSON_THROW_ON_ERROR), $syncSecret);
 $recoveryDeliveries = $runConcurrently([
@@ -1863,6 +2079,8 @@ $recoveryDeliveries = $runConcurrently([
 $assert(($recoveryDeliveries[0]['ok'] ?? false) && ($recoveryDeliveries[1]['ok'] ?? false), 'both recovery deliveries succeeded');
 $assert(! empty($recoveryDeliveries[0]['receipt']) && $recoveryDeliveries[0]['receipt'] === ($recoveryDeliveries[1]['receipt'] ?? null), 'both deliveries returned the same recovery receipt');
 $assert(DB::table('cloud_walk_in_recoveries')->where('node_id', 'sync-race-node')->where('node_recovery_id', 1)->count() === 1, 'one cloud recovery audit record exists');
+$assert(DB::table('cloud_walk_in_recoveries')->where('node_id', 'sync-race-node')->where('node_recovery_id', 1)
+    ->where('identity_verified', true)->where('reason', 'lost')->exists(), 'recovery attestation and reason synchronized');
 echo "\n";
 
 // =============================================================================
@@ -1872,7 +2090,9 @@ echo "CASE AK: concurrent recovery package preparation\n";
 config(['ingress.mode' => 'node', 'ingress.node_id' => 'race-node', 'ingress.node_sync_key' => $nodeSecret,
     'ingress.authority_public_key' => $authorityPublic]);
 $recoveringStaff = User::findOrFail($nodeStaffId)->withAccessToken($walkInToken);
-app(RecoverNodeWalkIn::class)->execute($recoveringStaff, $nodeEventId, $replayJob['email']);
+app(RecoverNodeWalkIn::class)->execute($recoveringStaff, $nodeEventId, $replayJob['email'], 'lost', true);
+$assert(DB::table('node_walk_in_recoveries')->where('recovered_by_user_id', $nodeStaffId)
+    ->where('identity_verified', true)->where('reason', 'lost')->exists(), 'node recovery records staff attestation and reason');
 $assert(app(SyncWalkInRecovery::class)->prepare($nodePayload['event']['id']) === null, 'recovery waits for its issuance mapping');
 DB::table('node_walk_in_issuances')->where('client_request_id', $replayJob['request_id'])->update(['synced_at' => now()]);
 $recoveryJob = ['node_id' => 'race-node', 'secret' => $nodeSecret, 'public_key' => $authorityPublic, 'event_id' => $nodePayload['event']['id']];
@@ -1883,6 +2103,55 @@ $assert(($preparedRecoveries[0]['ok'] ?? false) && ($preparedRecoveries[1]['ok']
 $assert(! empty($preparedRecoveries[0]['recovery_id']) && $preparedRecoveries[0]['recovery_id'] === ($preparedRecoveries[1]['recovery_id'] ?? null), 'both preparations selected the same recovery');
 $assert(! empty($preparedRecoveries[0]['package_hash']) && $preparedRecoveries[0]['package_hash'] === ($preparedRecoveries[1]['package_hash'] ?? null), 'both preparations returned the same immutable package');
 $assert(DB::table('node_walk_in_recoveries')->whereNotNull('sync_package_ciphertext')->count() === 1, 'one pending recovery package exists');
+echo "\n";
+
+// =============================================================================
+// CASE AL - Gate deactivation cannot race with scanner assignment
+// =============================================================================
+echo "CASE AL: gate deactivation races with scanner assignment\n";
+$gateRaceEvent = Event::create([
+    'organizer_id' => $organizer->id,
+    'venue_id' => $venue->id,
+    'title' => 'Gate Assignment Race',
+    'slug' => "gate-assignment-race-{$suffix}",
+    'capacity' => 20,
+    'registration_opens_at' => now()->subHour(),
+    'registration_closes_at' => now()->addDay(),
+    'starts_at' => now()->addDays(2),
+    'ends_at' => now()->addDays(2)->addHours(3),
+    'status' => Event::STATUS_DRAFT,
+]);
+$gateRaceGate = AccessPoint::create([
+    'event_id' => $gateRaceEvent->id,
+    'name' => 'Race Gate',
+    'code' => 'RACE-GATE',
+    'is_active' => true,
+]);
+$gateRaceStaff = User::create([
+    'name' => 'Gate Race Scanner',
+    'email' => "gate-race-scanner-{$suffix}@example.test",
+    'role' => User::ROLE_STUDENT,
+    'password' => Hash::make('password'),
+]);
+$gateRaceResults = $runConcurrently([
+    ['deactivate_gate', [
+        'actor_id' => $organizer->id,
+        'event_id' => $gateRaceEvent->id,
+        'access_point_id' => $gateRaceGate->id,
+    ]],
+    ['assign_gate_staff', [
+        'actor_id' => $organizer->id,
+        'event_id' => $gateRaceEvent->id,
+        'access_point_id' => $gateRaceGate->id,
+        'staff_id' => $gateRaceStaff->id,
+    ]],
+], $childScript, $testDatabase);
+$gateRaceWinners = count(array_filter($gateRaceResults, fn (array $result): bool => ($result['ok'] ?? false) === true));
+$gateRaceInvariantHolds = $gateRaceGate->fresh()->is_active
+    || ! EventStaff::query()->where('event_id', $gateRaceEvent->id)
+        ->where('access_point_id', $gateRaceGate->id)->exists();
+$assert($gateRaceWinners === 1, 'exactly one conflicting operation succeeds');
+$assert($gateRaceInvariantHolds, 'a scanner is never assigned to a deactivated gate');
 echo "\n";
 
 // =============================================================================

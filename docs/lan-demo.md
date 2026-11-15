@@ -1,4 +1,6 @@
-# Ingress legacy LAN demonstration guide
+# Ingress legacy LAN demonstration guide (archived)
+
+> This guide describes the old single-server demo and its former mobile client. The current Android app is a staff-only Event Node scanner with no student login, Cloud API, attendee wallet, demo account quick-select, or legacy server setting. Standard builds require HTTPS; the separate course-demo `lanDemo` build uses private-LAN HTTP only. Do not follow the old mobile steps below. Use the [LAN course demo](lan-course-demo.md), [deployment guide](deployment.md), and [physical-device test plan](physical-device-test-plan.md) for current testing.
 
 **Manuel S. Enverga University Foundation (MSEUF)**  
 *Event Ticketing, Admission, and Attendance Management System*
@@ -26,7 +28,7 @@ This guide describes the single-server `legacy` demo mode for classroom demonstr
 
 > The laptop runs the local-only `legacy` runtime. Production uses a separate cloud runtime and Event Node with separate databases and authority rules.
 
-> **Transport security:** this local demo uses HTTP on a controlled LAN. Set `EXPO_PUBLIC_INGRESS_ALLOW_HTTP_NODE=true` before building the native development app. Android enables cleartext for that whole development build; do not use the flag in a release build. Production cloud and Event Node traffic must use trusted HTTPS certificates. See [ADR 009](design-decisions.md#adr-009-transport-security-for-lan-and-production).
+> **Transport security:** this archived single-server demo does not support the current scanner. Standard scanner builds use HTTPS. The isolated course-project Docker workflow has a dedicated private-LAN HTTP profile; see [LAN course demo](lan-course-demo.md), [ADR 009](design-decisions.md#adr-009-transport-security-for-lan-and-production), and [ADR 020](design-decisions.md#adr-020-staff-only-mobile-scanner).
 
 ---
 
@@ -75,45 +77,30 @@ cd api
 php artisan tinker --execute="\App\Models\User::create(['name'=>'Event Administrator','email'=>'you@mseuf.edu.ph','role'=>'admin','password'=>bcrypt('a-real-password')]);"
 ```
 
-| Role | Account Name | Email | Initial Mode |
+| Role | Account Name | Email | Legacy initial mode |
 | :--- | :--- | :--- | :--- |
 | **Admin** | MSEUF Administrator | `admin@mseuf.edu.ph` | Web Management |
 | **Organizer** | Prof. Juan Dela Cruz (CCS) | `organizer@mseuf.edu.ph` | Web Management |
-| **Staff Entrance 1** | Staff Alex Rivera | `staff.gate_a@mseuf.edu.ph` | Mobile Scanner |
-| **Staff Entrance 2** | Staff Bea Ramos | `staff.gate_b@mseuf.edu.ph` | Mobile Scanner |
-| **Staff Entrance 3** | Staff Chris Dizon | `staff.gate_c@mseuf.edu.ph` | Mobile Scanner |
-| **Student 1 (Primary)** | Ron Vincent Cada (`A23-35524`)| `a23-35524@student.mseuf.edu.ph` | Mobile Attendee |
-| **Student 2** | Patricia Reyes (`2024-01002`)| `student2@mseuf.edu.ph` | Mobile Attendee |
-| **Student 3** | Mark Aquino (`2024-01003`) | `student3@mseuf.edu.ph` | Mobile Attendee |
+| **Staff Entrance 1** | Staff Alex Rivera | `staff.gate_a@mseuf.edu.ph` | Former mobile scanner |
+| **Staff Entrance 2** | Staff Bea Ramos | `staff.gate_b@mseuf.edu.ph` | Former mobile scanner |
+| **Staff Entrance 3** | Staff Chris Dizon | `staff.gate_c@mseuf.edu.ph` | Former mobile scanner |
+| **Student 1 (Primary)** | Ron Vincent Cada (`A23-35524`)| `a23-35524@student.mseuf.edu.ph` | Web attendee |
+| **Student 2** | Patricia Reyes (`2024-01002`)| `student2@mseuf.edu.ph` | Web attendee |
+| **Student 3** | Mark Aquino (`2024-01003`) | `student3@mseuf.edu.ph` | Web attendee |
 
-The mobile quick-select chips and the pre-filled password appear only when the app is built with `EXPO_PUBLIC_INGRESS_DEMO_MODE=true`.
-
----
-
-## 4. Mobile Client Connection Guide
-
-> Changing the legacy demo server URL signs you out on purpose. A Sanctum token is only meaningful to the server that issued it, so the app clears the stored token and cached identity before saving the new address and returns you to the login screen.
-
-1. Ensure all testing phones are connected to the **same Wi-Fi network** as the laptop.
-2. Launch the mobile app:
-   - **Standalone APK (Recommended)**: Open the installed **Ingress** app directly on the phone (does not require Expo Go or Metro).
-   - **Development Mode**: Run `cd mobile && npx expo start` and open via Expo Go or development client.
-3. On the login screen of each phone, tap **Change Server IP**.
-4. Enter the legacy demo server URL using the laptop IP found in Step 2.1:
-   ```
-   http://<LAN_IP>:8000/api/v1
-   ```
-   Optionally, the app-wide starting value can be preset for a demo build via the
-   `EXPO_PUBLIC_API_URL` environment variable instead of relying on a per-device
-   default.
-5. Tap **Test Connection**. The banner will display `SUCCESS: Connected to Ingress Event Server`.
-6. Tap **Save URL**.
+The current scanner contains no demo login credentials. These account rows describe only the legacy server seeder.
 
 ---
 
-## 5. Ten-Step Classroom Defense Demonstration Script
+## 4. Current mobile scanner
 
-Execute this exact scenario to prove all architectural guarantees to the evaluation panel:
+The staff scanner does not connect to this legacy single-server demo. Pair it with an activated Event Node over HTTPS, or use the dedicated private-LAN HTTP profile with the course-project Docker workflow. Follow [LAN course demo](lan-course-demo.md) and [Staff scanner build instructions](../mobile/README.md).
+
+---
+
+## 5. Archived ten-step classroom demonstration script
+
+This script targets the pre-Phase 8 mobile client and legacy API. Its mobile login, attendee wallet, demo quick-select, and HTTP steps no longer match the current app. Keep it only as a historical record; use [Physical-device and venue test plan](physical-device-test-plan.md) for present-day testing.
 
 ### Step 1: Open Organizer Attendance View on Laptop
 1. Open browser to `http://localhost:8000/login`.
@@ -192,7 +179,7 @@ cd api
 php scripts/verify_pgsql_concurrency.php
 ```
 
-It creates its own `ingress_concurrency` database, releases transactions through a two-process barrier, and checks 38 concurrency scenarios. If that database already exists, set `INGRESS_CONCURRENCY_DB` to an unused name; the script refuses to reset an existing database:
+It creates its own `ingress_concurrency` database, releases transactions through a two-process barrier, and checks concurrency invariants against PostgreSQL. The table lists selected cases. If that database already exists, set `INGRESS_CONCURRENCY_DB` to an unused name; the script refuses to reset an existing database:
 
 | Case | Invariant |
 | :--- | :--- |
@@ -214,8 +201,6 @@ It creates its own `ingress_concurrency` database, releases transactions through
 | O | concurrent exports to two nodes → one target is bound |
 | P | reuse of a snapshot ID across events → one staged record and a handled conflict |
 | Q | concurrent imports of one snapshot → one node event and identical results |
-| R | concurrent use of one student verification link → one account |
-| S | concurrent claims for one student number → one account |
 | T | concurrent snapshot refreshes → one version and the same node event |
 | U | an in-flight admission blocks refresh and is preserved |
 | V | staff login waits for a credential rotation and rejects the old password |

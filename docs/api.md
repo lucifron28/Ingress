@@ -11,11 +11,9 @@
 
 ## 1. Authentication Endpoints
 
-### Student account verification
+### Student authentication
 
-`POST /auth/student-verification` is available only on the cloud runtime. Submit `{"email":"student@student.mseuf.edu.ph"}`. An eligible request returns `202` with the same generic message whether or not an account already exists. The endpoint accepts only `@student.mseuf.edu.ph`, limits requests by email and IP, and can return `422`, `429`, or `503` for invalid input, throttling, or unsafe production configuration.
-
-The email contains a 30-minute, single-use link. Opening it displays a form; the account is created only when the form is submitted with a name, a self-reported student number, and a confirmed password of at least 12 characters and at most 72 bytes. The server assigns the student role and records email verification. Requesting another link invalidates the previous one. Email control does not verify the student number or enrollment. The URL fragment contains a bearer secret; do not forward or log it.
+Student web sign-in, email verification, and password recovery use Firebase Authentication at `/student/auth`. The Laravel application accepts Firebase ID tokens through the web session exchange route. The legacy Laravel student-verification endpoints have been retired.
 
 ### Event Node staff login
 
@@ -27,8 +25,8 @@ Node tokens support `GET /me`, `POST /auth/logout`, and the `/staff` event, gate
 
 `POST /auth/node-staff/pair` is available only on an Event Node over HTTPS outside local and testing environments. It accepts `node_id`, a 64-character one-use `token`, and an optional `device_name`. The operator issues the token for one assigned staff member through the local pairing command. The node checks the target identity, three-minute expiry, current assignment, and local credential. Successful redemption consumes the token and returns a 12-hour `node:staff` session with `node_id`. Invalid, expired, already used, or revoked codes return a generic validation error. Requests are rate-limited by IP.
 
-### 1.1 Mobile Login
-Issues a personal access token for mobile attendees and event staff.
+### 1.1 Legacy password login
+Issues a personal access token on cloud and legacy runtimes. The current native scanner does not use this endpoint; staff authenticate directly with the Event Node using the login or pairing endpoints above. Student website sessions use the Laravel web and Firebase flows.
 
 - **Method**: `POST`
 - **Endpoint**: `/auth/login`
@@ -239,7 +237,7 @@ Transactionally reserves a seat with a row lock and issues a digital ticket. Reg
 ---
 
 ### 3.2 My Tickets (Ticket Wallet)
-Returns all tickets issued to the authenticated student. The response includes `qr_payload` only for an active ticket with a confirmed registration whose event has not been cancelled. Each ticket includes the event's current `status` and effective `ticket_transfers_allowed` policy; the policy is false after snapshot preparation.
+Returns all tickets issued to the authenticated student. The response includes `qr_payload` only for an active ticket with a confirmed registration whose event has not been cancelled. Each ticket includes the event's current `status` and effective `ticket_transfers_allowed` policy; the policy is false at or after `ends_at` and after snapshot preparation.
 
 - **Method**: `GET`
 - **Endpoint**: `/me/tickets`
@@ -329,9 +327,9 @@ Identical shape, but the `qr_payload` key is **absent**.
 
 ### 3.4 Ticket Transfers
 
-Transfers are available only on the legacy or cloud runtime. The event must be published, have transfers enabled, and have no prepared admission snapshot. The sender and recipient must have student accounts with verified institutional email addresses. This verifies email control, not enrollment. The recipient cannot already hold a registration for the event, including an accountless guest registration with the same email.
+Transfers are available only on the legacy or cloud runtime. The event must be published, have transfers enabled, be before `ends_at`, and have no prepared admission snapshot. A new request or acceptance is rejected at or after the event end. Closing registration alone does not close transfers. The sender and recipient must have student accounts with verified institutional email addresses. This verifies email control, not enrollment. The recipient cannot already hold a registration for the event under their student account; an unverified guest contact address with the same text is a separate identity.
 
-`POST /tickets/{id}/transfers` accepts `recipient`, which can be the recipient's verified institutional email address or student number. It creates a pending request; the current owner retains the ticket and QR until acceptance. `GET /me/ticket-transfers` returns pending requests for the authenticated sender and recipient. The recipient uses `POST /ticket-transfers/{id}/accept` or `/decline`; the sender can cancel with `DELETE /ticket-transfers/{id}`. Acceptance changes the registration owner and rotates the ticket credential in one transaction. Decline and cancellation leave ownership unchanged. Snapshot preparation or disabling event transfers expires pending requests.
+`POST /tickets/{id}/transfers` accepts `recipient`, which can be the recipient's verified institutional email address or student number. It creates a pending request; the current owner retains the ticket and QR until acceptance. `GET /me/ticket-transfers` returns pending requests for the authenticated sender and recipient. The recipient uses `POST /ticket-transfers/{id}/accept` or `/decline`; the sender can cancel with `DELETE /ticket-transfers/{id}`. Acceptance changes the registration owner and rotates the ticket credential in one transaction. Decline and cancellation leave ownership unchanged. Snapshot preparation or disabling event transfers expires pending requests. A pending request cannot be accepted after the event ends, but the sender can still cancel it and the recipient can decline it.
 
 The organizer event page retains transfer status and transition timestamps for audit. History is paginated at 100 requests per page.
 
@@ -647,14 +645,20 @@ The authenticated user resource includes `is_event_staff`, indicating whether th
 
 ### Organizer-issued guest and alumni passes
 
-The cloud organizer interface accepts `POST /organizer/events/{event}/guests` from an authorized organizer with `guest_name`, `guest_email`, and `attendee_type` (`guest` or `alumni`). It creates a registration without a user account and redirects to an authenticated printable pass. Issuance and pass viewing require HTTPS outside local and testing environments. The pass response is private and non-cacheable. The organizer must deliver it securely; email delivery is not implemented. Registration cutoff, duplicate identity checks, and event capacity apply.
+The cloud organizer interface accepts `POST /organizer/events/{event}/guests` from an authorized organizer with `guest_name`, `guest_email`, and `attendee_type` (`guest` or `alumni`). It creates a registration without a user account and redirects to an authenticated printable pass. Issuance and pass viewing require HTTPS outside local and testing environments. The pass response is private and non-cacheable. The organizer must deliver it securely; email delivery is not implemented. Registration cutoff, duplicate identity checks, and event capacity apply. Guest and alumni contact emails are unverified: the same address may appear on a separate student account registration. Duplicate accountless registrations and active guest checkouts remain blocked by normalized guest email, while student registrations and checkouts are keyed by student account ID.
+
+### Accountless guest and alumni transfers
+
+`GET /tickets/redeem` shows the accountless transfer form. `POST /tickets/redeem` accepts `redemption_code` (64 hexadecimal characters), `guest_name`, and `guest_email`. The code is a bearer secret and is rate-limited. A successful redemption is available only for an active, unadmitted guest or alumni ticket in a public event and public ticket category, while event transfers remain enabled and before event end or snapshot preparation. Student-restricted tickets cannot be redeemed through this flow.
+
+The recipient's trimmed name and normalized contact email replace the registration's current guest details in the same locked database transaction that consumes the old redemption code and rotates the admission QR and redemption code. A contact email already used by another accountless registration or active guest checkout for the event is rejected; a student account with the same email does not claim that unverified contact address. The credential rotation audit records the `redeemed` transition and credential versions, without copying the submitted contact details. The existing pass and PDF then show the current attendee, and the next snapshot carries that attendee identity to the Event Node. No student number or account is collected. Possession of the redemption code proves control of the ticket, not the holder's identity; the contact email is not verified. When the event requires an identity check, scanner staff must compare the current attendee with an approved photo ID before confirming admission. The application does not collect or retain a copy or document number from that check.
 
 ### Node walk-in issuance
 
 `POST /staff/events/{event}/walk-ins` requires an assigned node staff session and active authority for the event. Send `client_request_id` as a UUID, `name`, `email`, and `kind` as `student`, `guest`, or `alumni`. Include `student_id` for a student and omit it for other kinds. The node locks the event, checks existing registrations and remaining capacity, and returns `public_id`, `attendee_name`, `student_id`, and `qr_payload` with a private, no-store response. The request ID must be reused with the same details when retrying; a retry does not return a revoked pass. Issuance does not admit the attendee; scan preview and explicit confirmation remain required.
 
-`POST /staff/events/{event}/walk-ins/recover` takes an attendee `email` and returns the active node-issued pass to assigned staff with active event authority. The node records the issuance, staff user, and recovery time. The response also includes `student_id` when present. Recovery does not change admission status.
+`POST /staff/events/{event}/walk-ins/recover` requires `email`, `identity_verified: true`, and a `reason` of `lost`, `damaged`, or `not_received`. Assigned staff must verify the attendee in person under the event's approved identity procedure; email alone is not proof. Do not collect identity document numbers or copies. The node records the issuance, staff user, recovery time, attestation, and reason. The pass is a bearer credential, so hand it directly to the attendee. The response also includes `student_id` when present. Recovery does not change admission status.
 
 `POST /node-sync/walk-ins` accepts an encrypted node package on the cloud runtime under the same HTTPS and node-header rules as admission synchronization. The cloud checks the active authority, frozen snapshot, staff assignment, identity conflicts, and capacity. The response binds cloud registration and ticket IDs to the issuance and payload with an authenticated receipt. A retry of the same issuance returns the same IDs. The node synchronizes the walk-in before sending its admissions.
 
-`POST /node-sync/walk-in-recoveries` accepts an encrypted recovery record after its issuance has synchronized. The cloud checks the node's event authority, the frozen staff assignment, and the issuance mapping. Repeating the same record returns the same authenticated receipt. The organizer event page shows up to 50 recent synchronized recoveries; records can lag while the node is offline.
+`POST /node-sync/walk-in-recoveries` accepts an encrypted recovery record after its issuance has synchronized. The cloud checks the node's event authority, the frozen staff assignment, and the issuance mapping. Repeating the same record returns the same authenticated receipt. The organizer event page shows up to 50 recent synchronized recoveries, including the staff attestation and reason; records can lag while the node is offline.

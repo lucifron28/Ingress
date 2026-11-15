@@ -1,0 +1,27 @@
+services:
+  ingress-migrate:
+    environment: &lan_demo_environment
+      INGRESS_NODE_LAN_DEMO: "true"
+      INGRESS_NODE_BIND_ADDRESS: ${INGRESS_NODE_BIND_ADDRESS:?Set INGRESS_NODE_BIND_ADDRESS in node-compose.env}
+      APP_URL: http://${INGRESS_NODE_BIND_ADDRESS}:${INGRESS_NODE_HTTP_PORT:-8000}
+      SESSION_SECURE_COOKIE: "false"
+
+  ingress-node:
+    environment:
+      <<: *lan_demo_environment
+      PORT: "8080"
+    ports: !override
+      - "${INGRESS_NODE_BIND_ADDRESS:?Set INGRESS_NODE_BIND_ADDRESS in node-compose.env}:${INGRESS_NODE_HTTP_PORT:-8000}:8080"
+      - "127.0.0.1:${INGRESS_OPERATOR_PORT:-8444}:8444"
+    secrets: !override
+      - app_key
+      - db_password
+      - node_sync_key
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null --header=\"Host: $${INGRESS_NODE_BIND_ADDRESS}\" http://127.0.0.1:8080/up || exit 1"]
+
+  ingress-scheduler:
+    environment: *lan_demo_environment
+
+  ingress-cli:
+    environment: *lan_demo_environment

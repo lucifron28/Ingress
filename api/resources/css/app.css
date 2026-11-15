@@ -3196,3 +3196,82 @@ tbody tr:hover > th[scope='row'] {
         animation: none;
     }
 }
+
+.login-form__student-access {
+    margin-top: 20px;
+    color: var(--neutral-muted);
+    font-size: 13px;
+    text-align: center;
+}
+
+.login-form__student-access a {
+    color: var(--mseuf-maroon);
+    font-weight: 600;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.event-create-shell { max-width: 920px; margin-inline: auto; }
+.event-create-errors { margin-bottom: 16px; padding: 14px 16px; color: #7f1d1d; background: #fff7f7; border: 1px solid #fecaca; border-radius: var(--radius-panel); }
+.event-create-errors ul { margin: 6px 0 0 20px; }
+.event-create-card { border-top: 0; }
+.event-create-progress { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; padding: 0; list-style: none; }
+.event-create-progress li { display: flex; min-width: 0; align-items: center; gap: 8px; padding: 9px; color: var(--neutral-muted); background: var(--surface-white); border: 1px solid var(--neutral-border); border-radius: var(--radius-control); font-size: 13px; }
+.event-create-progress li > span { display: inline-grid; width: 24px; height: 24px; flex: 0 0 24px; place-items: center; color: var(--neutral-body); background: #f1f5f9; border-radius: 50%; font-size: 12px; font-weight: 700; }
+.event-create-progress li[data-state='current'] { color: var(--neutral-dark); background: #fff8f6; border-color: var(--mseuf-maroon); }
+.event-create-progress li[data-state='current'] > span,
+.event-create-progress li[data-state='complete'] > span { color: #ffffff; background: var(--mseuf-maroon); }
+.event-create-step-status { margin-bottom: 20px; color: var(--mseuf-maroon); font-size: 13px; font-weight: 600; }
+.event-create-step[hidden],
+.event-create-navigation[hidden] { display: none; }
+.event-create-step h2 { color: var(--neutral-dark); font-size: 21px; }
+.event-create-intro { margin: 4px 0 20px; color: var(--neutral-muted); }
+.event-create-grid,
+.event-create-review { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 16px; }
+.event-field-help { margin-top: 5px; color: var(--neutral-muted); font-size: 13px; }
+.event-field-error { margin-top: 5px; color: #991b1b; font-size: 13px; }
+.event-optional { margin-left: 4px; color: var(--neutral-muted); font-size: 12px; font-weight: 400; }
+.event-create-choice { margin-bottom: 14px; padding: 13px; background: var(--surface-white); border: 1px solid var(--neutral-border); border-radius: var(--radius-panel); }
+.event-create-choice label { display: flex; align-items: flex-start; gap: 10px; color: var(--neutral-dark); cursor: pointer; }
+.event-create-choice input { margin-top: 3px; accent-color: var(--mseuf-maroon); }
+.event-create-choice small { display: block; margin-top: 3px; color: var(--neutral-muted); font-size: 13px; }
+.event-create-review { gap: 12px; margin: 16px 0 20px; }
+.event-create-review > div { min-width: 0; padding: 12px; background: var(--surface-subtle); border: 1px solid var(--neutral-border); border-radius: var(--radius-panel); }
+.event-create-review dt { color: var(--neutral-muted); font-size: 12px; font-weight: 650; letter-spacing: 0.03em; text-transform: uppercase; }
+.event-create-review dd { margin-top: 4px; color: var(--neutral-dark); font-size: 14px; overflow-wrap: anywhere; }
+.event-create-note { padding: 14px 16px; color: var(--neutral-dark); background: #fffbeb; border: 1px solid #f3e4bd; border-radius: var(--radius-panel); }
+.event-create-note p { margin-top: 6px; color: var(--neutral-body); font-size: 13px; }
+.event-create-actions { display: flex; justify-content: flex-end; margin-top: 16px; }
+.event-create-navigation { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--neutral-border); }
+.event-create-navigation > span { color: var(--neutral-muted); font-size: 13px; }
+.event-create-wizard-active [data-event-step] > h2:focus { outline: none; }
+
+.event-progress-guide { margin-bottom: 20px; }
+.event-progress-guide > p { margin-top: 6px; color: var(--neutral-muted); font-size: 14px; }
+.event-progress-list { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 16px 0; padding: 0; list-style: none; }
+.event-progress-list li { min-width: 0; padding: 12px; background: var(--surface-subtle); border: 1px solid var(--neutral-border); border-radius: var(--radius-panel); }
+.event-progress-list li[data-state='current'] { background: #fff8f6; border-color: var(--mseuf-maroon); }
+.event-progress-list li[data-state='complete'] { background: #f0fdf4; }
+.event-progress-list strong,
+.event-progress-list small { display: block; }
+.event-progress-list strong { color: var(--neutral-dark); }
+.event-progress-list small { margin-top: 4px; color: var(--neutral-muted); font-size: 13px; }
+.event-progress-guide a { color: var(--mseuf-maroon); font-weight: 600; }
+.event-readiness-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 12px; margin: 16px 0; padding: 0; list-style: none; }
+.event-readiness-item { display: flex; min-width: 0; flex-direction: column; align-items: flex-start; gap: 8px; padding: 14px; background: var(--surface-white); border: 1px solid var(--neutral-border); border-radius: var(--radius-panel); }
+.event-readiness-item p { color: var(--neutral-muted); font-size: 14px; }
+.event-next-action { padding: 12px 14px; color: var(--neutral-dark); background: #fffbeb; border: 1px solid #f3e4bd; border-radius: var(--radius-panel); }
+.event-next-action a { margin-left: 6px; color: var(--mseuf-maroon); font-weight: 600; }
+.event-anchor { scroll-margin-top: 24px; }
+.organizer-event-section { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; margin-bottom: 24px; }
+.organizer-event-gates-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.event-handoff { border-top: 0; }
+
+@media (max-width: 640px) {
+    .event-create-grid,
+    .event-create-review,
+    .event-progress-list,
+    .organizer-event-gates-grid { grid-template-columns: minmax(0, 1fr); }
+    .event-create-progress { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .event-create-navigation > span { display: none; }
+}

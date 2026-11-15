@@ -2,8 +2,18 @@
 
 # Dependencies
 /api/vendor/
+/api/.secrets/
+/api/node-compose.env
+/api/.node-docker-test.*/
 /mobile/node_modules/
 node_modules/
+
+# .NET build and local publish output
+**/bin/
+**/obj/
+*.csproj.user
+/tools/Ingress.NodeManager/publish/
+/tools/Ingress.NodeManager/artifacts/
 
 # Environment files
 *.env
@@ -47,3 +57,8 @@ Thumbs.db
 # Local database data & logs
 pgdata/
 *.log
+
+# Persistent local Graphify indexes
+/graphify-out/
+/api/graphify-out/
+/mobile/graphify-out/

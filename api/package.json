@@ -15,5 +15,11 @@
     },
     "optionalDependencies": {
         "@laravel/multiplex": "^0.4.1"
+    },
+    "dependencies": {
+        "firebase": "^13.2.0"
+    },
+    "overrides": {
+        "@grpc/grpc-js": "^1.13.6"
     }
 }

@@ -11,7 +11,7 @@
                     <span id="live-indicator-text">Checking for updates</span>
                 </span>
             </div>
-            <p class="page-header__subtitle">{{ $event->title }} <span aria-hidden="true">&middot;</span> {{ $event->venue->name }} <span aria-hidden="true">&middot;</span> {{ $event->starts_at->format('M j, Y g:i A') }}–{{ $event->ends_at->format('M j, Y g:i A') }}</p>
+            <p class="page-header__subtitle">{{ $event->title }} <span aria-hidden="true">&middot;</span> {{ $event->venue->name }} <span aria-hidden="true">&middot;</span> {{ \App\Support\EventSchedule::local($event->starts_at)->format('M j, Y g:i A') }}–{{ \App\Support\EventSchedule::local($event->ends_at)->format('M j, Y g:i A') }} PHT</p>
         </div>
 
         <div class="page-header__actions attendance-page-header__actions">
