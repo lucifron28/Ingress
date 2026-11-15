@@ -17,6 +17,12 @@ return [
     'cloud_sync_url' => env('INGRESS_CLOUD_SYNC_URL'),
     'authority_private_key' => env('INGRESS_AUTHORITY_PRIVATE_KEY'),
     'authority_public_key' => env('INGRESS_AUTHORITY_PUBLIC_KEY'),
+    'render_environment' => env('RENDER', false),
+    'render_service_id' => env('RENDER_SERVICE_ID'),
+    'mseuf_demo_events' => [
+        'enabled' => env('INGRESS_MSEUF_DEMO_EVENTS_ENABLED', false),
+        'organizer_id' => env('INGRESS_MSEUF_DEMO_EVENTS_ORGANIZER_ID'),
+    ],
     'mail_test_recipient' => env('INGRESS_MAIL_TEST_RECIPIENT'),
     'simulated_payments' => [
         'enabled' => env('INGRESS_SIMULATED_PAYMENTS_ENABLED', false),
