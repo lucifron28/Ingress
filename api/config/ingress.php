@@ -22,6 +22,7 @@ return [
     'mseuf_demo_events' => [
         'enabled' => env('INGRESS_MSEUF_DEMO_EVENTS_ENABLED', false),
         'organizer_id' => env('INGRESS_MSEUF_DEMO_EVENTS_ORGANIZER_ID'),
+        'shared_provisioning_enabled' => env('INGRESS_MSEUF_SHARED_DEMO_EVENTS_ENABLED', false),
     ],
     'mail_test_recipient' => env('INGRESS_MAIL_TEST_RECIPIENT'),
     'simulated_payments' => [

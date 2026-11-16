@@ -264,19 +264,22 @@ class EventManagerAuthorizationTest extends TestCase
         $owner = User::factory()->create(['role' => User::ROLE_ORGANIZER]);
         $venue = Venue::create(['name' => 'Hall', 'code' => 'HALL', 'default_capacity' => 100]);
         $event = $this->event($owner, $venue, 'Preparation Event', 'preparation-event');
+        $eventUrl = route('organizer.events.show', $event);
 
         $this->actingAs($owner)
-            ->get(route('organizer.events.show', $event))
+            ->get($eventUrl)
             ->assertOk()
-            ->assertSee('aria-label="Event sections"', false)
-            ->assertSee('href="#overview-readiness"', false)
-            ->assertSee('href="#tickets-registration"', false)
-            ->assertSee('href="#gates-staff"', false)
-            ->assertSee('href="#node-handoff"', false)
-            ->assertSee('href="#attendance"', false)
-            ->assertSee('Tickets &amp; Registration', false)
-            ->assertSee('Overview &amp; Readiness', false)
+            ->assertSee('aria-label="Event management"', false)
+            ->assertSee('href="'.$eventUrl.'#event-overview"', false)
+            ->assertSee('href="'.$eventUrl.'#tickets-registration"', false)
+            ->assertSee('href="'.$eventUrl.'#event-gates"', false)
+            ->assertSee('href="'.$eventUrl.'#event-staff"', false)
+            ->assertSee('href="'.$eventUrl.'#node-handoff"', false)
+            ->assertSee('href="'.route('organizer.attendance', $event).'"', false)
+            ->assertSee('Tickets', false)
+            ->assertSee('Overview', false)
             ->assertSee('id="node-handoff"', false)
+            ->assertSee('id="gates-staff"', false)
             ->assertSee('id="attendance"', false)
             ->assertSee('Event preparation')
             ->assertSee('No active gates configured.')
@@ -300,27 +303,32 @@ class EventManagerAuthorizationTest extends TestCase
             ->get(route('organizer.events.show', $event))
             ->assertOk()
             ->assertSee('Close registration before preparing a snapshot.')
-            ->assertSee('<p class="event-next-action"><strong>Next step:</strong> Close registration before preparing a snapshot.</p>', false)
-            ->assertSee('<button type="submit" class="btn-danger">Close Registration (cannot reopen)</button>', false)
-            ->assertSee('<button type="submit" class="btn-primary" disabled>Prepare Snapshot</button>', false);
+            ->assertSee('Snapshot preparation unavailable:')
+            ->assertSee('id="registration-close-control"', false)
+            ->assertSee('Close Registration')
+            ->assertSee('Prepare Snapshot')
+            ->assertSee('disabled', false);
     }
 
-    public function test_event_section_navigation_only_links_to_sections_available_in_this_runtime(): void
+    public function test_event_island_navigation_keeps_ticket_transfers_available_in_legacy_mode(): void
     {
         config(['ingress.mode' => 'legacy']);
 
         $owner = User::factory()->create(['role' => User::ROLE_ORGANIZER]);
         $venue = Venue::create(['name' => 'Hall', 'code' => 'HALL', 'default_capacity' => 100]);
         $event = $this->event($owner, $venue, 'Local Event', 'local-event');
+        $eventUrl = route('organizer.events.show', $event);
 
         $this->actingAs($owner)
-            ->get(route('organizer.events.show', $event))
+            ->get($eventUrl)
             ->assertOk()
-            ->assertSee('href="#overview-readiness"', false)
-            ->assertSee('href="#gates-staff"', false)
-            ->assertSee('href="#attendance"', false)
-            ->assertDontSee('href="#tickets-registration"', false)
-            ->assertDontSee('href="#node-handoff"', false)
+            ->assertSee('aria-label="Event management"', false)
+            ->assertSee('href="'.$eventUrl.'#event-overview"', false)
+            ->assertSee('href="'.$eventUrl.'#event-gates"', false)
+            ->assertSee('href="'.$eventUrl.'#event-staff"', false)
+            ->assertSee('href="'.$eventUrl.'#tickets-registration"', false)
+            ->assertSee('href="'.route('organizer.attendance', $event).'"', false)
+            ->assertDontSee('href="'.$eventUrl.'#node-handoff"', false)
             ->assertDontSee('Event preparation');
     }
 

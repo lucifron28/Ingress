@@ -367,11 +367,15 @@ class TicketTransferTest extends TestCase
             'recipient' => $this->recipient->email,
         ])->assertCreated();
 
-        $this->actingAs($this->organizer)->get("/organizer/events/{$this->event->id}")
+        $response = $this->actingAs($this->organizer)->get("/organizer/events/{$this->event->id}")
             ->assertOk()
+            ->assertSee('data-event-island', false)
+            ->assertSee('data-island-target="event-gates"', false)
             ->assertSee('Ticket transfer history')
             ->assertSee('Sender Student')
             ->assertSee('Recipient Student')
             ->assertSee($this->ticket->public_id);
+
+        $this->assertMatchesRegularExpression('/<details class="event-transfer-history"\s+open/', $response->getContent());
     }
 }

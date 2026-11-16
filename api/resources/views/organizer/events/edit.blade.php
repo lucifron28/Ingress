@@ -1,123 +1,35 @@
 @extends('layouts.app')
 
 @section('content')
-<div style="max-width: 760px; margin: 0 auto;">
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-        <div>
-            <h1 style="font-size: 1.5rem; font-weight: 700; color: var(--neutral-dark);">Edit Event: {{ $event->title }}</h1>
-            <p style="color: var(--neutral-muted); font-size: 0.875rem;">Status: <span class="badge badge-neutral">{{ ucfirst($event->status) }}</span></p>
-        </div>
-        <a href="{{ route('organizer.events.show', $event) }}" class="btn-secondary">Back to Overview</a>
+<x-page-header title="Edit Event" subtitle="Update the event schedule, registration, and admission policies">
+    <x-slot:actions>
+        <a href="{{ route('organizer.events.show', $event) }}" class="btn-secondary">
+            <x-icon name="eye" size="17" />
+            <span>Back to Overview</span>
+        </a>
+    </x-slot:actions>
+</x-page-header>
+
+@if ($errors->any())
+    <div class="form-error-summary" role="alert" aria-labelledby="event-errors-title">
+        <h2 id="event-errors-title">Please review the following fields</h2>
+        <ul>
+            @foreach ($errors->all() as $error)
+                <li>{{ $error }}</li>
+            @endforeach
+        </ul>
     </div>
+@endif
 
-    @if ($errors->any())
-        <div style="background-color: #fef2f2; border: 1px solid #fecaca; color: #991b1b; padding: 0.75rem 1rem; border-radius: 4px; font-size: 0.875rem; margin-bottom: 1.5rem;">
-            <ul style="padding-left: 1.25rem;">
-                @foreach ($errors->all() as $error)
-                    <li>{{ $error }}</li>
-                @endforeach
-            </ul>
-        </div>
-    @endif
-
-    <div class="card">
-        <form method="POST" action="{{ route('organizer.events.update', $event) }}">
-            @csrf
-            @method('PUT')
-
-            <div class="form-group">
-                <label for="title" class="form-label">Event Title *</label>
-                <input id="title" type="text" name="title" value="{{ old('title', $event->title) }}" required class="form-input">
-            </div>
-
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                <div class="form-group">
-                    <label for="venue_id" class="form-label">Campus Venue *</label>
-                    <select id="venue_id" name="venue_id" required class="form-select">
-                        @foreach ($venues as $venue)
-                            <option value="{{ $venue->id }}" {{ old('venue_id', $event->venue_id) == $venue->id ? 'selected' : '' }}>
-                                {{ $venue->name }} (Capacity: {{ $venue->default_capacity }})
-                            </option>
-                        @endforeach
-                    </select>
-                </div>
-
-                <div class="form-group">
-                    <label for="capacity" class="form-label">Event Capacity (Seats) *</label>
-                    <input id="capacity" type="number" name="capacity" value="{{ old('capacity', $event->capacity) }}" min="1" required class="form-input">
-                </div>
-            </div>
-
-            <div class="form-group">
-                <label for="description" class="form-label">Description</label>
-                <textarea id="description" name="description" rows="4" class="form-textarea">{{ old('description', $event->description) }}</textarea>
-            </div>
-
-            <div class="form-group">
-                <strong>Schedule</strong>
-                <p style="color: var(--neutral-muted); font-size: 0.875rem;">All schedule times use Philippine Time (PHT).</p>
-            </div>
-
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                <div class="form-group">
-                    <label for="registration_opens_at" class="form-label">Registration Opens *</label>
-                    <input id="registration_opens_at" type="datetime-local" name="registration_opens_at" value="{{ old('registration_opens_at', \App\Support\EventSchedule::localInput($event->registration_opens_at)) }}" required class="form-input">
-                </div>
-
-                <div class="form-group">
-                    <label for="registration_closes_at" class="form-label">Registration Closes *</label>
-                    <input id="registration_closes_at" type="datetime-local" name="registration_closes_at" value="{{ old('registration_closes_at', \App\Support\EventSchedule::localInput($event->registration_closes_at)) }}" required class="form-input">
-                </div>
-            </div>
-
-            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                <div class="form-group">
-                    <label for="starts_at" class="form-label">Event Starts *</label>
-                    <input id="starts_at" type="datetime-local" name="starts_at" value="{{ old('starts_at', \App\Support\EventSchedule::localInput($event->starts_at)) }}" required class="form-input">
-                </div>
-
-                <div class="form-group">
-                    <label for="ends_at" class="form-label">Event Ends *</label>
-                    <input id="ends_at" type="datetime-local" name="ends_at" value="{{ old('ends_at', \App\Support\EventSchedule::localInput($event->ends_at)) }}" required class="form-input">
-                </div>
-            </div>
-
-            <div class="form-group" style="margin-top: 0.5rem;">
-                <input type="hidden" name="re_entry_allowed" value="0">
-                <label style="display: flex; align-items: flex-start; gap: 0.5rem;">
-                    <input type="checkbox" name="re_entry_allowed" value="1" {{ old('re_entry_allowed', $event->re_entry_allowed) ? 'checked' : '' }}>
-                    <span>
-                        <strong>Allow re-entry</strong>
-                        <span style="display: block; color: var(--neutral-muted); font-size: 0.8rem;">Attendees who exit may enter again after staff confirms each movement.</span>
-                    </span>
-                </label>
-            </div>
-
-            <div class="form-group" style="margin-top: 0.5rem;">
-                <input type="hidden" name="ticket_transfers_allowed" value="0">
-                <label style="display: flex; align-items: flex-start; gap: 0.5rem;">
-                    <input type="checkbox" name="ticket_transfers_allowed" value="1" {{ old('ticket_transfers_allowed', $event->ticket_transfers_allowed) ? 'checked' : '' }}>
-                    <span>
-                        <strong>Allow ticket transfers</strong>
-                        <span style="display: block; color: var(--neutral-muted); font-size: 0.8rem;">Verified students can transfer an unadmitted ticket to another verified student before the event ends and before the admission snapshot is prepared. Closing registration does not close transfers.</span>
-                    </span>
-                </label>
-            </div>
-
-            <div class="form-group" style="margin-top: 0.5rem;">
-                <label for="identity_verification_level" class="form-label">Attendee identity check</label>
-                <select id="identity_verification_level" name="identity_verification_level" class="form-select" required>
-                    <option value="standard" {{ old('identity_verification_level', $event->identity_verification_level) === 'standard' ? 'selected' : '' }}>Standard — compare the attendee name and identifier</option>
-                    <option value="id_check" {{ old('identity_verification_level', $event->identity_verification_level) === 'id_check' ? 'selected' : '' }}>Approved ID — require staff to confirm an ID check</option>
-                </select>
-                <p style="color: var(--neutral-muted); font-size: 0.8rem; margin-top: 0.4rem;">A student number is self-reported unless separately verified. Photo collection is unavailable until an approved access and retention policy exists.</p>
-            </div>
-
-            <div style="border-top: 1px solid var(--neutral-border); padding-top: 1.25rem; margin-top: 1rem; display: flex; justify-content: flex-end; gap: 0.75rem;">
-                <a href="{{ route('organizer.events.show', $event) }}" class="btn-secondary">Cancel</a>
-                <button type="submit" class="btn-primary">Save Changes</button>
-            </div>
-        </form>
-    </div>
+<div class="event-form-page">
+    <form method="POST" action="{{ route('organizer.events.update', $event) }}">
+        @csrf
+        @method('PUT')
+        @include('organizer.events.partials.form-fields', [
+            'event' => $event,
+            'submitLabel' => 'Save Changes',
+            'cancelUrl' => route('organizer.events.show', $event),
+        ])
+    </form>
 </div>
 @endsection

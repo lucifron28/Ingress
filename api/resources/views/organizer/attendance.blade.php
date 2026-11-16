@@ -1,139 +1,112 @@
 @extends('layouts.app')
 
 @section('content')
-<div style="margin-bottom: 2rem;">
-    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.5rem;">
+<header class="page-header page-header--editorial attendance-page-header">
+    <x-page-header-watermark />
         <div>
-            <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.25rem;">
-                <h1 style="font-size: 1.75rem; font-weight: 700; color: var(--neutral-dark);">Event Attendance: {{ $event->title }}</h1>
-                <span id="live-indicator" style="display: inline-flex; align-items: center; gap: 0.4rem; background: #ecfdf5; color: #065f46; font-size: 0.75rem; font-weight: 700; padding: 0.25rem 0.6rem; border-radius: 9999px; border: 1px solid #a7f3d0;">
-                    <span id="live-indicator-dot" style="width: 8px; height: 8px; border-radius: 50%; background: #10b981; display: inline-block;"></span>
-                    <span id="live-indicator-text">LAN LIVE</span>
+            <div class="attendance-page-header__title-row">
+                <h1 class="page-header__title">Event Attendance</h1>
+                <span id="live-indicator" class="attendance-connection attendance-connection--checking" role="status" aria-live="polite">
+                    <span id="live-indicator-dot" class="attendance-connection__dot"></span>
+                    <span id="live-indicator-text">Checking for updates</span>
                 </span>
             </div>
-            <p style="color: var(--neutral-muted); font-size: 0.875rem;">
-                Venue: <strong>{{ $event->venue->name }}</strong> &bull; Schedule (PHT): {{ \App\Support\EventSchedule::local($event->starts_at)->format('M d, Y h:i A') }} to {{ \App\Support\EventSchedule::local($event->ends_at)->format('h:i A') }}
-            </p>
+            <p class="page-header__subtitle">{{ $event->title }} <span aria-hidden="true">&middot;</span> {{ $event->venue->name }} <span aria-hidden="true">&middot;</span> {{ \App\Support\EventSchedule::local($event->starts_at)->format('M j, Y g:i A') }}–{{ \App\Support\EventSchedule::local($event->ends_at)->format('M j, Y g:i A') }} PHT</p>
         </div>
 
-        <div style="display: flex; gap: 0.5rem;">
-            <a href="{{ route('organizer.events.show', $event) }}" class="btn-secondary">
-                Back to Event
+        <div class="page-header__actions attendance-page-header__actions">
+            <a href="{{ route('organizer.events.show', $event) }}" class="btn-secondary attendance-action-button">
+                <x-icon name="eye" size="17" />
+                <span>Back to Event</span>
             </a>
-            <button onclick="fetchLiveData()" class="btn-primary" style="padding: 0.5rem 0.85rem; font-size: 0.8rem;">
-                Refresh Feed
+            <button type="button" onclick="fetchLiveData()" class="btn-primary attendance-action-button">
+                <x-icon name="refresh-cw" size="17" />
+                <span>Refresh Feed</span>
             </button>
         </div>
-    </div>
-</div>
+</header>
 
 <!-- Core KPI Cards -->
-<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem;">
-    <div class="card">
-        <div style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: var(--neutral-muted); margin-bottom: 0.25rem;">Total Capacity</div>
-        <div id="stat-capacity" style="font-size: 2rem; font-weight: 700; color: var(--neutral-dark);" class="mono">{{ $stats['total_capacity'] }}</div>
-        <div style="font-size: 0.75rem; color: var(--neutral-muted); margin-top: 0.25rem;">Configured venue limit</div>
+<section class="attendance-stats-grid" aria-label="Attendance statistics">
+    <div class="card attendance-stat attendance-stat--primary">
+        <div class="attendance-stat__label">Inside Now</div>
+        <div id="stat-inside" class="attendance-stat__value mono">{{ $stats['inside_count'] }}</div>
+        <div class="attendance-stat__description">Latest movement is entry</div>
     </div>
 
-    <div class="card">
-        <div style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: var(--mseuf-maroon); margin-bottom: 0.25rem;">Registered</div>
-        <div id="stat-registered" style="font-size: 2rem; font-weight: 700; color: var(--mseuf-maroon);" class="mono">{{ $stats['registered_count'] }}</div>
-        <div style="font-size: 0.75rem; color: var(--neutral-muted); margin-top: 0.25rem;">Confirmed tickets issued</div>
+    <div class="card attendance-stat attendance-stat--primary">
+        <div class="attendance-stat__label">Registered</div>
+        <div id="stat-registered" class="attendance-stat__value mono">{{ $stats['registered_count'] }}</div>
+        <div class="attendance-stat__description">Confirmed tickets issued</div>
     </div>
 
-    <div class="card">
-        <div style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: var(--state-success); margin-bottom: 0.25rem;">Ever Entered</div>
-        <div id="stat-checked-in" style="font-size: 2rem; font-weight: 700; color: var(--state-success);" class="mono">{{ $stats['checked_in_count'] }}</div>
-        <div style="font-size: 0.75rem; color: var(--neutral-muted); margin-top: 0.25rem;">Unique attendees with an entry</div>
-    </div>
-
-    <div class="card">
-        <div style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: var(--state-success); margin-bottom: 0.25rem;">Inside Now</div>
-        <div id="stat-inside" style="font-size: 2rem; font-weight: 700; color: var(--state-success);" class="mono">{{ $stats['inside_count'] }}</div>
-        <div style="font-size: 0.75rem; color: var(--neutral-muted); margin-top: 0.25rem;">Latest movement is entry</div>
-    </div>
-
-    <div class="card">
-        <div style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: var(--neutral-dark); margin-bottom: 0.25rem;">Outside Now</div>
-        <div id="stat-outside" style="font-size: 2rem; font-weight: 700; color: var(--neutral-dark);" class="mono">{{ $stats['outside_count'] }}</div>
-        <div style="font-size: 0.75rem; color: var(--neutral-muted); margin-top: 0.25rem;">Entered, then exited</div>
-    </div>
-
-    <div class="card">
-        <div style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: var(--mseuf-maroon); margin-bottom: 0.25rem;">Re-entries</div>
-        <div id="stat-reentries" style="font-size: 2rem; font-weight: 700; color: var(--mseuf-maroon);" class="mono">{{ $stats['reentry_count'] }}</div>
-        <div style="font-size: 0.75rem; color: var(--neutral-muted); margin-top: 0.25rem;">Entry movements after the first</div>
-    </div>
-
-    <div class="card">
-        <div style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: var(--neutral-dark); margin-bottom: 0.25rem;">Envergans Inside</div>
-        <div id="stat-envergan-inside" style="font-size: 2rem; font-weight: 700; color: var(--neutral-dark);" class="mono">{{ $stats['envergan_inside_count'] }}</div>
-        <div style="font-size: 0.75rem; color: var(--neutral-muted); margin-top: 0.25rem;">Verified student tickets</div>
-    </div>
-
-    <div class="card">
-        <div style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: var(--neutral-dark); margin-bottom: 0.25rem;">External Guests Inside</div>
-        <div id="stat-external-inside" style="font-size: 2rem; font-weight: 700; color: var(--neutral-dark);" class="mono">{{ $stats['external_inside_count'] }}</div>
-        <div style="font-size: 0.75rem; color: var(--neutral-muted); margin-top: 0.25rem;">Guest and alumni tickets</div>
-    </div>
-
-    <div class="card">
-        <div style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: var(--state-warning); margin-bottom: 0.25rem;">Not Arrived</div>
-        <div id="stat-not-arrived" style="font-size: 2rem; font-weight: 700; color: var(--state-warning);" class="mono">{{ $stats['not_arrived_count'] }}</div>
-        <div style="font-size: 0.75rem; color: var(--neutral-muted); margin-top: 0.25rem;">Pending admission</div>
-    </div>
-
-    <div class="card">
-        <div style="font-size: 0.75rem; font-weight: 600; text-transform: uppercase; color: var(--neutral-dark); margin-bottom: 0.25rem;">Attendance Rate</div>
-        <div id="stat-percentage" style="font-size: 2rem; font-weight: 700; color: var(--neutral-dark);" class="mono">{{ $stats['attendance_percentage'] }}%</div>
-        <div style="width: 100%; background: #e2e8f0; height: 6px; border-radius: 3px; margin-top: 0.5rem; overflow: hidden;">
-            <div id="progress-bar" style="width: {{ $stats['attendance_percentage'] }}%; background: var(--mseuf-maroon); height: 100%;"></div>
+    <div class="card attendance-stat attendance-stat--primary">
+        <div class="attendance-stat__label">Attendance Rate</div>
+        <div id="stat-percentage" class="attendance-stat__value mono">{{ $stats['attendance_percentage'] }}%</div>
+        <div class="attendance-stat__progress" role="progressbar" aria-label="Attendance rate" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ $stats['attendance_percentage'] }}">
+            <span id="progress-bar" style="width: {{ $stats['attendance_percentage'] }}%;"></span>
         </div>
     </div>
-</div>
+
+    <div class="card attendance-stat attendance-stat--primary">
+        <div class="attendance-stat__label">Ever Entered</div>
+        <div id="stat-checked-in" class="attendance-stat__value mono">{{ $stats['checked_in_count'] }}</div>
+        <div class="attendance-stat__description">Unique attendees with an entry</div>
+    </div>
+
+    <div class="attendance-secondary-stats" aria-label="Additional attendance statistics">
+        <div><span>Total Capacity</span><strong id="stat-capacity" class="mono">{{ $stats['total_capacity'] }}</strong></div>
+        <div><span>Outside Now</span><strong id="stat-outside" class="mono">{{ $stats['outside_count'] }}</strong></div>
+        <div><span>Re-entries</span><strong id="stat-reentries" class="mono">{{ $stats['reentry_count'] }}</strong></div>
+        <div><span>Envergans Inside</span><strong id="stat-envergan-inside" class="mono">{{ $stats['envergan_inside_count'] }}</strong></div>
+        <div><span>External Guests Inside</span><strong id="stat-external-inside" class="mono">{{ $stats['external_inside_count'] }}</strong></div>
+        <div><span>Not Arrived</span><strong id="stat-not-arrived" class="mono">{{ $stats['not_arrived_count'] }}</strong></div>
+    </div>
+</section>
 
 <!-- Gate Breakdown & Recent Admissions Grid -->
-<div style="display: grid; grid-template-columns: 1fr 2fr; gap: 1.5rem; margin-bottom: 2rem;">
+<div class="attendance-overview-grid">
     <!-- Gate Admissions Breakdown -->
     <div class="card">
-        <h2 style="font-size: 1rem; font-weight: 600; color: var(--neutral-dark); margin-bottom: 1rem; border-bottom: 1px solid var(--neutral-border); padding-bottom: 0.5rem;">
-            Movements by Access Point
-        </h2>
+        <div class="attendance-section-heading">
+            <h2>Movements by Access Point</h2>
+        </div>
 
-        <div id="gate-container" style="display: flex; flex-direction: column; gap: 0.75rem;">
+        <div id="gate-container" class="attendance-gate-list">
             @forelse ($gateStats as $gate)
-                <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; background: #f8fafc; border: 1px solid var(--neutral-border); border-radius: 4px;">
+                <div class="attendance-gate-row">
                     <div>
-                        <span class="mono" style="font-size: 0.75rem; font-weight: 700; background: #e2e8f0; padding: 0.15rem 0.4rem; border-radius: 3px; margin-right: 0.5rem;">{{ $gate['code'] }}</span>
-                        <strong style="font-size: 0.875rem;">{{ $gate['name'] }}</strong>
+                        <span class="attendance-gate-row__code mono">{{ $gate['code'] }}</span>
+                        <strong class="attendance-gate-row__name">{{ $gate['name'] }}</strong>
                     </div>
-                    <div class="mono" style="font-size: 1.1rem; font-weight: 700; color: var(--mseuf-maroon);">
+                    <div class="attendance-gate-row__count mono">
                         {{ $gate['count'] }}
                     </div>
                 </div>
             @empty
-                <p style="color: var(--neutral-muted); font-size: 0.85rem;">No access points configured.</p>
+                <p class="attendance-empty">No access points configured.</p>
             @endforelse
         </div>
     </div>
 
     <!-- Live Recent Admissions Feed -->
-    <div class="card" style="padding: 0; overflow: hidden;">
-        <div style="padding: 0.85rem 1.25rem; border-bottom: 1px solid var(--neutral-border); display: flex; justify-content: space-between; align-items: center; background: #f8fafc;">
-            <h2 style="font-size: 1rem; font-weight: 600; color: var(--neutral-dark);">Recent Movements (Live Feed)</h2>
-            <span style="font-size: 0.75rem; color: var(--neutral-muted);" id="feed-last-updated">Auto-refreshing</span>
+    <div class="card attendance-table-card">
+        <div class="attendance-table__header">
+            <h2 class="attendance-table__title">Recent Movements</h2>
+            <span class="attendance-table__meta" id="feed-last-updated">Auto-refreshing</span>
         </div>
 
-        <div class="table-container" style="border: none;">
+        <div class="table-container attendance-table-scroll" role="region" aria-label="Recent movements table" tabindex="0">
             <table>
+                <caption class="visually-hidden">Recent event attendance movements</caption>
                 <thead>
                     <tr>
-                        <th>Time</th>
-                        <th>Movement</th>
-                        <th>Attendee Name</th>
-                        <th>Student ID</th>
-                        <th>Access Point</th>
-                        <th>Scanned By</th>
+                        <th scope="col">Time</th>
+                        <th scope="col">Movement</th>
+                        <th scope="col">Attendee Name</th>
+                        <th scope="col">Student ID</th>
+                        <th scope="col">Access Point</th>
+                        <th scope="col">Scanned By</th>
                     </tr>
                 </thead>
                 <tbody id="recent-admissions-tbody">
@@ -162,45 +135,51 @@
 </div>
 
 <!-- Attendee Directory & Gate Verification Table -->
-<div class="card" style="padding: 0; overflow: hidden;">
-    <div style="padding: 1.25rem; border-bottom: 1px solid var(--neutral-border);">
+<div class="card attendance-roster-card">
+    <div class="attendance-roster__header">
         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
             <div>
-                <h2 style="font-size: 1.1rem; font-weight: 600; color: var(--neutral-dark);">Attendee Roster</h2>
-                <p style="font-size: 0.8rem; color: var(--neutral-muted);">Current attendee presence and last movement. Identity policy: {{ $event->identity_verification_level === 'id_check' ? 'approved ID check' : 'standard identity details' }}.</p>
+                <h2 class="attendance-table__title">Attendee Roster</h2>
+                <p class="attendance-table__description">Current attendee presence and last movement. Identity policy: {{ $event->identity_verification_level === 'id_check' ? 'approved ID check' : 'standard identity details' }}.</p>
             </div>
 
             <!-- Search and Filter Form -->
-            <form method="GET" action="{{ route('organizer.attendance', $event) }}" style="display: flex; gap: 0.5rem; align-items: center;">
-                <input type="text" name="search" value="{{ request('search') }}" placeholder="Search student name, email, ID..." class="form-input" style="width: 240px; height: 36px;">
+            <form method="GET" action="{{ route('organizer.attendance', $event) }}" class="attendance-roster__filters">
+                <label class="visually-hidden" for="attendance-search">Search attendee roster</label>
+                <div class="attendance-search-field">
+                    <x-icon name="search" size="17" />
+                    <input id="attendance-search" type="search" name="search" value="{{ request('search') }}" placeholder="Search name, email, or ID" class="form-input">
+                </div>
 
-                <select name="status" class="form-select" style="width: 140px; height: 36px;">
+                <label class="visually-hidden" for="attendance-status">Filter attendees by presence</label>
+                <select id="attendance-status" name="status" class="form-select">
                     <option value="">All Statuses</option>
                     <option value="checked_in" {{ request('status') === 'checked_in' ? 'selected' : '' }}>Inside Now</option>
                     <option value="outside" {{ request('status') === 'outside' ? 'selected' : '' }}>Outside</option>
                     <option value="not_arrived" {{ request('status') === 'not_arrived' ? 'selected' : '' }}>Not Arrived</option>
                 </select>
 
-                <button type="submit" class="btn-primary" style="height: 36px; padding: 0 0.85rem; font-size: 0.8rem;">Filter</button>
+                <button type="submit" class="btn-primary attendance-action-button"><x-icon name="filter" size="17" /><span>Filter</span></button>
                 @if (request()->hasAny(['search', 'status']))
-                    <a href="{{ route('organizer.attendance', $event) }}" class="btn-secondary" style="height: 36px; padding: 0 0.85rem; font-size: 0.8rem;">Clear</a>
+                    <a href="{{ route('organizer.attendance', $event) }}" class="btn-secondary attendance-action-button">Clear</a>
                 @endif
-                <a href="{{ route('organizer.attendance.export', $event) }}" class="btn-secondary" style="height: 36px; padding: 0 0.85rem; font-size: 0.8rem;">Export CSV</a>
+                <a href="{{ route('organizer.attendance.export', $event) }}" class="btn-secondary attendance-action-button"><x-icon name="download" size="17" /><span>Export CSV</span></a>
             </form>
         </div>
     </div>
 
-    <div class="table-container" style="border: none;">
+    <div class="table-container attendance-table-scroll" role="region" aria-label="Attendee roster table" tabindex="0">
         <table>
+            <caption class="visually-hidden">Attendee roster and current presence</caption>
             <thead>
                 <tr>
-                    <th>Attendee Name</th>
-                    <th>Student ID</th>
-                    <th>Email</th>
-                    <th>Ticket Ref</th>
-                    <th>Presence</th>
-                    <th>Last Gate</th>
-                    <th>Last Movement</th>
+                    <th scope="col">Attendee Name</th>
+                    <th scope="col">Student ID</th>
+                    <th scope="col">Email</th>
+                    <th scope="col">Ticket Ref</th>
+                    <th scope="col">Presence</th>
+                    <th scope="col">Last Gate</th>
+                    <th scope="col">Last Movement</th>
                 </tr>
             </thead>
             <tbody>
@@ -266,27 +245,23 @@
     function setConnectionLive() {
         const indicator = document.getElementById('live-indicator');
         if (indicator) {
-            indicator.style.background = '#ecfdf5';
-            indicator.style.color = '#065f46';
-            indicator.style.borderColor = '#a7f3d0';
+            indicator.classList.remove('attendance-connection--lost');
+            indicator.classList.remove('attendance-connection--checking');
+            indicator.classList.add('attendance-connection--live');
         }
-        const dot = document.getElementById('live-indicator-dot');
-        if (dot) dot.style.background = '#10b981';
         const text = document.getElementById('live-indicator-text');
-        if (text) text.textContent = 'LAN LIVE';
+        if (text) text.textContent = 'Updates live';
     }
 
     function setConnectionLost() {
         const indicator = document.getElementById('live-indicator');
         if (indicator) {
-            indicator.style.background = '#fef2f2';
-            indicator.style.color = '#991b1b';
-            indicator.style.borderColor = '#fecaca';
+            indicator.classList.remove('attendance-connection--live');
+            indicator.classList.remove('attendance-connection--checking');
+            indicator.classList.add('attendance-connection--lost');
         }
-        const dot = document.getElementById('live-indicator-dot');
-        if (dot) dot.style.background = '#ef4444';
         const text = document.getElementById('live-indicator-text');
-        if (text) text.textContent = 'CONNECTION LOST';
+        if (text) text.textContent = 'Updates unavailable';
 
         const lastUpdatedEl = document.getElementById('feed-last-updated');
         if (lastUpdatedEl) {
@@ -350,7 +325,10 @@
             if (statPercentage) statPercentage.textContent = data.stats.attendance_percentage + '%';
 
             const progressBar = document.getElementById('progress-bar');
-            if (progressBar) progressBar.style.width = data.stats.attendance_percentage + '%';
+            if (progressBar) {
+                progressBar.style.width = data.stats.attendance_percentage + '%';
+                progressBar.parentElement?.setAttribute('aria-valuenow', data.stats.attendance_percentage);
+            }
 
             // Update Gate Breakdown safely using DOM APIs
             const gateContainer = document.getElementById('gate-container');
@@ -358,45 +336,29 @@
                 gateContainer.textContent = '';
                 if (data.gate_stats.length === 0) {
                     const emptyP = document.createElement('p');
-                    emptyP.style.color = 'var(--neutral-muted)';
-                    emptyP.style.fontSize = '0.85rem';
+                    emptyP.className = 'attendance-empty';
                     emptyP.textContent = 'No access points configured.';
                     gateContainer.appendChild(emptyP);
                 } else {
                     data.gate_stats.forEach(gate => {
                         const item = document.createElement('div');
-                        item.style.display = 'flex';
-                        item.style.justifyContent = 'space-between';
-                        item.style.alignItems = 'center';
-                        item.style.padding = '0.75rem';
-                        item.style.background = '#f8fafc';
-                        item.style.border = '1px solid var(--neutral-border)';
-                        item.style.borderRadius = '4px';
+                        item.className = 'attendance-gate-row';
 
                         const left = document.createElement('div');
 
                         const codeSpan = document.createElement('span');
-                        codeSpan.className = 'mono';
-                        codeSpan.style.fontSize = '0.75rem';
-                        codeSpan.style.fontWeight = '700';
-                        codeSpan.style.background = '#e2e8f0';
-                        codeSpan.style.padding = '0.15rem 0.4rem';
-                        codeSpan.style.borderRadius = '3px';
-                        codeSpan.style.marginRight = '0.5rem';
+                        codeSpan.className = 'attendance-gate-row__code mono';
                         codeSpan.textContent = gate.code;
 
                         const nameStrong = document.createElement('strong');
-                        nameStrong.style.fontSize = '0.875rem';
+                        nameStrong.className = 'attendance-gate-row__name';
                         nameStrong.textContent = gate.name;
 
                         left.appendChild(codeSpan);
                         left.appendChild(nameStrong);
 
                         const countDiv = document.createElement('div');
-                        countDiv.className = 'mono';
-                        countDiv.style.fontSize = '1.1rem';
-                        countDiv.style.fontWeight = '700';
-                        countDiv.style.color = 'var(--mseuf-maroon)';
+                        countDiv.className = 'attendance-gate-row__count mono';
                         countDiv.textContent = gate.count;
 
                         item.appendChild(left);
@@ -483,7 +445,7 @@
         }
     }
 
-    // Auto-poll every 5 seconds for live LAN operation
+    // Keep the live feed current during event operations.
     setInterval(fetchLiveData, 5000);
 </script>
 @endsection

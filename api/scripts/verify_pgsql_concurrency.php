@@ -62,6 +62,7 @@ use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 require __DIR__.'/../vendor/autoload.php';
 
@@ -87,7 +88,7 @@ set_exception_handler(static function (Throwable $error): void {
         }
     }
 
-    $validationErrors = $error instanceof Illuminate\Validation\ValidationException
+    $validationErrors = $error instanceof ValidationException
         ? ' (validation: '.json_encode($error->errors(), JSON_UNESCAPED_SLASHES).')'
         : '';
 

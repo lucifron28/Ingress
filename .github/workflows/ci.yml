@@ -75,6 +75,17 @@ jobs:
           extensions: mbstring, pdo, pdo_sqlite
           coverage: none
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Build frontend assets
+        working-directory: api
+        run: |
+          npm ci
+          npm run build
+
       - name: Install Composer Dependencies
         working-directory: api
         run: composer install --prefer-dist --no-interaction --no-progress
@@ -106,6 +117,17 @@ jobs:
           php-version: '8.5'
           extensions: mbstring, pdo, pdo_sqlite, sodium, xmlwriter
           coverage: none
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Build frontend assets
+        working-directory: api
+        run: |
+          npm ci
+          npm run build
 
       - name: Install Composer Dependencies
         working-directory: api

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Actions\AdmitTicket;
 use App\Actions\RegisterForEvent;
 use App\Models\AccessPoint;
 use App\Models\Admission;
@@ -9,11 +10,11 @@ use App\Models\Event;
 use App\Models\EventStaff;
 use App\Models\Registration;
 use App\Models\Ticket;
-use Illuminate\Support\Str;
 use App\Models\User;
 use App\Models\Venue;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
@@ -22,9 +23,13 @@ class RegistrationTest extends TestCase
     use RefreshDatabase;
 
     private User $student1;
+
     private User $student2;
+
     private User $organizer;
+
     private Venue $venue;
+
     private Event $event;
 
     protected function setUp(): void
@@ -196,7 +201,7 @@ class RegistrationTest extends TestCase
             'status' => Event::STATUS_PUBLISHED,
         ]);
 
-        $action = new RegisterForEvent();
+        $action = new RegisterForEvent;
 
         // Simulate two competing requests attempting to acquire the final seat
         $successCount = 0;
@@ -254,16 +259,16 @@ class RegistrationTest extends TestCase
             ->getJson('/api/v1/me/tickets');
         $response->assertStatus(200);
         $response->assertJsonStructure([
-                'data' => [
-                    '*' => [
-                        'id',
-                        'public_id',
-                        'status',
-                        'event' => ['id', 'title'],
-                        'attendee' => ['name', 'email'],
-                    ],
+            'data' => [
+                '*' => [
+                    'id',
+                    'public_id',
+                    'status',
+                    'event' => ['id', 'title'],
+                    'attendee' => ['name', 'email'],
                 ],
-            ]);
+            ],
+        ]);
 
         $this->assertCount(1, $response->json('data'));
     }
@@ -323,7 +328,7 @@ class RegistrationTest extends TestCase
             'access_point_id' => $gate->id,
         ]);
 
-        $admitAction = new \App\Actions\AdmitTicket();
+        $admitAction = new AdmitTicket;
 
         // 1. Student registers and receives ticket
         $regResponse = $this->actingAs($this->student1)
@@ -388,7 +393,7 @@ class RegistrationTest extends TestCase
             'revoked_at' => Carbon::now(),
         ]);
 
-        $admitAction = new \App\Actions\AdmitTicket();
+        $admitAction = new AdmitTicket;
         $scanResult = $admitAction->execute(
             staff: $staff,
             eventId: $this->event->id,

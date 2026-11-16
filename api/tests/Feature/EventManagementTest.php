@@ -7,6 +7,7 @@ use App\Models\Event;
 use App\Models\Registration;
 use App\Models\User;
 use App\Models\Venue;
+use App\Support\EventSchedule;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Crypt;
@@ -78,6 +79,104 @@ class EventManagementTest extends TestCase
         $this->assertTrue($event->accessPoints()->where('code', 'MAIN')->exists());
         $this->assertTrue($event->accessPoints()->where('code', 'GATE-A')->exists());
         $this->assertTrue($event->accessPoints()->where('code', 'GATE-B')->exists());
+    }
+
+    public function test_event_island_is_limited_to_the_event_overview_page(): void
+    {
+        $startsAt = Carbon::parse('2027-02-15 08:30:00');
+        $endsAt = Carbon::parse('2027-02-15 16:45:00');
+        $registrationOpensAt = Carbon::parse('2027-01-10 09:15:00');
+        $registrationClosesAt = Carbon::parse('2027-02-10 17:30:00');
+
+        $event = Event::create([
+            'organizer_id' => $this->organizerA->id,
+            'venue_id' => $this->venue->id,
+            'title' => 'Island Navigation Test',
+            'slug' => 'island-navigation-test',
+            'capacity' => 100,
+            'description' => 'A readable overview with the full event details.',
+            're_entry_allowed' => true,
+            'identity_verification_level' => 'id_check',
+            'registration_opens_at' => $registrationOpensAt,
+            'registration_closes_at' => $registrationClosesAt,
+            'starts_at' => $startsAt,
+            'ends_at' => $endsAt,
+            'status' => Event::STATUS_PUBLISHED,
+        ]);
+
+        $overview = $this->actingAs($this->organizerA)
+            ->get(route('organizer.events.show', $event));
+
+        $localStartsAt = EventSchedule::local($startsAt);
+        $localEndsAt = EventSchedule::local($endsAt);
+        $localRegistrationOpensAt = EventSchedule::local($registrationOpensAt);
+        $localRegistrationClosesAt = EventSchedule::local($registrationClosesAt);
+
+        $overview->assertOk()
+            ->assertSee('data-event-island', false)
+            ->assertSee('data-island-target="event-gates"', false)
+            ->assertSee('Capacity Overview')
+            ->assertSee('Event schedule and details')
+            ->assertSee('Registration period')
+            ->assertSee('Description')
+            ->assertSee('A readable overview with the full event details.')
+            ->assertSee($localStartsAt->format('M d, Y h:i A'))
+            ->assertSee($localEndsAt->format('M d, Y h:i A'))
+            ->assertSee($localRegistrationOpensAt->format('M d, Y h:i A'))
+            ->assertSee($localRegistrationClosesAt->format('M d, Y h:i A'))
+            ->assertSee('Re-entry')
+            ->assertSee('Identity')
+            ->assertSee('No transfer requests yet.')
+            ->assertSee('Disabled');
+
+        $page = $overview->getContent();
+        $capacityPosition = strpos($page, 'id="event-capacity-title"');
+        $schedulePosition = strpos($page, 'id="event-schedule-heading"');
+        $this->assertNotFalse($capacityPosition);
+        $this->assertNotFalse($schedulePosition);
+        $this->assertLessThan($schedulePosition, $capacityPosition);
+
+        $this->actingAs($this->organizerA)
+            ->get(route('organizer.events.edit', $event))
+            ->assertOk()
+            ->assertDontSee('data-event-island', false);
+    }
+
+    public function test_event_edit_uses_four_grouped_sections_while_creation_uses_four_steps(): void
+    {
+        $create = $this->actingAs($this->organizerA)
+            ->get(route('organizer.events.create'))
+            ->assertOk()
+            ->assertSee('data-event-step="1"', false)
+            ->assertSee('data-event-step="2"', false)
+            ->assertSee('data-event-step="3"', false)
+            ->assertSee('data-event-step="4"', false);
+
+        $this->assertSame(4, substr_count($create->getContent(), 'data-event-step='));
+
+        $event = Event::create([
+            'organizer_id' => $this->organizerA->id,
+            'venue_id' => $this->venue->id,
+            'title' => 'Grouped Form Test',
+            'slug' => 'grouped-form-test',
+            'capacity' => 100,
+            'registration_opens_at' => Carbon::now()->subDay(),
+            'registration_closes_at' => Carbon::now()->addDays(5),
+            'starts_at' => Carbon::now()->addDays(6),
+            'ends_at' => Carbon::now()->addDays(6)->addHours(4),
+            'status' => Event::STATUS_DRAFT,
+        ]);
+
+        $edit = $this->actingAs($this->organizerA)
+            ->get(route('organizer.events.edit', $event))
+            ->assertOk()
+            ->assertSee('Basic Information')
+            ->assertSee('Event Schedule')
+            ->assertSee('Registration Settings')
+            ->assertSee('Admission Policies')
+            ->assertSee('Save Changes');
+
+        $this->assertSame(4, substr_count($edit->getContent(), 'event-form-section__header'));
     }
 
     public function test_event_create_wizard_explains_the_four_steps_and_current_student_email_policy(): void

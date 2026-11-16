@@ -26,14 +26,14 @@
 @endphp
 
 <div class="event-create-shell">
-    <header class="event-create-header">
-        <div>
-            <p class="event-create-eyebrow">EVENT SETUP</p>
-            <h1>Create an event</h1>
-            <p>Follow four short steps. You can review and change everything before saving the draft.</p>
-        </div>
-        <a href="{{ route('organizer.events.index') }}" class="btn-secondary">Cancel</a>
-    </header>
+    <x-page-header
+        title="Create an event"
+        subtitle="Follow four short steps. You can review and change everything before saving the draft."
+    >
+        <x-slot:actions>
+            <x-ui.button :href="route('organizer.events.index')" variant="secondary">Cancel</x-ui.button>
+        </x-slot:actions>
+    </x-page-header>
 
     @if ($errors->any())
         <div id="event-create-errors" class="event-create-errors" role="alert" tabindex="-1">

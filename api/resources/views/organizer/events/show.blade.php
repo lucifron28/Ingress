@@ -6,12 +6,12 @@
         {{ $errors->first('event') ?: ($errors->first('registration') ?: ($errors->first('transfer') ?: ($errors->first('node_id') ?: $errors->first('receipt')))) }}
     </div>
 @endif
-<section id="overview-readiness" class="organizer-event-section event-anchor">
-<div id="event-overview" style="margin-bottom: 2rem;">
-    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem;">
-        <div>
-            <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
-                <h1 style="font-size: 1.75rem; font-weight: 700; color: var(--neutral-dark);">{{ $event->title }}</h1>
+<header id="event-overview" class="page-header page-header--editorial event-detail-header" tabindex="-1">
+    <x-page-header-watermark />
+    <div class="event-detail-header__top">
+        <div class="event-detail-header__identity">
+            <div class="event-detail-header__title-row">
+                <h1 class="event-detail-header__title">{{ $event->title }}</h1>
                 @if ($event->isPublished())
                     <span class="badge badge-success">Published</span>
                 @elseif ($event->isDraft())
@@ -22,52 +22,73 @@
                     <span class="badge badge-neutral">{{ ucfirst($event->status) }}</span>
                 @endif
             </div>
-            <p style="color: var(--neutral-muted); font-size: 0.875rem;">Venue: <strong>{{ $event->venue->name }}</strong> &bull; Capacity: <strong class="mono">{{ $event->capacity }}</strong> &bull; Re-entry: <strong>{{ $event->re_entry_allowed ? 'Allowed' : 'Not allowed' }}</strong> &bull; Identity: <strong>{{ $event->identity_verification_level === 'id_check' ? 'Approved ID check' : 'Standard details' }}</strong></p>
+            <dl class="event-detail-header__meta">
+                <div><dt><x-icon name="map-pin" size="16" />Venue</dt><dd>{{ $event->venue->name }}</dd></div>
+                <div><dt><x-icon name="users" size="16" />Capacity</dt><dd class="mono">{{ number_format($event->capacity) }}</dd></div>
+                <div><dt>Re-entry</dt><dd>{{ $event->re_entry_allowed ? 'Allowed' : 'Not allowed' }}</dd></div>
+                <div><dt>Identity</dt><dd>{{ $event->identity_verification_level === 'id_check' ? 'Approved ID check' : 'Standard details' }}</dd></div>
+            </dl>
         </div>
 
-        <div style="display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.5rem; align-items: center;">
+        <div class="event-detail-header__actions">
             @if ($event->isDraft())
                 <form id="publish-event" method="POST" action="{{ route('organizer.events.publish', $event) }}" onsubmit="return confirm('Publish this event to make it visible to students?');">
                     @csrf
-                    <button type="submit" class="btn-primary">
-                        Publish Event
-                    </button>
+                    <button type="submit" class="btn-primary"><x-icon name="check-circle-2" size="17" />Publish Event</button>
                 </form>
             @endif
 
-            @if (config('ingress.mode') === 'cloud' && $event->isPublished() && auth()->user()->can('update', $event))
-                @if ($event->snapshot_prepared_at && ! $authority)
-                    <form method="POST" action="{{ route('organizer.events.snapshot.discard', $event) }}" onsubmit="return confirm('Discard this snapshot to change event details?');">
-                        @csrf
-                        <button type="submit" class="btn-secondary">Discard Snapshot</button>
-                    </form>
-                @endif
+            @if (config('ingress.mode') === 'cloud' && $event->isPublished() && auth()->user()->can('update', $event) && $event->snapshot_prepared_at && ! $authority)
+                <form method="POST" action="{{ route('organizer.events.snapshot.discard', $event) }}" onsubmit="return confirm('Discard this snapshot to change event details?');">
+                    @csrf
+                    <button type="submit" class="btn-secondary"><x-icon name="x-circle" size="17" />Discard Snapshot</button>
+                </form>
             @endif
 
             @if ($event->isPublished() && ! $event->registration_closed_at && ! $event->snapshot_prepared_at)
                 <form id="registration-close-control" method="POST" action="{{ route('organizer.events.registration.close', $event) }}" onsubmit="return confirm('Close registration? It cannot be reopened.');">
                     @csrf
-                    <button type="submit" class="btn-danger">Close Registration (cannot reopen)</button>
+                    <button type="submit" class="btn-secondary"><x-icon name="x-circle" size="17" />Close Registration</button>
                 </form>
             @endif
 
             @if ($event->isPublished() && ! $authority)
                 <form method="POST" action="{{ route('organizer.events.cancel', $event) }}" onsubmit="return confirm('Cancel this event? This action cannot be undone.');">
                     @csrf
-                    <button type="submit" class="btn-danger">
-                        Cancel Event
-                    </button>
+                    <button type="submit" class="btn-danger"><x-icon name="x-circle" size="17" />Cancel Event</button>
                 </form>
             @endif
 
             @if (! $event->snapshot_prepared_at)
-                <a href="{{ route('organizer.events.edit', $event) }}" class="btn-secondary">
-                    Edit Details
-                </a>
+                <a href="{{ route('organizer.events.edit', $event) }}" class="btn-secondary"><x-icon name="pencil" size="17" />Edit Details</a>
             @endif
         </div>
     </div>
+</header>
+
+<x-event-island-nav :event="$event" active="overview" :track-sections="true" />
+
+<div class="event-overview-grid">
+    <section class="event-capacity-summary" aria-labelledby="event-capacity-title">
+        <h2 id="event-capacity-title" class="event-section-title">Capacity Overview</h2>
+        <div class="event-capacity-summary__metrics">
+            <article class="event-capacity-metric">
+                <div class="event-capacity-metric__value mono">{{ number_format($event->capacity) }}</div>
+                <div class="event-capacity-metric__label">Max Capacity</div>
+            </article>
+            <article class="event-capacity-metric">
+                <div class="event-capacity-metric__value mono">{{ $event->registrations()->where('status', \App\Models\Registration::STATUS_CONFIRMED)->count() }}</div>
+                <div class="event-capacity-metric__label">Registered Attendees</div>
+            </article>
+            <article class="event-capacity-metric">
+                <div class="event-capacity-metric__value mono">{{ \App\Models\Admission::forCurrentCredential()->whereHas('ticket.registration', fn ($query) => $query->where('event_id', $event->id))->count() }}</div>
+                <div class="event-capacity-metric__label">Admitted / Checked In</div>
+            </article>
+        </div>
+    </section>
 </div>
+
+<section id="overview-readiness" class="organizer-event-section event-anchor">
 
 @if (config('ingress.mode') === 'cloud' && auth()->user()->can('update', $event))
     @php
@@ -172,18 +193,6 @@
     </dl>
 </section>
 </section>
-
-<nav class="organizer-event-nav" aria-label="Event sections">
-    <a href="#overview-readiness">Overview &amp; Readiness</a>
-    @if (config('ingress.mode') === 'cloud' && auth()->user()->can('update', $event))
-        <a href="#tickets-registration">Tickets &amp; Registration</a>
-    @endif
-    <a href="#gates-staff">Gates &amp; Staff</a>
-    @if (config('ingress.mode') === 'cloud' && auth()->user()->can('update', $event))
-        <a href="#node-handoff">Node Handoff</a>
-    @endif
-    <a href="#attendance">Attendance</a>
-</nav>
 
 <section id="tickets-registration" class="organizer-event-section event-anchor">
     @if (config('ingress.mode') === 'cloud' && auth()->user()->can('update', $event))
@@ -309,28 +318,14 @@
         </section>
     @endif
     @if (auth()->user()->can('update', $event))
-        <section class="card" style="grid-column: 1 / -1;">
-            <h2>Ticket transfer history</h2>
-            <p>Student transfers require the event flag, a published event before its end time, and no prepared admission snapshot. History is paginated at 100 requests.</p>
-            @forelse ($ticketTransfers as $transfer)
-                <p>{{ $transfer->ticket_public_id }} &middot; {{ $transfer->from_name }} ({{ $transfer->from_email }}) &rarr; {{ $transfer->recipient_name }} ({{ $transfer->recipient_email }}) &middot; {{ ucfirst($transfer->status) }} &middot; Requested {{ $transfer->requested_at->format('M d, Y h:i A') }}
-                    @if ($transfer->accepted_at) &middot; Accepted {{ $transfer->accepted_at->format('M d, Y h:i A') }} @endif
-                    @if ($transfer->declined_at) &middot; Declined {{ $transfer->declined_at->format('M d, Y h:i A') }} @endif
-                    @if ($transfer->cancelled_at) &middot; Cancelled {{ $transfer->cancelled_at->format('M d, Y h:i A') }} @endif
-                    @if ($transfer->expired_at) &middot; Expired {{ $transfer->expired_at->format('M d, Y h:i A') }} @endif
-                </p>
-            @empty
-                <p>No ticket transfer requests.</p>
-            @endforelse
-            {{ $ticketTransfers->links() }}
-        </section>
+        @include('organizer.events.partials.ticket-transfers')
     @endif
     </section>
 
 <!-- Multi-Gate Access Points & Staff Management -->
 <section id="gates-staff" class="organizer-event-section organizer-event-gates-grid event-anchor">
     <!-- Access Points Card -->
-    <div class="card">
+    <div id="event-gates" class="card event-management-section" tabindex="-1">
         <h2 style="font-size: 1.1rem; font-weight: 600; color: var(--neutral-dark); margin-bottom: 1rem; border-bottom: 1px solid var(--neutral-border); padding-bottom: 0.5rem;">
             Gate Access Points
         </h2>
@@ -406,7 +401,7 @@
     </div>
 
     <!-- Event Staff Assignment Card -->
-    <div class="card">
+    <div id="event-staff" class="card event-management-section" tabindex="-1">
         <h2 style="font-size: 1.1rem; font-weight: 600; color: var(--neutral-dark); margin-bottom: 1rem; border-bottom: 1px solid var(--neutral-border); padding-bottom: 0.5rem;">
             Event Staff Assignments
         </h2>

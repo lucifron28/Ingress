@@ -55,9 +55,39 @@ Rerunning is safe while all matching events remain drafts and have no registrati
 
 After local setup, open the Cloud organizer interface in the local app. To try guest registration or scanning, explicitly publish a draft in that isolated environment and use the existing Firebase/student and snapshot/authority workflows. Do not use this fixture to provision test identities or attendee records.
 
+## Guarded provisioning on the shared Neon Cloud database
+
+The local seeder above always rejects Neon, Render, and Event Node targets. To deliberately provision the same three drafts on the shared Cloud database, use the separate guarded Laravel command below. It uses the same fixture service, existing venue rows, and an existing organizer or administrator; it creates no accounts and runs no migrations.
+
+Use this only when the shared Cloud database is the intended target. The command requires a local CLI environment, `INGRESS_RUNTIME=cloud`, the explicit `--target=shared-neon` argument, and a separate `INGRESS_MSEUF_SHARED_DEMO_EVENTS_ENABLED=true` opt-in. It also requires a direct (not `-pooler`) Neon PostgreSQL `DB_URL` with TLS enabled (`sslmode=require`, `verify-ca`, or `verify-full`). It refuses Render and Event Node environments.
+
+1. In the UI/UX branch's `api/.env` (ignored by Git), use the direct connection string for the Neon `production` branch and set:
+
+   ```dotenv
+   APP_ENV=local
+   INGRESS_RUNTIME=cloud
+   INGRESS_MSEUF_SHARED_DEMO_EVENTS_ENABLED=true
+   DB_CONNECTION=pgsql
+   DB_URL=postgresql://<role>:<password>@<direct-neon-host>/<database>?sslmode=require
+   ```
+
+   Keep the Neon URL private. Do not copy it into chat or commit it. Leave `INGRESS_NODE_ID`, `RENDER`, and `RENDER_SERVICE_ID` unset. Do not set the local seeder's `INGRESS_MSEUF_DEMO_EVENTS_ENABLED` to target Neon.
+
+2. Use an existing Cloud organizer or administrator ID from the shared database. This command does not create accounts. Run:
+
+   ```sh
+   cd api
+   php artisan config:clear
+   php artisan ingress:provision-mseuf-demo-events --target=shared-neon --organizer-id=<existing-id>
+   ```
+
+3. After success, unset `INGRESS_MSEUF_SHARED_DEMO_EVENTS_ENABLED` (or set it to `false`) and run `php artisan config:clear` again. The command is repeatable: it updates only these fixture slugs while they remain drafts with no registrations, checkout history, snapshots, admissions, or authority grants. It aborts the transaction if any of those safety conditions fail.
+
+4. Confirm the three rows in the Cloud organizer's Events page. They remain drafts and do not appear in the public event listing until an organizer publishes them through the normal UI. Intramurals registration closes **November 16, 2026 at 8:00 AM PHT**, and the event starts at 9:00 AM. After those times pass, this fixture cannot serve new registrations or same-day admission. Keep its schedule unchanged; use the organizer interface to set a future schedule for a later Intramurals demo.
+
 ## Create equivalent drafts through the Cloud organizer interface
 
-Use the organizer interface against an isolated local or staging Cloud database, with an existing authorized organizer account. Do not add these synthetic records to a production Render/Neon database.
+To create equivalent drafts manually, use the organizer interface against an isolated local or staging Cloud database with an existing authorized organizer account. For the shared Neon database, use only the guarded one-time command above. Do not use this fixture to provision fake identities or attendee records.
 
 1. Create each event as a draft using the title, description, venue, capacity, PHT schedule, student/public eligibility, standard identity policy, and re-entry setting in the table above. Keep ticket transfers and simulated payments disabled.
 2. In the event details, keep General Admission as the default, free category. Set its eligibility and capacity from the table. For Miss Enverga, add the public, free Supporter / Alumni Pass category with capacity 100.

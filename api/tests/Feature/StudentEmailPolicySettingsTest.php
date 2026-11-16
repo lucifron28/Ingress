@@ -27,7 +27,7 @@ class StudentEmailPolicySettingsTest extends TestCase
             ->assertOk()
             ->assertSee('Require institutional student email')
             ->assertSee('Personal email allowed')
-            ->assertSee('Ingress Cloud Event Management')
+            ->assertSee('Ingress Event Management')
             ->assertDontSee('LAN Mode Active');
 
         $this->actingAs($admin)

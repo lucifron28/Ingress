@@ -188,6 +188,8 @@ class OrganizerEventController extends Controller
                 ->with(['ticket' => fn ($tickets) => $tickets->withExists('admissions')])->orderBy('id')->get() : collect();
         $ticketTransfers = Auth::user()->can('update', $event)
             ? TicketTransfer::where('event_id', $event->id)->orderByDesc('requested_at')->paginate(100) : collect();
+        $pendingTicketTransferCount = Auth::user()->can('update', $event)
+            ? TicketTransfer::where('event_id', $event->id)->where('status', TicketTransfer::STATUS_PENDING)->count() : 0;
         $walkInRecoveries = config('ingress.mode') === 'cloud' && Auth::user()->can('update', $event)
             ? DB::table('cloud_walk_in_recoveries as recovery')
                 ->join('cloud_walk_in_receipts as issuance', fn ($join) => $join->on('issuance.node_id', '=', 'recovery.node_id')
@@ -293,6 +295,7 @@ class OrganizerEventController extends Controller
             'guestRegistrations',
             'walkInRecoveries',
             'ticketTransfers',
+            'pendingTicketTransferCount',
             'readiness',
         ));
     }

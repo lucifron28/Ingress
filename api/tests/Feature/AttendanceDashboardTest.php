@@ -94,7 +94,8 @@ class AttendanceDashboardTest extends TestCase
             ->get("/organizer/events/{$this->event->id}/attendance");
 
         $response->assertStatus(200);
-        $response->assertSee('Event Attendance: Flagship Conference');
+        $response->assertSee('Event Attendance');
+        $response->assertSee('Flagship Conference');
         $response->assertSee('Ron Vincent Cada');
         $response->assertSee('Gate A - West Wing');
         $response->assertSee('Entry');
@@ -247,6 +248,7 @@ class AttendanceDashboardTest extends TestCase
             ->get("/organizer/events/{$this->event->id}/attendance");
 
         $response->assertStatus(200);
+        $response->assertDontSee('data-event-island', false);
 
         // Verify the manual 'Refresh Feed' button with onclick handler exists
         $response->assertSee('Refresh Feed');
@@ -267,7 +269,7 @@ class AttendanceDashboardTest extends TestCase
         // Verify standardized access point terminology
         $response->assertSee('Movements by Access Point');
         $response->assertSee('No access points configured.');
-        $response->assertSee('<th>Access Point</th>', false);
+        $response->assertSee('<th scope="col">Access Point</th>', false);
 
         // Verify live connection indicator elements and transition handlers exist
         $response->assertSee('id="live-indicator"', false);
@@ -499,27 +501,24 @@ class AttendanceDashboardTest extends TestCase
 
         // Step 1: Successful initial poll
         $step1 = $results[0];
-        $this->assertEquals('LAN LIVE', $step1['liveIndicatorText']);
-        $this->assertEquals('#10b981', $step1['dotBg']);
-        $this->assertEquals('#ecfdf5', $step1['liveIndicatorBg']);
+        $this->assertEquals('Updates live', $step1['liveIndicatorText']);
+        $this->assertStringContainsString('attendance-connection--live', $step1['liveIndicatorClass']);
         $this->assertStringStartsWith('Updated ', $step1['feedLastUpdated']);
 
-        // Step 2: Server failure -> CONNECTION LOST, previous data retained
+        // Step 2: Server failure -> updates unavailable, previous data retained
         $step2 = $results[1];
-        $this->assertEquals('CONNECTION LOST', $step2['liveIndicatorText']);
-        $this->assertEquals('#ef4444', $step2['dotBg']);
-        $this->assertEquals('#fef2f2', $step2['liveIndicatorBg']);
+        $this->assertEquals('Updates unavailable', $step2['liveIndicatorText']);
+        $this->assertStringContainsString('attendance-connection--lost', $step2['liveIndicatorClass']);
         $this->assertStringStartsWith('Last successful update ', $step2['feedLastUpdated']);
         // Crucial requirement: last known attendance data remains visible on the dashboard
         $this->assertStringContainsString('Ron Vincent Cada', $step2['recentHtml']);
         $this->assertEquals(1, $step2['recentRowCount']);
         $this->assertStringContainsString('GATE-A', $step2['gateHtml']);
 
-        // Step 3: Recovery -> LAN LIVE restored
+        // Step 3: Recovery -> updates live again
         $step3 = $results[2];
-        $this->assertEquals('LAN LIVE', $step3['liveIndicatorText']);
-        $this->assertEquals('#10b981', $step3['dotBg']);
-        $this->assertEquals('#ecfdf5', $step3['liveIndicatorBg']);
+        $this->assertEquals('Updates live', $step3['liveIndicatorText']);
+        $this->assertStringContainsString('attendance-connection--live', $step3['liveIndicatorClass']);
         $this->assertStringStartsWith('Updated ', $step3['feedLastUpdated']);
     }
 
@@ -562,26 +561,24 @@ class AttendanceDashboardTest extends TestCase
             ['ok' => true, 'data' => $feedData],
         ], pollTimeoutMs: 30);
 
-        // Step 1: Healthy LAN LIVE state
+        // Step 1: Healthy update state
         $step1 = $results[0];
-        $this->assertEquals('LAN LIVE', $step1['liveIndicatorText']);
-        $this->assertEquals('#10b981', $step1['dotBg']);
+        $this->assertEquals('Updates live', $step1['liveIndicatorText']);
+        $this->assertStringContainsString('attendance-connection--live', $step1['liveIndicatorClass']);
         $this->assertStringStartsWith('Updated ', $step1['feedLastUpdated']);
 
-        // Step 2: Real AbortController timer fired -> signal aborted -> CONNECTION LOST
+        // Step 2: Real AbortController timer fired -> signal aborted -> updates unavailable
         $step2 = $results[1];
         $this->assertTrue($step2['signalAborted'], 'AbortSignal must be genuinely aborted by controller.abort()');
-        $this->assertEquals('CONNECTION LOST', $step2['liveIndicatorText']);
-        $this->assertEquals('#ef4444', $step2['dotBg']);
-        $this->assertEquals('#fef2f2', $step2['liveIndicatorBg']);
+        $this->assertEquals('Updates unavailable', $step2['liveIndicatorText']);
+        $this->assertStringContainsString('attendance-connection--lost', $step2['liveIndicatorClass']);
         $this->assertStringStartsWith('Last successful update ', $step2['feedLastUpdated']);
         $this->assertStringContainsString('Ron Vincent Cada', $step2['recentHtml']);
         $this->assertStringContainsString('ENTRANCE-1', $step2['gateHtml']);
-        // Step 3: Recovery restores LAN LIVE and advances timestamp
+        // Step 3: Recovery restores live updates and advances timestamp
         $step3 = $results[2];
-        $this->assertEquals('LAN LIVE', $step3['liveIndicatorText']);
-        $this->assertEquals('#10b981', $step3['dotBg']);
-        $this->assertEquals('#ecfdf5', $step3['liveIndicatorBg']);
+        $this->assertEquals('Updates live', $step3['liveIndicatorText']);
+        $this->assertStringContainsString('attendance-connection--live', $step3['liveIndicatorClass']);
         $this->assertStringStartsWith('Updated ', $step3['feedLastUpdated']);
     }
 
@@ -620,7 +617,7 @@ class AttendanceDashboardTest extends TestCase
         const pollTimeoutMs = payload.pollTimeoutMs || 30;
 
         function createElement(tag) {
-            return {
+            const element = {
                 tagName: tag.toUpperCase(),
                 children: [],
                 style: {},
@@ -671,6 +668,20 @@ class AttendanceDashboardTest extends TestCase
                     this._textContent = val;
                 }
             };
+            element.classList = {
+                add(name) {
+                    const classes = element.className.split(/\s+/).filter(Boolean);
+                    if (!classes.includes(name)) classes.push(name);
+                    element.className = classes.join(' ');
+                },
+                remove(name) {
+                    element.className = element.className.split(/\s+/).filter(className => className && className !== name).join(' ');
+                },
+                contains(name) {
+                    return element.className.split(/\s+/).includes(name);
+                }
+            };
+            return element;
         }
 
         const elements = {};
@@ -683,6 +694,7 @@ class AttendanceDashboardTest extends TestCase
             elements[id] = createElement('div');
             elements[id].id = id;
         });
+        elements['live-indicator'].className = 'attendance-connection attendance-connection--checking';
 
         const document = {
             getElementById: (id) => elements[id] || null,
@@ -779,6 +791,7 @@ class AttendanceDashboardTest extends TestCase
                     registered: elements['stat-registered'].textContent,
                     checkedIn: elements['stat-checked-in'].textContent,
                     liveIndicatorText: elements['live-indicator-text'].textContent,
+                    liveIndicatorClass: elements['live-indicator'].className,
                     liveIndicatorColor: elements['live-indicator'].style.color || '',
                     liveIndicatorBg: elements['live-indicator'].style.background || '',
                     dotBg: elements['live-indicator-dot'].style.background || '',

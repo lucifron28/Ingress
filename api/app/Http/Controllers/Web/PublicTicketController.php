@@ -31,13 +31,23 @@ class PublicTicketController extends Controller
             ? $ticketAccess->consumeRedemptionCode($request, $registration)
             : null;
 
+        $localViteSources = app()->environment('local')
+            ? ' http://localhost:5173 http://127.0.0.1:5173'
+            : '';
+        $localViteSockets = app()->environment('local')
+            ? ' ws://localhost:5173 ws://127.0.0.1:5173'
+            : '';
+        $developmentCsp = $localViteSources === ''
+            ? ''
+            : "script-src{$localViteSources}; connect-src{$localViteSockets}; ";
+
         return response()->view('public.tickets.show', compact('registration', 'qr', 'redemptionCode'))
             ->withHeaders([
                 'Cache-Control' => 'no-store, private',
                 'Referrer-Policy' => 'no-referrer',
                 'X-Frame-Options' => 'DENY',
                 'X-Content-Type-Options' => 'nosniff',
-                'Content-Security-Policy' => "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+                'Content-Security-Policy' => "default-src 'none'; {$developmentCsp}style-src 'self' 'unsafe-inline'{$localViteSources}; img-src 'self' data:; font-src 'self'{$localViteSources}; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
             ]);
     }
 
