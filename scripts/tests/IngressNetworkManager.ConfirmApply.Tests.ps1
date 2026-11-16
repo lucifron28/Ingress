@@ -264,7 +264,7 @@ Describe 'Ingress Network Manager apply confirmation' {
         $status = Invoke-IngressNetworkManager -LanDemo -Status -Json `
             -Adapters @($fixture.Adapter) -FirewallRules @()
 
-        $status.FirewallStatus | Should Be 'Select the current LAN adapter and private IPv4 address to check its scoped firewall rule.'
+        $status.FirewallStatus | Should Be 'saved Node address 10.212.56.36 is not on an active private adapter; select a LAN adapter to check its scoped firewall rule'
         ($status.Blockers -join ' ') | Should Match ([regex]::Escape('The saved Node IP 10.212.56.36 does not match one unique active adapter. Choose the current LAN adapter and private IPv4 address, then preview the change.'))
         ($status.Blockers -join ' ') | Should Not Match 'Windows Firewall profile|LAN demo firewall rule'
     }
