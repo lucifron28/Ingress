@@ -62,3 +62,4 @@ pgdata/
 /graphify-out/
 /api/graphify-out/
 /mobile/graphify-out/
+.neon
