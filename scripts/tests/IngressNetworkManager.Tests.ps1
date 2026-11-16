@@ -194,6 +194,13 @@ Describe 'Ingress Network Manager safety' {
         $broad = $rule.PSObject.Copy(); $broad.RemoteAddresses = @('Any')
         (Test-IngressFirewallPolicy -Rules @($broad) -Candidate $candidate -Port 8000 -RuleName 'Ingress Event Node LAN Demo').Allowed | Should Be $false
         (Test-IngressFirewallPolicy -Rules @($rule) -Candidate $candidate -Port 8000 -RuleName 'Ingress Event Node LAN Demo' -FirewallProfileEnabled $false).Allowed | Should Be $false
+        $candidate.NetworkCategory = 'Unknown'
+        $candidate.Mode = 'Laptop Hotspot'
+        (Test-IngressFirewallPolicy -Rules @($rule) -Candidate $candidate -Port 8000 -RuleName 'Ingress Event Node LAN Demo').Allowed | Should Be $false
+        $rule.Profiles = @('Any')
+        (Test-IngressFirewallPolicy -Rules @($rule) -Candidate $candidate -Port 8000 -RuleName 'Ingress Event Node LAN Demo').Allowed | Should Be $true
+        $rule.ApplicationPrograms = @('Any')
+        (Test-IngressFirewallPolicy -Rules @($rule) -Candidate $candidate -Port 8000 -RuleName 'Ingress Event Node LAN Demo').Allowed | Should Be $false
     }
 
     It 'blocks LAN demo restarts while admissions are active or unknown' {
