@@ -1,102 +1,67 @@
-# Ingress Demonstration Data & Real MSEUF Facts
+# Local MSEUF demo events
 
-> **Local-only legacy fixture:** this page describes the opt-in demo seed, which contains realistic names, student identifiers, and public event labels. Do not seed it into Render, Neon staging, an Event Node, or any database that may hold real attendee records. The former mobile attendee login shown below has been removed; student and organizer demo flows use the website, and the current scanner pairs with a separate Event Node over HTTPS. Use the cloud operator workflow in [Deployment and Operations](deployment.md#prepare-synthetic-staging-accounts-and-venues) for synthetic organizer and staff accounts, and create synthetic events in the organizer portal. Student web tests require a Firebase-verified test identity. Production refuses `INGRESS_DEMO_MODE=true`.
+These three events are synthetic course-project fixtures. Their dates, descriptions, capacities, ticket settings, and access points are not official MSEUF information. The `— Demo` titles identify them as simulations. The year-end party is university-wide and is not a CCMS party.
 
-**Manuel S. Enverga University Foundation (MSEUF)**  
-*Reference Guide: Real Public Facts vs. Synthetic Ingress Demo Configuration*
+The fixture creates Cloud-side event drafts only. It creates no users, Firebase identities, registrations, tickets, credentials, snapshots, admission records, or authority grants. It does not publish events or modify an Event Node. The existing Cloud-to-LAN snapshot workflow remains an explicit organizer action.
 
----
+## Event settings
 
-## 1. Overview
+All times below use `Asia/Manila` (PHT). Laravel stores the equivalent UTC timestamps.
 
-To keep the Ingress course final project demonstration realistic and defensible during academic presentations, all seeded events and venues are derived directly from official, publicly verifiable Manuel S. Enverga University Foundation resources.
+| Event | Venue | Capacity | Registration window (PHT) | Event time (PHT) | Eligibility | Re-entry | Gates |
+| --- | --- | ---: | --- | --- | --- | --- | --- |
+| MSEUF University Intramurals 2026 — Demo | MSEUF University Gymnasium | 500 | Nov 15, 2026 8:00 AM–Nov 16, 2026 8:00 AM | Nov 16, 2026 9:00 AM–10:00 PM | Students | No | Main Entrance, Gate A, Gate B |
+| MSEUF Year-End Party 2026 — Demo | Enverga Multipurpose Hall | 200 | Nov 16, 2026 8:00 AM–Nov 20, 2026 4:00 PM | Nov 20, 2026 5:00 PM–10:00 PM | Students | Yes | Main Entrance |
+| Miss Enverga University 2026 — Demo | MSEUF University Gymnasium | 400 | Nov 16, 2026 8:00 AM–Nov 18, 2026 5:00 PM | Nov 18, 2026 6:00 PM–10:00 PM | Public | No | Main Entrance, Gate A |
 
-At the same time, operational parameters required to demonstrate the application—such as entrance gate names, seat capacities, registration windows, staff assignments, and ticket issuance—are explicitly identified as **synthetic Ingress demo values**.
+Every event uses the standard identity policy, has ticket transfers disabled, and starts as a draft. Simulated payments stay disabled. General Admission is free. Intramurals and the year-end party each have one student-only category with capacity equal to the event capacity. Miss Enverga has two public categories: General Admission (300) and Supporter / Alumni Pass (100).
 
-```
-+--------------------------------------------------------------------------+
-|                        REAL PUBLIC FACTS                                 |
-|  • Event Title: MSEUF University Intramurals 2026                        |
-|  • Official Calendar Dates: September 30 – October 3, 2026               |
-|  • Official Venue: University Gymnasium (Athletic Complex)               |
-|  • Source: mseuf.edu.ph/events/2026 & mseuf.edu.ph/oscr                  |
-+--------------------------------------------------------------------------+
-                                    │
-                                    ▼ Combined in Ingress Demo
-+--------------------------------------------------------------------------+
-|                   SYNTHETIC DEMO CONFIGURATION                           |
-|  • Demo Entrances: Entrance 1, Entrance 2, Entrance 3                    |
-|  • Demo Capacity: 50 seats (demonstration cap)                           |
-|  • Demo Schedule Window: Active window for registration and scanning     |
-|  • Staff Assignments: Staff Alex (Entr 1), Staff Bea (Entr 2), Staff Chris|
-|  • Primary Student: Ron Vincent Cada (A23-35524, CCMS)                   |
-+--------------------------------------------------------------------------+
-```
+### Descriptions
 
----
+- **Intramurals:** Celebrate Envergan unity and sportsmanship through athletic competitions, spirited college rivalries, team performances, and activities that bring the university community together. Students are invited to support their respective colleges and celebrate teamwork, determination, and school pride.
+- **Year-End Party:** Celebrate the year's achievements, friendships, and memorable experiences at the MSEUF Year-End Party. Join fellow Envergans for an evening of music, performances, interactive activities, and university spirit. This is a university-wide simulation, not a CCMS Year-End Party.
+- **Miss Enverga:** Witness elegance, confidence, intelligence, and Envergan excellence at Miss Enverga University 2026. Celebrate outstanding representatives as they showcase their talents, advocacies, and dedication to the Envergan community. Students, alumni, families, and outside supporters are welcome.
 
-## 2. Event Reference Table
+## Seed an isolated local Cloud database
 
-| Event | Official Source | Real Facts Used | Synthetic Demo Configuration |
-| :--- | :--- | :--- | :--- |
-| **MSEUF University Intramurals 2026** *(Main Demo Event)* | [MSEUF Events Calendar 2026](https://mseuf.edu.ph/events/2026) & [OSCR University Intramurals](https://mseuf.edu.ph/oscr/pages/university-intramurals) | • Official Title: *Intramurals 2026* / *University Intramurals*<br>• Official Dates: Sept 30 – Oct 3, 2026<br>• Official Venue: *University Gymnasium* ([OSCR Facility](https://mseuf.edu.ph/oscr/pages/facilities-12))<br>• Description: University-wide sports, parade, e-sports, and athletic competition across colleges | • Venue Capacity: Configured to 50 seats for demonstration<br>• Registration Window: Open now (`now - 1d` to `now + 7d`)<br>• Event Timing: Scheduled active for mobile demo (`now + 2d` to `now + 5d`)<br>• Demo Entrances: **Entrance 1**, **Entrance 2**, **Entrance 3**<br>• Staff: Alex (Entr 1), Bea (Entr 2), Chris (Entr 3)<br>• Primary Attendee: Ron Vincent Cada |
-| **MSEUF 79th Foundation Anniversary: Thanksgiving Mass** | [Enverga University 79th Foundation](https://mseuf.edu.ph/79/event/miss-enverga) & [2026 Calendar](https://mseuf.edu.ph/events/2026) | • Official Title: *Thanksgiving Mass (79th Anniversary)*<br>• Official Date: February 9, 2026 (8:00 AM - 9:00 AM)<br>• Official Venue: *University Gymnasium* | • Capacity: 300 seats<br>• Access Point: *Main Gymnasium Entrance* (`MAIN-GYM`)<br>• Lifecycle Status: `completed` (demonstrating concluded historical events) |
-| **Miss Enverga University 2026** | [Miss Enverga University Pageant Portal](https://mseuf.edu.ph/79/event/miss-enverga) & [Alumni Calendar](https://mseuf.edu.ph/79/event/alumni) | • Official Title: *Miss Enverga University 2026*<br>• Official Date: February 12, 2026 (5:00 PM - 8:00 PM)<br>• Official Venue: *University Gymnasium*<br>• Description: University coronation pageant showcasing student talent and advocacy | • Capacity: 500 seats<br>• Access Points: *Main Entrance* (`MAIN`), *North Gate* (`NORTH`)<br>• Lifecycle Status: `draft` (demonstrating unpublished organizer workflow) |
+Do not run this seeder against Render, Neon, an Event Node, or a database containing real event records. Use a local database and an existing local organizer or administrator. The seeder refuses production, Render, Event Node, Neon, and other non-local database hosts. It is separate from `DatabaseSeeder`, `INGRESS_DEMO_MODE`, and the legacy account/event seeders.
 
----
+1. Confirm the existing venue rows are present. If they are missing, run `php artisan db:seed --class="Database\Seeders\VenueSeeder"` in the local environment. That seeder upserts the reference venues by code; the demo fixture itself only looks up `GYM` and `MPH` and never creates or updates venue rows.
+2. Find the ID of an existing local organizer or administrator:
 
-## 3. Venue Reference
+   ```sql
+   SELECT id, email FROM users WHERE role IN ('organizer', 'admin') ORDER BY id;
+   ```
 
-| Venue Name | Code | Location | Real vs. Synthetic Attributes |
-| :--- | :--- | :--- | :--- |
-| **MSEUF University Gymnasium** | `GYM` | University Athletic Complex, Lucena City | **Real**: Official university sports and major assembly facility documented on the OSCR portal (`https://mseuf.edu.ph/oscr/pages/facilities-12`). Facility renovation announced in official news on July 23, 2026 (`https://mseuf.edu.ph/news/2026/7/23/enverga-university-partners-with-linksports-inc-begins-gymnasium-renovation`).<br>**Synthetic**: Default capacity set to 1,500. |
-| **MSEUF University Auditorium** | `AUD` | Main Academic Building, 2nd Floor, Lucena City | **Real**: Primary university theater and academic hall.<br>**Synthetic**: Default capacity set to 600. |
-| **Enverga Multipurpose Hall** | `MPH` | Student Activity Center, Lucena City | **Real**: Student organization and seminar hall.<br>**Synthetic**: Default capacity set to 300. |
-| **CCS Innovation & Robotics Lab** | `CCSLAB` | College of Computer Studies Building, 3rd Floor | **Real**: Computer science laboratory and research facility.<br>**Synthetic**: Default capacity set to 80. |
+3. In the local `api/.env`, set:
 
----
+   ```dotenv
+   APP_ENV=local
+   INGRESS_RUNTIME=cloud
+   INGRESS_MSEUF_DEMO_EVENTS_ENABLED=true
+   INGRESS_MSEUF_DEMO_EVENTS_ORGANIZER_ID=123
+   ```
 
-## 4. Demonstration Accounts & Identities
+   Replace `123` with the existing local account's ID. Keep the normal local `DB_CONNECTION` and database host. Do not set `DB_URL` to Neon or a hosted database.
 
-All demonstration accounts use the password: `password`.
+4. Clear cached configuration and run only the focused seeder:
 
-### 4.1 Primary Demo Student
-- **Name**: Ron Vincent Cada
-- **Student ID**: `A23-35524`
-- **Email**: `a23-35524@student.mseuf.edu.ph`
-- **College**: CCMS (College of Computing and Multimedia Studies / Computer Studies)
-- **Role**: `student`
-- **Status**: Registered in `UserSeeder.php`
+   ```sh
+   php artisan config:clear
+   php artisan db:seed --class="Database\Seeders\MseufDemoEventsSeeder"
+   ```
 
-#### Primary Student Acceptance Scenario:
-1. **Sign In**: Ron signs in to the local demo website with the seeded account.
-2. **Discovery**: Opens the event catalog and selects **MSEUF University Intramurals 2026**.
-3. **Registration**: Registers for the event; capacity changes inside the server transaction.
-4. **Ticket Issuance**: Receives a ticket with an opaque credential (`ingress:v1:ING-XXXX:<secret>`).
-5. **Display QR**: Opens the web ticket and displays or downloads its QR as a PDF.
-6. **Admission at Entrance 1**: Import and activate the event snapshot on one Event Node, then pair an assigned staff scanner over HTTPS. Staff Alex Rivera previews and explicitly confirms admission at **Entrance 1**.
-7. **Anti-Passback Block**: Staff at another assigned gate scans the same QR; the Event Node rejects a second entry while the attendee is inside.
-8. **Organizer Dashboard**: After synchronization, the organizer sees the admission in the attendance view.
+Rerunning is safe while all matching events remain drafts and have no registrations, checkout orders, prepared snapshots, admissions, or transferred authority. The seeder checks all three events before writing and aborts the full operation if it finds existing lifecycle data or a slug owned by another event. It never resets a published event to draft.
 
-### 4.2 Event Staff Accounts
-- **Entrance 1 Staff**: Staff Alex Rivera (`staff.gate_a@mseuf.edu.ph`) $\rightarrow$ Assigned to **Entrance 1**
-- **Entrance 2 Staff**: Staff Bea Ramos (`staff.gate_b@mseuf.edu.ph`) $\rightarrow$ Assigned to **Entrance 2**
-- **Entrance 3 Staff**: Staff Chris Dizon (`staff.gate_c@mseuf.edu.ph`) $\rightarrow$ Assigned to **Entrance 3**
+After local setup, open the Cloud organizer interface in the local app. To try guest registration or scanning, explicitly publish a draft in that isolated environment and use the existing Firebase/student and snapshot/authority workflows. Do not use this fixture to provision test identities or attendee records.
 
-### 4.3 Organizer & Admin Accounts
-- **Organizer 1**: Prof. Juan Dela Cruz (`organizer@mseuf.edu.ph`) — CCMS Department Organizer
-- **Organizer 2**: Engr. Maria Santos (`organizer2@mseuf.edu.ph`) — Engineering Department Organizer
-- **Administrator**: MSEUF Administrator (`admin@mseuf.edu.ph`) — System Administrator
+## Create equivalent drafts through the Cloud organizer interface
 
-### 4.4 Additional Synthetic Students
-- **Student 2**: Patricia Reyes (`student2@mseuf.edu.ph`, Student ID: `2024-01002`)
-- **Student 3**: Mark Aquino (`student3@mseuf.edu.ph`, Student ID: `2024-01003`)
+Use the organizer interface against an isolated local or staging Cloud database, with an existing authorized organizer account. Do not add these synthetic records to a production Render/Neon database.
 
----
+1. Create each event as a draft using the title, description, venue, capacity, PHT schedule, student/public eligibility, standard identity policy, and re-entry setting in the table above. Keep ticket transfers and simulated payments disabled.
+2. In the event details, keep General Admission as the default, free category. Set its eligibility and capacity from the table. For Miss Enverga, add the public, free Supporter / Alumni Pass category with capacity 100.
+3. The existing event wizard creates Main Entrance, Gate A, and Gate B. In the event's Gate access points section, leave active only the gates listed above: deactivate Gate A and Gate B for the Year-End Party, and deactivate Gate B for Miss Enverga. Keep all three active for Intramurals.
+4. Confirm all three events still show Draft. Leave them unpublished.
 
-## 5. Security & Isolation Guarantee
-
-The environment flag `INGRESS_DEMO_MODE=true` strictly controls the seeding of demonstration accounts:
-- In demo mode (`INGRESS_DEMO_MODE=true`), `UserSeeder` and `EventSeeder` create the accounts and events listed above.
-- Outside demo mode (`INGRESS_DEMO_MODE=false`), `DatabaseSeeder`, `UserSeeder`, and `EventSeeder` create **no** user accounts and **no** events. Only reference venues are created.
-- In production (`APP_ENV=production`), enabling demo mode raises a fatal `LogicException` on boot to prevent accidental exposure of predictable credentials.
+The event wizard and Cloud-to-LAN handoff remain unchanged. Publishing, student or guest registration, snapshot preparation, authority transfer, and LAN admission are separate explicit actions.
