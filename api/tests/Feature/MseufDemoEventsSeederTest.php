@@ -121,6 +121,46 @@ class MseufDemoEventsSeederTest extends TestCase
         $this->assertSame(6, DB::table('access_points')->count());
     }
 
+    public function test_organizer_pages_display_the_three_draft_fixtures_and_their_event_details(): void
+    {
+        $this->seed(MseufDemoEventsSeeder::class);
+
+        $this->actingAs($this->organizer)
+            ->get(route('organizer.events.index'))
+            ->assertOk()
+            ->assertSee('MSEUF University Intramurals 2026 — Demo')
+            ->assertSee('MSEUF Year-End Party 2026 — Demo')
+            ->assertSee('Miss Enverga University 2026 — Demo')
+            ->assertSee('MSEUF University Gymnasium')
+            ->assertSee('Enverga Multipurpose Hall')
+            ->assertSee('Draft');
+
+        $intramurals = Event::where('slug', 'mseuf-university-intramurals-2026-demo')->sole();
+        $this->get(route('organizer.events.show', $intramurals))
+            ->assertOk()
+            ->assertSee('Event schedule and details (Philippine Time, PHT)')
+            ->assertSee('Nov 16, 2026 09:00 AM to Nov 16, 2026 10:00 PM')
+            ->assertSee('General Admission')
+            ->assertSee('Gate A')
+            ->assertSee('Gate B');
+
+        $yearEnd = Event::where('slug', 'mseuf-year-end-party-2026-demo')->sole();
+        $this->get(route('organizer.events.show', $yearEnd))
+            ->assertOk()
+            ->assertSee('Nov 20, 2026 05:00 PM to Nov 20, 2026 10:00 PM')
+            ->assertSee('General Admission')
+            ->assertSee('Allowed')
+            ->assertSee('Main Entrance');
+
+        $pageant = Event::where('slug', 'miss-enverga-university-2026-demo')->sole();
+        $this->get(route('organizer.events.show', $pageant))
+            ->assertOk()
+            ->assertSee('General Admission')
+            ->assertSee('Supporter / Alumni Pass')
+            ->assertSee('Gate A')
+            ->assertSee('Not allowed');
+    }
+
     public function test_fixture_refuses_to_modify_an_event_with_registration_history_before_any_fixture_changes(): void
     {
         $this->seed(MseufDemoEventsSeeder::class);
