@@ -296,7 +296,13 @@ function Test-IngressFirewallPolicy {
 
         $profiles = @((Get-IngressPropertyValue -InputObject $rule -Name 'Profiles' -Default @()) | ForEach-Object { [string] $_ })
         $candidateProfile = [string] (Get-IngressPropertyValue -InputObject $Candidate -Name 'NetworkCategory' -Default 'Unknown')
-        if ($profiles -notcontains 'Any' -and $profiles -notcontains $candidateProfile) {
+        if ($candidateProfile -eq 'DomainAuthenticated') { $candidateProfile = 'Domain' }
+        $profileMatches = if ($candidateProfile -eq 'Unknown' -and $Candidate.Mode -eq 'Laptop Hotspot') {
+            $profiles -contains 'Any' -or ($profiles -contains 'Domain' -and $profiles -contains 'Private' -and $profiles -contains 'Public')
+        } else {
+            $profiles -contains 'Any' -or $profiles -contains $candidateProfile
+        }
+        if (-not $profileMatches) {
             continue
         }
 
@@ -321,7 +327,7 @@ function Test-IngressFirewallPolicy {
         $interfaces = @((Get-IngressPropertyValue -InputObject $rule -Name 'InterfaceAliases' -Default @()) | ForEach-Object { [string] $_ })
         $interfaceTypes = @((Get-IngressPropertyValue -InputObject $rule -Name 'InterfaceTypes' -Default @()) | ForEach-Object { [string] $_ })
         $programAllowed = $programs.Count -eq 1 -and (
-            $programs[0] -eq 'Any' -or [System.IO.Path]::GetFileName($programs[0]) -ieq 'com.docker.backend.exe'
+            ($programs[0] -eq 'Any' -and $candidateProfile -ne 'Unknown') -or [System.IO.Path]::GetFileName($programs[0]) -ieq 'com.docker.backend.exe'
         )
         $packageAllowed = $packages.Count -eq 0 -or ($packages.Count -eq 1 -and ($packages[0] -eq 'Any' -or [string]::IsNullOrWhiteSpace($packages[0])))
         $serviceAllowed = $services.Count -eq 1 -and $services[0] -eq 'Any'
@@ -877,7 +883,9 @@ function Test-IngressUrlResolvesToAddress {
 
 function Get-IngressScopedFirewallRules {
     param([string] $DisplayName = 'Ingress Event Node HTTPS')
-    $rules = @(Get-NetFirewallRule -DisplayName $DisplayName -ErrorAction Stop | Where-Object { [string] $_.Direction -eq 'Inbound' })
+    $rules = @(Get-NetFirewallRule -PolicyStore ActiveStore -ErrorAction Stop | Where-Object {
+        [string] $_.DisplayName -eq $DisplayName -and [string] $_.Direction -eq 'Inbound'
+    })
     foreach ($rule in $rules) {
         $addressFilters = @($rule | Get-NetFirewallAddressFilter -ErrorAction Stop)
         $portFilters = @($rule | Get-NetFirewallPortFilter -ErrorAction Stop)
@@ -895,6 +903,7 @@ function Get-IngressScopedFirewallRules {
         })
         [pscustomobject] @{
             Name = [string] $rule.DisplayName
+            InstanceName = [string] $rule.Name
             Enabled = ([string] $rule.Enabled -eq 'True')
             Direction = [string] $rule.Direction
             Action = [string] $rule.Action
@@ -914,12 +923,17 @@ function Get-IngressScopedFirewallRules {
 }
 
 function Get-IngressFirewallProfileState {
-    param([string] $NetworkCategory)
-    if ($NetworkCategory -notin @('DomainAuthenticated', 'Private', 'Public')) {
+    param([string] $NetworkCategory, [switch] $AllowUnclassifiedHotspot)
+    $unclassified = $AllowUnclassifiedHotspot -and $NetworkCategory -eq 'Unknown'
+    if (-not $unclassified -and $NetworkCategory -notin @('DomainAuthenticated', 'Private', 'Public')) {
         return [pscustomobject] @{ Known = $false; Enabled = $false }
     }
     try {
-        $profiles = @(Get-NetFirewallProfile -ErrorAction Stop)
+        $profiles = @(Get-NetFirewallProfile -PolicyStore ActiveStore -ErrorAction Stop)
+        if ($unclassified) {
+            $required = @($profiles | Where-Object { $_.Name -in @('Domain', 'Private', 'Public') })
+            return [pscustomobject] @{ Known = ($required.Count -eq 3); Enabled = ($required.Count -eq 3 -and @($required | Where-Object { [string] $_.Enabled -ne 'True' }).Count -eq 0) }
+        }
         $profileName = if ($NetworkCategory -eq 'DomainAuthenticated') { 'Domain' } else { $NetworkCategory }
         $profile = $profiles | Where-Object { [string] $_.Name -eq $profileName } | Select-Object -First 1
         if ($null -eq $profile) { return [pscustomobject] @{ Known = $false; Enabled = $false } }
@@ -1177,7 +1191,7 @@ function Invoke-IngressLanDemoNetworkManager {
     $admissionState = Read-IngressAdmissionState -Context $context -ComposeSummary $composeSummary -CommandRunner $CommandRunner
     $operations = Read-IngressNodeOperationsSummary -Context $context -ComposeSummary $composeSummary -NodeState $nodeState -CommandRunner $CommandRunner
     $actualPorts = Get-IngressActualPortStatus -Context $context -ContainerId $context.NodeContainerId -CommandRunner $CommandRunner -Address $targetAddress -HttpsPort 443 -OperatorPort $operatorPort -LanDemo -HttpPort $httpPort
-    $firewallProfileState = if ($candidate) { Get-IngressFirewallProfileState -NetworkCategory $candidate.NetworkCategory } else { [pscustomobject] @{ Known = $false; Enabled = $false } }
+    $firewallProfileState = if ($candidate) { Get-IngressFirewallProfileState -NetworkCategory $candidate.NetworkCategory -AllowUnclassifiedHotspot:($candidate.Mode -eq 'Laptop Hotspot') } else { [pscustomobject] @{ Known = $false; Enabled = $false } }
     if ($null -eq $FirewallRules) {
         $firewallKnown = $true
         try { $FirewallRules = @(Get-IngressScopedFirewallRules -DisplayName 'Ingress Event Node LAN Demo') }
@@ -1203,7 +1217,7 @@ function Invoke-IngressLanDemoNetworkManager {
     }
     elseif ($composeSummary.OperatorPortIsolated) { 'configured for 127.0.0.1 only; runtime binding unavailable' }
     else { 'not verified as loopback-only' }
-    $firewallStatus = if ($null -eq $candidate) { 'Select the current LAN adapter and private IPv4 address to check its scoped firewall rule.' } elseif (-not $firewallKnown) { 'active firewall policy could not be read' } elseif (-not $firewallProfileState.Enabled) { "the active $($candidate.NetworkCategory) firewall profile is disabled" } elseif ($firewallResult.Allowed) { "scoped rule '$($firewallResult.RuleName)' allows TCP/$httpPort" } else { "add the app-scoped LAN rule for TCP/$httpPort on $targetAddress and $($firewallResult.RequiredRemoteScope)" }
+$firewallStatus = if ($null -eq $candidate) { "saved Node address $currentAddress is not on an active private adapter; select a LAN adapter to check its scoped firewall rule" } elseif (-not $firewallKnown) { 'Windows Firewall profile or scoped LAN rules could not be read' } elseif (-not $firewallProfileState.Enabled) { "the active $($candidate.NetworkCategory) firewall profile is disabled" } elseif ($firewallResult.Allowed) { "scoped rule '$($firewallResult.RuleName)' allows TCP/$httpPort" } else { "add the app-scoped LAN rule for TCP/$httpPort on $targetAddress and $($firewallResult.RequiredRemoteScope)" }
     $admissionStatus = if (-not $admissionState.Known) { 'unknown; restart blocked' } elseif ($admissionState.Active) { 'admissions can run; restart blocked' } else { 'no admission-enabled event window' }
     $scannerReadiness = if ($nodeHealthy -and $actualPorts.NodeMatches -and $firewallResult.Allowed -and $tcpProbe) { 'LAN path ready; verify scanner pairing and ticket scans on an Android device' } else { 'Start the Node and resolve the network checks before connecting a scanner' }
     $adapterStatuses = @(
@@ -1268,6 +1282,7 @@ function Invoke-IngressLanDemoNetworkManager {
         SchedulerStatus = if ($schedulerState.Known) { "$($schedulerState.Status) ($($schedulerState.Health))" } else { 'unknown' }
         SchedulerDetail = 'The scheduler runs in WSL2 Docker; it remains running during a Node-only network change.'
         OperatorPortStatus = $operatorPortStatus; OperatorPort = $operatorPort
+        OperatorScheme = if ($actualPorts.Known -and $actualPorts.NodeBinding) { 'http' } else { 'https' }
         CertificateStatus = 'Not used in the isolated LAN demo'
         FirewallStatus = $firewallStatus
         AdmissionStatus = $admissionStatus
@@ -1344,6 +1359,10 @@ function Invoke-IngressLanDemoNetworkManager {
     if ($latestCandidate.InterfaceIndex -ne $candidate.InterfaceIndex -or $latestCandidate.Address -ne $targetAddress) {
         throw 'The selected adapter or address changed during confirmation. Refresh and select the current network.'
     }
+    $latestProfile = Get-IngressFirewallProfileState -NetworkCategory $latestCandidate.NetworkCategory -AllowUnclassifiedHotspot:($latestCandidate.Mode -eq 'Laptop Hotspot')
+    $latestRules = @(Get-IngressScopedFirewallRules -DisplayName 'Ingress Event Node LAN Demo')
+    $latestFirewall = Test-IngressFirewallPolicy -Rules $latestRules -Candidate $latestCandidate -Port $httpPort -RuleName 'Ingress Event Node LAN Demo' -FirewallProfileEnabled ($latestProfile.Known -and $latestProfile.Enabled)
+    if (-not $latestFirewall.Allowed) { throw 'The scoped LAN firewall rule could not be confirmed. Preview the selected network again.' }
     $latestAdmission = Read-IngressAdmissionState -Context $context -ComposeSummary $composeSummary -CommandRunner $CommandRunner
     if (-not $latestAdmission.Known) { throw 'Admission state could not be rechecked; the Event Node was not changed.' }
     if ($latestAdmission.Active) { throw 'An event can currently accept admissions; the Event Node was not changed.' }
@@ -1358,7 +1377,7 @@ function Invoke-IngressLanDemoNetworkManager {
         param($address, $appUrl)
         $isHttp = $appUrl.StartsWith('http://', [StringComparison]::OrdinalIgnoreCase)
         $null = Write-IngressNodeBindAddress -Context $context -Address $address -AppUrl $appUrl -CommandRunner $CommandRunner -LanDemo:$isHttp
-    }.GetNewClosure()
+    }
     $applyNode = {
         param($forceRecreate)
         $up = New-IngressComposeUpArguments -Project $context.Project -WorkingDirectory $context.WorkingDirectory -EnvironmentFile $context.EnvironmentFile -ComposeFiles $context.ComposeFiles -ForceRecreate:$forceRecreate -Build:$context.LanDemoBuildRequired
@@ -1384,7 +1403,7 @@ function Invoke-IngressLanDemoNetworkManager {
         $ports = Get-IngressActualPortStatus -Context $context -ContainerId $nodeIds[0] -CommandRunner $CommandRunner -Address $targetAddress -HttpsPort 443 -OperatorPort $operatorPort -LanDemo -HttpPort $httpPort
         if (-not $ports.Known -or -not $ports.NodeMatches -or -not $ports.OperatorIsolated) { throw 'The LAN HTTP binding or loopback-only operator binding failed verification.' }
         if (-not (Get-IngressWindowsNetworkProbe -Address $targetAddress -Port $httpPort)) { throw 'The LAN HTTP port did not pass a local TCP probe.' }
-    }.GetNewClosure()
+    }
     $gateObject = [pscustomobject] @{ CanApply = $true }
     $outcome = Invoke-IngressPlannedChange -Gate $gateObject -BindChanged $bindChanged -NodeRunning ($nodeState.Status -eq 'running' -and $nodeHealthy) -TargetAddress $targetAddress -TargetAppUrl $targetAppUrl -PreviousAddress $previousAddress -PreviousAppUrl $previousAppUrl -WriteBinding $writeBinding -ApplyNode $applyNode
     $statusObject | Add-Member -Force -NotePropertyName LastOperation -NotePropertyValue $outcome.Outcome
@@ -1988,7 +2007,7 @@ function Invoke-IngressNetworkManager {
         param($address, $appUrl)
         $message = Write-IngressNodeBindAddress -Context $context -Address $address -AppUrl $appUrl -CommandRunner $CommandRunner
         Write-Host $message
-    }.GetNewClosure()
+    }
     $applyNode = {
         param($forceRecreate)
         $upArguments = New-IngressComposeUpArguments -Project $context.Project -WorkingDirectory $context.WorkingDirectory -EnvironmentFile $context.EnvironmentFile -ComposeFiles $context.ComposeFiles -ForceRecreate:$forceRecreate
@@ -2016,7 +2035,7 @@ function Invoke-IngressNetworkManager {
         if (-not (Get-IngressWindowsNetworkProbe -Address $targetAddress -Port $httpsPort)) {
             throw 'The selected HTTPS port did not pass a local TCP probe.'
         }
-    }.GetNewClosure()
+    }
 
     $outcome = Invoke-IngressPlannedChange -Gate $gate -BindChanged $bindChanged -NodeRunning ($nodeState.Status -eq 'running' -and $nodeHealthy) -TargetAddress $targetAddress -TargetAppUrl $targetAppUrl -PreviousAddress $currentAddress -PreviousAppUrl $currentAppUrl -WriteBinding $writeBinding -ApplyNode $applyNode
     Write-Host "Result: $($outcome.Outcome)"

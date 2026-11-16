@@ -5,7 +5,7 @@
     <Content Include="..\..\..\scripts\IngressNetworkManager.ps1" Link="scripts\IngressNetworkManager.ps1" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\..\scripts\IngressNetworkManager.psm1" Link="scripts\IngressNetworkManager.psm1" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\..\..\scripts\IngressLanFirewall.ps1" Link="scripts\IngressLanFirewall.ps1" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="..\..\..\api\public\images\ingress-mark.png" Link="assets\ingress-mark.png" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <EmbeddedResource Include="..\..\..\api\public\images\ingress-mark.png" LogicalName="Ingress.NodeManager.Assets.ingress-mark.png" />
   </ItemGroup>
 
   <PropertyGroup>

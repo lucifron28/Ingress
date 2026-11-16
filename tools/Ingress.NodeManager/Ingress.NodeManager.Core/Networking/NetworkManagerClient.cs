@@ -51,31 +51,83 @@ public sealed class NetworkManagerClient(IProcessRunner processRunner, NodeManag
         if (port is < 1 or > 65535) throw new ArgumentOutOfRangeException(nameof(port));
         var script = Path.Combine(installation.RepositoryRoot, "scripts", "IngressLanFirewall.ps1");
         if (!File.Exists(script)) throw new InvalidOperationException("The bundled LAN firewall helper could not be found.");
-        var startInfo = new ProcessStartInfo(installation.PowerShellExecutable)
-        {
-            UseShellExecute = true,
-            Verb = "runas",
-            WindowStyle = ProcessWindowStyle.Hidden,
-        };
-        foreach (var argument in new[]
-        {
-            "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script,
-            "-InterfaceIndex", adapter.InterfaceIndex.ToString(), "-Address", adapter.Address, "-Port", port.ToString(),
-        }) startInfo.ArgumentList.Add(argument);
-        Process process;
+        var resultPath = Path.Combine(Path.GetTempPath(), $"Ingress-Firewall-{Guid.NewGuid():N}.json");
         try
         {
-            process = Process.Start(startInfo) ?? throw new InvalidOperationException("Windows could not start the firewall setup helper.");
-        }
-        catch (Win32Exception exception) when (exception.NativeErrorCode == 1223)
-        {
-            throw new InvalidOperationException("Firewall setup was cancelled. The Event Node was not started.", exception);
-        }
+            var startInfo = new ProcessStartInfo(installation.PowerShellExecutable)
+            {
+                UseShellExecute = true,
+                Verb = "runas",
+                WindowStyle = ProcessWindowStyle.Hidden,
+            };
+            foreach (var argument in new[]
+            {
+                "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script,
+                "-InterfaceIndex", adapter.InterfaceIndex.ToString(), "-Address", adapter.Address,
+                "-Port", port.ToString(), "-ResultPath", resultPath,
+            }) startInfo.ArgumentList.Add(argument);
 
-        using (process)
+            Process process;
+            try
+            {
+                process = Process.Start(startInfo) ?? throw new InvalidOperationException("Windows could not start the firewall setup helper.");
+            }
+            catch (Win32Exception exception) when (exception.NativeErrorCode == 1223)
+            {
+                throw new InvalidOperationException("Firewall setup was cancelled. The Event Node was not started.", exception);
+            }
+
+            int exitCode;
+            using (process)
+            {
+                await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+                exitCode = process.ExitCode;
+            }
+
+            if (exitCode != 0)
+            {
+                var helperMessage = ReadFirewallSetupMessage(resultPath);
+                var detail = string.IsNullOrWhiteSpace(helperMessage)
+                    ? "Windows Firewall did not confirm the scoped LAN rule."
+                    : $"Windows Firewall setup failed: {SecretRedactor.Redact(helperMessage)}";
+                throw new InvalidOperationException($"{detail} The Event Node was not started.");
+            }
+        }
+        finally
         {
-            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
-            if (process.ExitCode != 0) throw new InvalidOperationException("Windows Firewall did not confirm the scoped LAN rule. The Event Node was not started.");
+            try
+            {
+                if (File.Exists(resultPath)) File.Delete(resultPath);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+    }
+
+    private static string? ReadFirewallSetupMessage(string resultPath)
+    {
+        try
+        {
+            using var result = JsonDocument.Parse(File.ReadAllText(resultPath));
+            return result.RootElement.TryGetProperty("Message", out var message) && message.ValueKind == JsonValueKind.String
+                ? message.GetString()
+                : null;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return null;
+        }
+        catch (JsonException)
+        {
+            return null;
         }
     }
 
